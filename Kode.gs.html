@@ -90,14 +90,16 @@ function getDashboardStats() {
 }
 
 // ==========================================
-// API 2: ADMIN - SIMPAN SOAL
+// API 2: ADMIN - SIMPAN SOAL (UPDATED)
 // ==========================================
 function simpanSoal(data) {
   try {
     const ss = SpreadsheetApp.openById(SS_ID);
     const sheet = ss.getSheetByName("DB_Soal");
     
-    // --- 1. Upload Gambar (Jika ada) ---
+    // --- 1. Handle Gambar Header (Opsional jika masih pakai upload manual) ---
+    // Jika user menggunakan editor text (Quill), gambar biasanya sudah embed base64 di dalam HTML soal.
+    // Namun kode upload manual ini tetap kita simpan untuk kompatibilitas.
     let fileUrl = "";
     if (data.fileData && data.fileName) {
       try {
@@ -113,25 +115,43 @@ function simpanSoal(data) {
         file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
         fileUrl = file.getDownloadUrl();
       } catch (err) {
-        return { status: 'error', message: 'Gagal Upload Drive: ' + err.toString() };
+        // Abaikan error upload jika gagal, lanjut simpan soal
       }
     }
 
-    // --- 2. Format Opsi (Hanya yg isi) ---
-    const opsiObj = {};
-    if (data.opsiA && data.opsiA.trim()) opsiObj.A = data.opsiA;
-    if (data.opsiB && data.opsiB.trim()) opsiObj.B = data.opsiB;
-    if (data.opsiC && data.opsiC.trim()) opsiObj.C = data.opsiC;
-    if (data.opsiD && data.opsiD.trim()) opsiObj.D = data.opsiD;
-    if (data.opsiE && data.opsiE.trim()) opsiObj.E = data.opsiE;
+    // --- 2. Format Opsi Jawaban ---
+    // Frontend sekarang akan mengirimkan string JSON jadi (data.opsiJson)
+    // agar backend tidak perlu pusing memformat beda-beda tipe.
+    const jsonOpsi = data.opsiJson || "{}";
+    const idSoal = data.id ? data.id : "Q-" + Date.now();
 
-    const jsonOpsi = JSON.stringify(opsiObj);
-    const idSoal = "Q-" + Date.now();
-
-    // --- 3. Simpan DB ---
+    // --- 3. Simpan ke DB ---
     // [id, mapel, tipe, soal, img, opsi_json, kunci]
+    
+    // Cek apakah Mode Edit?
+    if (data.id) {
+       const allData = sheet.getDataRange().getValues();
+       for (let i = 1; i < allData.length; i++) {
+         if (allData[i][0].toString() === data.id.toString()) {
+            // Update Row (Row index spreadsheet = i+1)
+            // Kolom: ID(1), Mapel(2), Tipe(3), Soal(4), Img(5), Opsi(6), Kunci(7)
+            sheet.getRange(i + 1, 1, 1, 7).setValues([[
+               data.id, data.mapel, data.tipe, data.soal, fileUrl || allData[i][4], jsonOpsi, data.kunci
+            ]]);
+            return { status: 'success', message: 'Soal Berhasil Diupdate!' };
+         }
+       }
+       return { status: 'error', message: 'ID Soal tidak ditemukan saat update.' };
+    }
+
     sheet.appendRow([
-      idSoal, data.mapel, data.tipe, data.soal, fileUrl, jsonOpsi, data.kunci
+      idSoal, 
+      data.mapel, 
+      data.tipe, 
+      data.soal, // Ini sekarang berisi HTML dari Quill editor
+      fileUrl, 
+      jsonOpsi, 
+      data.kunci
     ]);
 
     return { status: 'success', message: 'Soal Tersimpan!' };
@@ -139,6 +159,55 @@ function simpanSoal(data) {
   } catch (e) {
     return { status: 'error', message: 'DB Error: ' + e.toString() };
   }
+}
+
+// ==========================================
+// API 2: ADMIN - UPDATE BANK SOAL
+// ==========================================
+
+// A. AMBIL DATA SOAL (Bisa Filter Mapel)
+function getSoalAdmin(filterMapel) {
+  const ss = SpreadsheetApp.openById(SS_ID);
+  const sheet = ss.getSheetByName("DB_Soal");
+  if (!sheet) return [];
+  
+  const data = sheet.getDataRange().getValues();
+  data.shift(); // Skip Header
+  
+  // [0:id, 1:mapel, 2:tipe, 3:soal, 4:img, 5:opsi_json, 6:kunci]
+  let result = [];
+  
+  // Balik urutan agar yang terbaru di atas (loop dari bawah)
+  for (let i = data.length - 1; i >= 0; i--) {
+    let row = data[i];
+    // Jika filterMapel kosong, ambil semua. Jika ada, cocokan.
+    if (!filterMapel || (row[1] && row[1].toString() === filterMapel)) {
+      result.push({
+        id: row[0],
+        mapel: row[1],
+        tipe: row[2],
+        soal: row[3], // HTML Soal
+        opsi: row[5], // JSON String
+        kunci: row[6]
+      });
+    }
+  }
+  return result;
+}
+
+// B. HAPUS SOAL
+function hapusSoalDb(idSoal) {
+  const ss = SpreadsheetApp.openById(SS_ID);
+  const sheet = ss.getSheetByName("DB_Soal");
+  const data = sheet.getDataRange().getValues();
+  
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0].toString() === idSoal.toString()) {
+      sheet.deleteRow(i + 1);
+      return { status: 'success', message: 'Soal berhasil dihapus.' };
+    }
+  }
+  return { status: 'error', message: 'ID Soal tidak ditemukan.' };
 }
 
 // ==========================================
