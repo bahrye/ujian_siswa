@@ -90,75 +90,114 @@ function getDashboardStats() {
 }
 
 // ==========================================
-// API 2: ADMIN - SIMPAN SOAL (UPDATED)
+// API 2: ADMIN - SIMPAN SOAL (AUTO UPLOAD IMAGE)
 // ==========================================
+
 function simpanSoal(data) {
   try {
     const ss = SpreadsheetApp.openById(SS_ID);
     const sheet = ss.getSheetByName("DB_Soal");
     
-    // --- 1. Handle Gambar Header (Opsional jika masih pakai upload manual) ---
-    // Jika user menggunakan editor text (Quill), gambar biasanya sudah embed base64 di dalam HTML soal.
-    // Namun kode upload manual ini tetap kita simpan untuk kompatibilitas.
-    let fileUrl = "";
-    if (data.fileData && data.fileName) {
-      try {
-        const contentType = data.fileData.substring(5, data.fileData.indexOf(';'));
-        const base64 = data.fileData.substring(data.fileData.indexOf(',') + 1);
-        const blob = Utilities.newBlob(Utilities.base64Decode(base64), contentType, data.fileName);
-        
-        const folderName = "CBT_Assets";
-        const folders = DriveApp.getFoldersByName(folderName);
-        let folder = folders.hasNext() ? folders.next() : DriveApp.createFolder(folderName);
-        
-        const file = folder.createFile(blob);
-        file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-        fileUrl = file.getDownloadUrl();
-      } catch (err) {
-        // Abaikan error upload jika gagal, lanjut simpan soal
+    // 1. PROSES GAMBAR DALAM EDITOR SOAL (HTML)
+    // Cari tag <img src="data:image..."> dan upload ke Drive otomatis
+    let processedSoal = processHtmlImages(data.soal);
+
+    // 2. PROSES GAMBAR DALAM OPSI JAWABAN (JSON)
+    let opsis = {};
+    try { opsis = JSON.parse(data.opsiJson); } catch(e) {}
+    
+    // Loop keys (img_A, img_B, dst)
+    for (let key in opsis) {
+      if (key.startsWith('img_') && opsis[key] && opsis[key].toString().startsWith('data:image/')) {
+        // Upload Base64 Opsi ke Drive, ganti value dengan URL
+        opsis[key] = saveBase64ToDrive(opsis[key], "OPSI-" + key);
       }
     }
+    const processedOpsi = JSON.stringify(opsis);
 
-    // --- 2. Format Opsi Jawaban ---
-    // Frontend sekarang akan mengirimkan string JSON jadi (data.opsiJson)
-    // agar backend tidak perlu pusing memformat beda-beda tipe.
-    const jsonOpsi = data.opsiJson || "{}";
+    // 3. SIMPAN DATA KE SPREADSHEET
     const idSoal = data.id ? data.id : "Q-" + Date.now();
-
-    // --- 3. Simpan ke DB ---
-    // [id, mapel, tipe, soal, img, opsi_json, kunci]
     
-    // Cek apakah Mode Edit?
+    // Cek Mode Edit
     if (data.id) {
        const allData = sheet.getDataRange().getValues();
        for (let i = 1; i < allData.length; i++) {
          if (allData[i][0].toString() === data.id.toString()) {
-            // Update Row (Row index spreadsheet = i+1)
-            // Kolom: ID(1), Mapel(2), Tipe(3), Soal(4), Img(5), Opsi(6), Kunci(7)
+            // Update Row [ID, Mapel, Tipe, Soal, Img(Legacy), Opsi, Kunci]
             sheet.getRange(i + 1, 1, 1, 7).setValues([[
-               data.id, data.mapel, data.tipe, data.soal, fileUrl || allData[i][4], jsonOpsi, data.kunci
+               data.id, data.mapel, data.tipe, 
+               processedSoal, // HTML yang src-nya sudah jadi Link Drive
+               "", // Kolom Image Legacy dikosongkan saja (karena gambar sudah masuk HTML/Opsi)
+               processedOpsi, // JSON yang img-nya sudah jadi Link Drive
+               data.kunci
             ]]);
             return { status: 'success', message: 'Soal Berhasil Diupdate!' };
          }
        }
        return { status: 'error', message: 'ID Soal tidak ditemukan saat update.' };
-    }
+    } 
 
+    // Mode Tambah Baru
     sheet.appendRow([
       idSoal, 
       data.mapel, 
       data.tipe, 
-      data.soal, // Ini sekarang berisi HTML dari Quill editor
-      fileUrl, 
-      jsonOpsi, 
+      processedSoal, 
+      "", // Legacy Image Column (Empty)
+      processedOpsi, 
       data.kunci
     ]);
 
     return { status: 'success', message: 'Soal Tersimpan!' };
 
   } catch (e) {
-    return { status: 'error', message: 'DB Error: ' + e.toString() };
+    return { status: 'error', message: 'Server Error: ' + e.toString() };
   }
+}
+
+// --- FUNGSI BANTUAN (HELPER) ---
+
+// A. Fungsi Upload Base64 ke Drive
+function saveBase64ToDrive(base64Str, namePrefix) {
+  try {
+    // Cek folder
+    const folderName = "CBT_Assets";
+    const folders = DriveApp.getFoldersByName(folderName);
+    let folder = folders.hasNext() ? folders.next() : DriveApp.createFolder(folderName);
+    
+    // Decode Base64
+    const contentType = base64Str.substring(5, base64Str.indexOf(';'));
+    const cleanBase64 = base64Str.substring(base64Str.indexOf(',') + 1);
+    const decoded = Utilities.base64Decode(cleanBase64);
+    const blob = Utilities.newBlob(decoded, contentType, namePrefix + "_" + Date.now());
+    
+    // Create File & Set Permission
+    const file = folder.createFile(blob);
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    
+    // Return Download URL (agar bisa tampil di HTML <img src="...">)
+    // Menggunakan 'https://lh3.googleusercontent.com/d/ID' lebih cepat loadingnya dibanding getDownloadUrl standar
+    return "https://lh3.googleusercontent.com/d/" + file.getId();
+    
+  } catch(e) {
+    // Jika gagal upload, kembalikan string asli (resiko error 50k char tetap ada, tapi minimal tidak crash script)
+    return base64Str; 
+  }
+}
+
+// B. Fungsi Scan & Replace Image di HTML Quill
+function processHtmlImages(htmlContent) {
+  if (!htmlContent) return "";
+  
+  // Regex untuk mencari src="data:image/..."
+  // Pola: src="(data:image/[^;]+;base64,[^"]+)"
+  const regex = /src="(data:image\/[^;]+;base64,[^"]+)"/g;
+  
+  return htmlContent.replace(regex, function(match, base64Data) {
+    // Setiap ketemu gambar base64, upload ke drive
+    const newUrl = saveBase64ToDrive(base64Data, "SOAL-IMG");
+    return 'src="' + newUrl + '"'; // Ganti src dengan URL Drive
+  });
 }
 
 // ==========================================
