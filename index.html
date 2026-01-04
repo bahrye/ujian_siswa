@@ -577,17 +577,25 @@
         const p = document.getElementById('pass').value;
         const btn = document.getElementById('btnLogin');
         
-        // Animasi Loading Login
-        btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> MEMERIKSA AKUN...'; 
+        btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> MEMERIKSA...'; 
         btn.disabled = true;
 
         google.script.run
           .withSuccessHandler((res) => {
              btn.innerHTML = 'MASUK'; btn.disabled = false;
+             
              if (res.status === 'success') {
+               // --- SIMPAN SESI KE BROWSER ---
+               const sessionData = {
+                 role: res.role,
+                 nama: res.nama,
+                 data: res // Simpan seluruh data respons jika perlu
+               };
+               sessionStorage.setItem('cbt_session', JSON.stringify(sessionData));
+               sessionStorage.setItem('last_activity', Date.now()); // Catat waktu login
+
+               // Masuk ke Tampilan
                currentUserRole = res.role;
-               
-               // Route berdasarkan Role
                if (currentUserRole === 'siswa') {
                  setupSiswaView(res);
                } else {
@@ -603,8 +611,6 @@
           })
           .loginUser(u, p);
       }
-
-      function logout() { location.reload(); }
 
       // --- 2. DASHBOARD LOGIC (ADMIN/GURU/PENGAWAS) ---
       function setupDashboardView(user) {
@@ -1560,6 +1566,109 @@
             else Swal.fire('Salah', 'Token tidak valid', 'error');
          }).verifikasiTokenUnlock(t);
       }
+
+      // --- MANAJEMEN SESI & LOGOUT ---
+
+      // 1. Cek Sesi Saat Halaman Dimuat (Reload Safe)
+      function checkSession() {
+        const sess = sessionStorage.getItem('cbt_session');
+        
+        if (sess) {
+          // Jika ada sesi tersimpan
+          const user = JSON.parse(sess);
+          currentUserRole = user.role;
+          
+          // Restore View sesuai Role
+          if (currentUserRole === 'siswa') {
+             // Untuk siswa, kita mungkin perlu minta kode mapel lagi atau 
+             // jika ingin persis kembali ke ujian, perlu logika 'resume' yang kompleks.
+             // Untuk amannya, siswa dikembalikan ke dashboard siswa (input mapel)
+             document.getElementById('login-container').classList.add('hidden');
+             document.getElementById('header-nama').innerText = user.nama;
+             // Siswa harus input token/mapel lagi demi keamanan jika reload
+             Swal.fire('Info', 'Anda me-reload halaman. Silakan masukkan Kode Mapel kembali.', 'info')
+               .then(() => setupSiswaView(user.data)); 
+          } else {
+             // Admin/Guru/Pengawas langsung masuk dashboard
+             setupDashboardView(user.data);
+          }
+        } else {
+          // Jika tidak ada sesi (Baru buka link / Logout)
+          showLoginOnly();
+        }
+      }
+
+      // 2. Fungsi Logout yang Benar
+      function logout() {
+        Swal.fire({
+          title: 'Keluar?',
+          text: "Sesi Anda akan diakhiri.",
+          icon: 'warning',
+          showCancelButton: true,
+          confirmButtonText: 'Ya, Logout',
+          cancelButtonText: 'Batal'
+        }).then((result) => {
+          if (result.isConfirmed) {
+            forceLogout();
+          }
+        });
+      }
+
+      // Helper: Paksa Logout tanpa konfirmasi (untuk timeout)
+      function forceLogout() {
+        sessionStorage.clear(); // HAPUS SEMUA SESI
+        localStorage.clear();   // Hapus local storage juga jika ada
+        window.location.reload(); // Reload halaman agar bersih
+      }
+
+      // Helper: Tampilkan Halaman Login Saja
+      function showLoginOnly() {
+        // Sembunyikan semua container lain
+        document.getElementById('dashboard-container').classList.add('hidden');
+        document.getElementById('page-siswa').classList.add('hidden');
+        document.getElementById('lock-screen').classList.add('hidden');
+        
+        // Munculkan Login
+        document.getElementById('login-container').classList.remove('hidden');
+      }
+
+      // --- LOGIKA AUTO LOGOUT (INACTIVITY 10 MENIT) ---
+      let activityTimer;
+      
+      function resetActivityTimer() {
+        // Update waktu terakhir aktif di session
+        sessionStorage.setItem('last_activity', Date.now());
+      }
+
+      function checkInactivity() {
+        const lastAct = sessionStorage.getItem('last_activity');
+        if (lastAct) {
+          const diff = Date.now() - parseInt(lastAct);
+          const maxIdle = 10 * 60 * 1000; // 10 Menit dalam milidetik
+
+          if (diff > maxIdle) {
+            // Waktu habis
+            sessionStorage.clear();
+            Swal.fire({
+              title: 'Sesi Habis',
+              text: 'Anda tidak aktif selama 10 menit. Silakan login kembali.',
+              icon: 'warning',
+              allowOutsideClick: false
+            }).then(() => {
+              window.location.reload();
+            });
+          }
+        }
+      }
+
+      // Pasang Event Listener untuk mendeteksi aktivitas mouse/keyboard
+      ['click', 'mousemove', 'keypress', 'scroll', 'touchstart'].forEach(evt => {
+        document.addEventListener(evt, resetActivityTimer, false);
+      });
+
+      // Cek setiap 1 menit apakah user idle
+      setInterval(checkInactivity, 60 * 1000);
+      checkSession();
 
     </script>
   </body>
