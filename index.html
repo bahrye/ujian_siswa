@@ -119,16 +119,18 @@
             <div class="bg-white rounded-xl shadow-md p-8 max-w-4xl mx-auto">
               <h2 class="text-xl font-bold text-gray-800 border-b pb-4 mb-6">📝 Input Soal Baru</h2>
               <form id="formSoal" onsubmit="submitSoal(event)" class="space-y-5">
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
-                    <label class="block text-sm font-semibold mb-1">Kode Mapel</label>
-                    <input type="text" name="mapel" class="input-std" placeholder="Contoh: MTK-X" required>
+                    <label class="block font-semibold mb-1">Kode Mapel</label>
+                    <select name="mapel" id="soal-mapel-select" class="input-std bg-white" required>
+                      <option value="">-- Pilih Mapel --</option>
+                      </select>
                   </div>
                   <div>
-                    <label class="block text-sm font-semibold mb-1">Tipe Soal</label>
+                    <label class="block font-semibold mb-1">Tipe Soal</label>
                     <select name="tipe" class="input-std bg-white">
                       <option value="PG">Pilihan Ganda</option>
-                      <option value="ESSAY">Essay</option>
+                      <option value="ESSAY">Uraian / Essay</option>
                     </select>
                   </div>
                 </div>
@@ -210,6 +212,70 @@
                   </tbody>
                 </table>
               </div>
+            </div>
+          </div>
+
+          <div id="view-mapel" class="hidden animate__animated animate__fadeIn">
+            <div class="flex justify-between items-center mb-6">
+              <div>
+                <h2 class="text-2xl font-bold text-gray-800">Daftar Mata Pelajaran</h2>
+                <p class="text-gray-500 text-sm">Kelola kode mapel dan guru pengampu.</p>
+              </div>
+              <button onclick="bukaModalMapel()" class="px-5 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 shadow-lg flex items-center gap-2 font-semibold">
+                <i class="fas fa-plus-circle"></i> Tambah Mapel
+              </button>
+            </div>
+
+            <div class="bg-white rounded-xl shadow-md overflow-hidden border border-gray-200">
+              <table class="w-full text-left border-collapse">
+                <thead class="bg-gray-50 text-gray-600 uppercase text-xs font-bold tracking-wider">
+                  <tr>
+                    <th class="p-4 border-b w-1/4">Kode Mapel</th>
+                    <th class="p-4 border-b w-1/3">Nama Pelajaran</th>
+                    <th class="p-4 border-b">Guru Pengampu</th>
+                    <th class="p-4 border-b text-right">Aksi</th>
+                  </tr>
+                </thead>
+                <tbody id="tbody-mapel" class="text-sm text-gray-700 divide-y divide-gray-100">
+                  <tr><td colspan="4" class="p-6 text-center text-gray-400">Memuat data...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div id="modal-mapel" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm">
+            <div class="bg-white w-full max-w-md rounded-xl shadow-2xl p-6 animate__animated animate__zoomIn">
+              <div class="flex justify-between items-center mb-5 border-b pb-3">
+                <h3 class="text-xl font-bold text-gray-800" id="modal-mapel-title">Tambah Mapel</h3>
+                <button onclick="document.getElementById('modal-mapel').classList.add('hidden')" class="text-gray-400 hover:text-red-500"><i class="fas fa-times text-xl"></i></button>
+              </div>
+              
+              <form onsubmit="simpanMapel(event)" class="space-y-4">
+                <input type="hidden" id="m-id">
+                
+                <div>
+                  <label class="block text-xs font-bold text-gray-500 mb-1">Kode Mapel (Unik)</label>
+                  <input type="text" id="m-kode" class="input-std font-mono uppercase" placeholder="Contoh: MTK-X" required>
+                  <p class="text-[10px] text-gray-400 mt-1">Digunakan siswa untuk login ujian.</p>
+                </div>
+
+                <div>
+                  <label class="block text-xs font-bold text-gray-500 mb-1">Nama Mata Pelajaran</label>
+                  <input type="text" id="m-nama" class="input-std" placeholder="Contoh: Matematika Kelas X" required>
+                </div>
+
+                <div>
+                  <label class="block text-xs font-bold text-gray-500 mb-1">Guru Pengampu</label>
+                  <select id="m-guru" class="input-std bg-gray-50">
+                    <option value="-">- Pilih Guru -</option>
+                    </select>
+                </div>
+
+                <div class="pt-4 flex justify-end gap-3">
+                  <button type="button" onclick="document.getElementById('modal-mapel').classList.add('hidden')" class="px-4 py-2 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 font-semibold">Batal</button>
+                  <button type="submit" id="btnSimpanMapel" class="px-6 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 font-bold shadow">Simpan</button>
+                </div>
+              </form>
             </div>
           </div>
 
@@ -333,6 +399,8 @@
       let allUsers = [];
       let currentTabRole = 'all';
 
+      let allMapel = [];
+
       // Update Tanggal
       document.getElementById('current-date').innerText = new Date().toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
@@ -419,31 +487,174 @@
       // Modifikasi switchView agar memuat data saat menu 'akun' dipilih
       const originalSwitchView = switchView; // Simpan fungsi lama jika perlu, atau timpa langsung
 
-      // Override switchView untuk menghandle logika load data
+      // OVERRIDE switchView (Update lagi untuk handle mapel)
+      const oldSwitchView = switchView; // chain reference if needed
+      
       function switchView(viewId, btnElement) {
-        document.querySelectorAll('.nav-item').forEach(el => {
-          el.className = 'nav-item w-full flex items-center gap-3 px-6 py-3 transition text-left hover:bg-slate-800 text-gray-400 hover:text-white';
-        });
-        if(btnElement) btnElement.className = 'nav-item w-full flex items-center gap-3 px-6 py-3 transition text-left bg-slate-800 border-l-4 border-indigo-500 text-white';
+         // Reset Sidebar Active
+         document.querySelectorAll('.nav-item').forEach(el => {
+           el.className = 'nav-item w-full flex items-center gap-3 px-6 py-3 transition text-left hover:bg-slate-800 text-gray-400 hover:text-white';
+         });
+         if(btnElement) btnElement.className = 'nav-item w-full flex items-center gap-3 px-6 py-3 transition text-left bg-slate-800 border-l-4 border-indigo-500 text-white';
 
-        // Hide All
-        ['view-dashboard','view-bank-soal','view-akun','view-placeholder'].forEach(id => {
-           const el = document.getElementById(id);
-           if(el) el.classList.add('hidden');
-        });
+         // Hide All
+         ['view-dashboard','view-bank-soal','view-akun','view-mapel','view-placeholder'].forEach(id => {
+            const el = document.getElementById(id); if(el) el.classList.add('hidden');
+         });
 
-        // Judul Halaman
-        const titleMap = { 'dashboard':'Dashboard', 'akun':'Kelola Akun Pengguna', 'bank-soal':'Bank Soal', 'ujian':'Jadwal Ujian' };
-        document.getElementById('page-title').innerText = titleMap[viewId] || viewId.toUpperCase();
+         const titleMap = { 
+           'dashboard':'Dashboard', 'akun':'Kelola Akun', 
+           'mapel':'Kelola Mata Pelajaran', 'bank-soal':'Bank Soal', 'ujian':'Jadwal' 
+         };
+         document.getElementById('page-title').innerText = titleMap[viewId] || viewId.toUpperCase();
 
-        // Show View
-        if(viewId === 'dashboard') document.getElementById('view-dashboard').classList.remove('hidden');
-        else if(viewId === 'bank-soal') document.getElementById('view-bank-soal').classList.remove('hidden');
-        else if(viewId === 'akun') {
-          document.getElementById('view-akun').classList.remove('hidden');
-          loadUsers(); // <--- Load data saat menu dibuka
+         if(viewId === 'dashboard') {
+            document.getElementById('view-dashboard').classList.remove('hidden');
+         } else if(viewId === 'akun') {
+            document.getElementById('view-akun').classList.remove('hidden');
+            loadUsers();
+         } else if(viewId === 'mapel') {
+            document.getElementById('view-mapel').classList.remove('hidden');
+            loadMapel();
+         } else if(viewId === 'bank-soal') {
+            document.getElementById('view-bank-soal').classList.remove('hidden');
+            // Saat buka bank soal, kita harus load opsi mapel ke dropdown
+            loadOptionsMapel(); 
+         } else {
+            document.getElementById('view-placeholder').classList.remove('hidden');
+         }
+      }
+
+      // 1. Load Data Mapel untuk Tabel
+      function loadMapel() {
+        const tbody = document.getElementById('tbody-mapel');
+        tbody.innerHTML = '<tr><td colspan="4" class="p-6 text-center"><i class="fas fa-spinner fa-spin"></i> Loading...</td></tr>';
+        
+        google.script.run.withSuccessHandler(data => {
+           allMapel = data;
+           renderMapelTable(data);
+        }).getAllMapel();
+      }
+
+      function renderMapelTable(data) {
+        const tbody = document.getElementById('tbody-mapel');
+        tbody.innerHTML = '';
+        if(data.length === 0) {
+           tbody.innerHTML = '<tr><td colspan="4" class="p-6 text-center text-gray-400">Belum ada mapel.</td></tr>';
+           return;
         }
-        else document.getElementById('view-placeholder').classList.remove('hidden');
+        data.forEach(m => {
+           // Encode object untuk tombol edit
+           const dataStr = encodeURIComponent(JSON.stringify(m));
+           
+           tbody.insertAdjacentHTML('beforeend', `
+             <tr class="hover:bg-slate-50 transition border-b border-gray-100">
+               <td class="p-4 font-mono font-bold text-indigo-600">${m.kode}</td>
+               <td class="p-4 font-semibold text-gray-700">${m.nama}</td>
+               <td class="p-4 text-gray-600"><i class="fas fa-user-tie text-gray-400 mr-2"></i>${m.guru || '-'}</td>
+               <td class="p-4 text-right">
+                 <button onclick="editMapel('${dataStr}')" class="text-indigo-600 hover:text-indigo-800 mr-3"><i class="fas fa-edit"></i></button>
+                 <button onclick="hapusMapel('${m.id}', '${m.kode}')" class="text-red-500 hover:text-red-700"><i class="fas fa-trash"></i></button>
+               </td>
+             </tr>
+           `);
+        });
+      }
+
+      // 2. Modal Tambah/Edit Mapel
+      function bukaModalMapel() {
+        document.getElementById('modal-mapel').classList.remove('hidden');
+        document.getElementById('modal-mapel-title').innerText = "Tambah Mapel";
+        document.getElementById('m-id').value = "";
+        document.getElementById('m-kode').value = "";
+        document.getElementById('m-nama').value = "";
+        
+        // Load List Guru ke Dropdown Modal
+        const selGuru = document.getElementById('m-guru');
+        selGuru.innerHTML = '<option value="-">Loading...</option>';
+        google.script.run.withSuccessHandler(gurus => {
+           selGuru.innerHTML = '<option value="-">- Pilih Guru -</option>';
+           gurus.forEach(g => {
+             selGuru.insertAdjacentHTML('beforeend', `<option value="${g}">${g}</option>`);
+           });
+        }).getListGuru();
+      }
+
+      function editMapel(str) {
+        const m = JSON.parse(decodeURIComponent(str));
+        document.getElementById('modal-mapel').classList.remove('hidden');
+        document.getElementById('modal-mapel-title').innerText = "Edit Mapel";
+        
+        document.getElementById('m-id').value = m.id;
+        document.getElementById('m-kode').value = m.kode;
+        document.getElementById('m-nama').value = m.nama;
+        
+        // Load Guru dan Set Value
+        const selGuru = document.getElementById('m-guru');
+        selGuru.innerHTML = '<option>Loading...</option>';
+        google.script.run.withSuccessHandler(gurus => {
+           selGuru.innerHTML = '<option value="-">- Pilih Guru -</option>';
+           gurus.forEach(g => {
+             const selected = (g === m.guru) ? 'selected' : '';
+             selGuru.insertAdjacentHTML('beforeend', `<option value="${g}" ${selected}>${g}</option>`);
+           });
+        }).getListGuru();
+      }
+
+      function simpanMapel(e) {
+        e.preventDefault();
+        const btn = document.getElementById('btnSimpanMapel');
+        btn.innerText = "Menyimpan..."; btn.disabled = true;
+
+        const data = {
+          id: document.getElementById('m-id').value,
+          kode: document.getElementById('m-kode').value.toUpperCase(),
+          nama: document.getElementById('m-nama').value,
+          guru: document.getElementById('m-guru').value
+        };
+
+        google.script.run.withSuccessHandler(res => {
+           btn.innerText = "Simpan"; btn.disabled = false;
+           if(res.status === 'success') {
+             document.getElementById('modal-mapel').classList.add('hidden');
+             Swal.fire('Sukses', res.message, 'success');
+             loadMapel();
+           } else {
+             Swal.fire('Gagal', res.message, 'error');
+           }
+        }).simpanMapel(data);
+      }
+      
+      function hapusMapel(id, kode) {
+        Swal.fire({
+           title: 'Hapus Mapel?', text: `Mapel ${kode} akan dihapus. Soal terkait tidak ikut terhapus otomatis.`, icon: 'warning',
+           showCancelButton: true, confirmButtonColor: '#d33', confirmButtonText: 'Hapus'
+        }).then(res => {
+           if(res.isConfirmed) {
+              google.script.run.withSuccessHandler(r => {
+                 if(r.status==='success') { loadMapel(); Swal.fire('Terhapus', r.message, 'success'); }
+                 else Swal.fire('Gagal', r.message, 'error');
+              }).hapusMapel(id);
+           }
+        });
+      }
+
+      // 3. FUNGSI UNTUK MENGISI DROPDOWN DI BANK SOAL
+      function loadOptionsMapel() {
+         const select = document.getElementById('soal-mapel-select');
+         // Jangan reload jika sudah ada isinya (opsional, tapi biar fresh kita reload aja)
+         select.innerHTML = '<option>Memuat Mapel...</option>';
+         
+         google.script.run.withSuccessHandler(data => {
+            select.innerHTML = '<option value="">-- Pilih Mapel --</option>';
+            if(data.length === 0) {
+              select.innerHTML += '<option value="" disabled>Belum ada Mapel (Input di Menu Mapel)</option>';
+            }
+            data.forEach(m => {
+               // Value yang dikirim ke server tetap kode mapel (ex: MTK-X)
+               select.insertAdjacentHTML('beforeend', `<option value="${m.kode}">${m.kode} - ${m.nama}</option>`);
+            });
+         }).getAllMapel();
       }
 
       // 1. Load Data
