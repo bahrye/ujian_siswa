@@ -10,6 +10,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
     <link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
     <script src="https://cdn.quilljs.com/1.3.6/quill.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/quill-image-resize-module@3.0.0/image-resize.min.js"></script>
     
     <style>
       body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; }
@@ -20,10 +21,27 @@
       /* Sidebar Active State */
       .nav-item.active { background-color: #3730a3; border-left: 4px solid #818cf8; }
 
-      /* Tambahan Style untuk Editor */
+      /* Style Quill Editor (Tetap) */
       .ql-editor { min-height: 150px; font-family: 'Inter', sans-serif; font-size: 16px; background: white; }
       .ql-container { border-bottom-left-radius: 0.5rem; border-bottom-right-radius: 0.5rem; }
       .ql-toolbar { border-top-left-radius: 0.5rem; border-top-right-radius: 0.5rem; background: #f8fafc; }
+
+      /* Style Baru untuk Tombol Upload Gambar Opsi */
+      .btn-upload-opsi {
+        cursor: pointer;
+        display: flex; align-items: center; justify-content: center;
+        width: 2.5rem; height: 2.5rem;
+        background-color: #f3f4f6; border: 1px solid #d1d5db;
+        border-radius: 0.5rem; color: #6b7280; transition: all 0.2s;
+      }
+      .btn-upload-opsi:hover { background-color: #e0e7ff; color: #4f46e5; border-color: #a5b4fc; }
+      
+      /* Container Preview Gambar Opsi */
+      .img-opsi-preview {
+        width: 60px; height: 60px; object-fit: cover; 
+        border-radius: 6px; border: 1px solid #ddd;
+        cursor: zoom-in;
+      }
     </style>
   </head>
   <body>
@@ -205,14 +223,76 @@
                   <div class="bg-slate-50 p-5 rounded-lg border border-slate-200">
                     
                     <div id="area-pg" class="opsi-area">
-                      <p class="text-xs font-bold text-gray-500 mb-3 uppercase">Pilihan Jawaban</p>
-                      <div class="space-y-2">
-                        <div class="flex gap-2 items-center"><span class="w-6 font-bold text-center">A</span><input type="text" id="pg-a" class="input-std text-sm" placeholder="Jawaban A"></div>
-                        <div class="flex gap-2 items-center"><span class="w-6 font-bold text-center">B</span><input type="text" id="pg-b" class="input-std text-sm" placeholder="Jawaban B"></div>
-                        <div class="flex gap-2 items-center"><span class="w-6 font-bold text-center">C</span><input type="text" id="pg-c" class="input-std text-sm" placeholder="Jawaban C"></div>
-                        <div class="flex gap-2 items-center"><span class="w-6 font-bold text-center">D</span><input type="text" id="pg-d" class="input-std text-sm" placeholder="Jawaban D"></div>
-                        <div class="flex gap-2 items-center"><span class="w-6 font-bold text-center text-gray-400">E</span><input type="text" id="pg-e" class="input-std text-sm" placeholder="Opsional"></div>
+                      <p class="text-xs font-bold text-gray-500 mb-3 uppercase">Pilihan Jawaban (Teks & Gambar)</p>
+                      
+                      <div class="space-y-3">
+                        <div class="flex flex-col gap-1">
+                          <div class="flex gap-2 items-center">
+                            <span class="w-6 font-bold text-center">A</span>
+                            <input type="text" id="pg-a" class="input-std text-sm" placeholder="Teks Jawaban A">
+                            <input type="file" id="file-a" accept="image/*" class="hidden" onchange="handleOpsiGambar(this, 'A')">
+                            <label for="file-a" class="btn-upload-opsi tooltip" title="Upload Gambar"><i class="fas fa-image"></i></label>
+                          </div>
+                          <div id="prev-box-A" class="hidden pl-8 flex items-center gap-2">
+                            <img id="img-prev-A" class="img-opsi-preview" onclick="zoomImg(this)">
+                            <button type="button" onclick="hapusGambarOpsi('A')" class="text-xs text-red-500 hover:text-red-700 underline">Hapus Gambar</button>
+                          </div>
+                        </div>
+
+                        <div class="flex flex-col gap-1">
+                          <div class="flex gap-2 items-center">
+                            <span class="w-6 font-bold text-center">B</span>
+                            <input type="text" id="pg-b" class="input-std text-sm" placeholder="Teks Jawaban B">
+                            <input type="file" id="file-b" accept="image/*" class="hidden" onchange="handleOpsiGambar(this, 'B')">
+                            <label for="file-b" class="btn-upload-opsi"><i class="fas fa-image"></i></label>
+                          </div>
+                          <div id="prev-box-B" class="hidden pl-8 flex items-center gap-2">
+                            <img id="img-prev-B" class="img-opsi-preview" onclick="zoomImg(this)">
+                            <button type="button" onclick="hapusGambarOpsi('B')" class="text-xs text-red-500 hover:text-red-700 underline">Hapus Gambar</button>
+                          </div>
+                        </div>
+
+                        <div class="flex flex-col gap-1">
+                          <div class="flex gap-2 items-center">
+                            <span class="w-6 font-bold text-center">C</span>
+                            <input type="text" id="pg-c" class="input-std text-sm" placeholder="Teks Jawaban C">
+                            <input type="file" id="file-c" accept="image/*" class="hidden" onchange="handleOpsiGambar(this, 'C')">
+                            <label for="file-c" class="btn-upload-opsi"><i class="fas fa-image"></i></label>
+                          </div>
+                          <div id="prev-box-C" class="hidden pl-8 flex items-center gap-2">
+                            <img id="img-prev-C" class="img-opsi-preview" onclick="zoomImg(this)">
+                            <button type="button" onclick="hapusGambarOpsi('C')" class="text-xs text-red-500 hover:text-red-700 underline">Hapus Gambar</button>
+                          </div>
+                        </div>
+
+                        <div class="flex flex-col gap-1">
+                          <div class="flex gap-2 items-center">
+                            <span class="w-6 font-bold text-center">D</span>
+                            <input type="text" id="pg-d" class="input-std text-sm" placeholder="Teks Jawaban D">
+                            <input type="file" id="file-d" accept="image/*" class="hidden" onchange="handleOpsiGambar(this, 'D')">
+                            <label for="file-d" class="btn-upload-opsi"><i class="fas fa-image"></i></label>
+                          </div>
+                          <div id="prev-box-D" class="hidden pl-8 flex items-center gap-2">
+                            <img id="img-prev-D" class="img-opsi-preview" onclick="zoomImg(this)">
+                            <button type="button" onclick="hapusGambarOpsi('D')" class="text-xs text-red-500 hover:text-red-700 underline">Hapus Gambar</button>
+                          </div>
+                        </div>
+
+                        <div class="flex flex-col gap-1">
+                          <div class="flex gap-2 items-center">
+                            <span class="w-6 font-bold text-center text-gray-400">E</span>
+                            <input type="text" id="pg-e" class="input-std text-sm" placeholder="Opsional">
+                            <input type="file" id="file-e" accept="image/*" class="hidden" onchange="handleOpsiGambar(this, 'E')">
+                            <label for="file-e" class="btn-upload-opsi"><i class="fas fa-image"></i></label>
+                          </div>
+                          <div id="prev-box-E" class="hidden pl-8 flex items-center gap-2">
+                            <img id="img-prev-E" class="img-opsi-preview" onclick="zoomImg(this)">
+                            <button type="button" onclick="hapusGambarOpsi('E')" class="text-xs text-red-500 hover:text-red-700 underline">Hapus Gambar</button>
+                          </div>
+                        </div>
+
                       </div>
+                      
                       <div class="mt-4">
                         <label class="block text-xs font-bold text-gray-500 mb-1">Kunci Jawaban</label>
                         <select id="kunci-pg" class="input-std bg-white w-32">
@@ -482,7 +562,10 @@
       let currentTabRole = 'all';
 
       let allMapel = [];
-      let quillEditor;
+      let quillEditor = null;
+
+      // Menyimpan data gambar opsi sementara { A: "base64...", B: null }
+      let opsiImages = { A:null, B:null, C:null, D:null, E:null };
 
       // Update Tanggal
       document.getElementById('current-date').innerText = new Date().toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
@@ -494,11 +577,13 @@
         const p = document.getElementById('pass').value;
         const btn = document.getElementById('btnLogin');
         
-        btn.innerText = "Loading..."; btn.disabled = true;
+        // Animasi Loading Login
+        btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> MEMERIKSA AKUN...'; 
+        btn.disabled = true;
 
         google.script.run
           .withSuccessHandler((res) => {
-             btn.innerText = "MASUK"; btn.disabled = false;
+             btn.innerHTML = 'MASUK'; btn.disabled = false;
              if (res.status === 'success') {
                currentUserRole = res.role;
                
@@ -512,7 +597,10 @@
                Swal.fire('Login Gagal', res.message, 'error');
              }
           })
-          .withFailureHandler((err) => { btn.disabled = false; Swal.fire('Error', err.message, 'error'); })
+          .withFailureHandler((err) => {
+             btn.innerHTML = 'MASUK'; btn.disabled = false;
+             Swal.fire('Error', err.message, 'error');
+          })
           .loginUser(u, p);
       }
 
@@ -688,7 +776,10 @@
       function simpanMapel(e) {
         e.preventDefault();
         const btn = document.getElementById('btnSimpanMapel');
-        btn.innerText = "Menyimpan..."; btn.disabled = true;
+        
+        // Animasi Loading
+        btn.innerHTML = '<i class="fas fa-sync fa-spin"></i> Menyimpan...'; 
+        btn.disabled = true;
 
         const data = {
           id: document.getElementById('m-id').value,
@@ -698,7 +789,8 @@
         };
 
         google.script.run.withSuccessHandler(res => {
-           btn.innerText = "Simpan"; btn.disabled = false;
+           btn.innerHTML = 'Simpan'; btn.disabled = false;
+           
            if(res.status === 'success') {
              document.getElementById('modal-mapel').classList.add('hidden');
              Swal.fire('Sukses', res.message, 'success');
@@ -818,6 +910,11 @@
         document.getElementById('btnSave').innerText = "SIMPAN SOAL";
         if(quillEditor) quillEditor.setContents([]);
         gantiTipeSoal(); // Reset ke PG
+        // Reset Gambar Opsi
+        opsiImages = { A:null, B:null, C:null, D:null, E:null };
+        ['A','B','C','D','E'].forEach(h => {
+           hapusGambarOpsi(h);
+        });
       }
 
       // 4. MODE EDIT: ISI FORM DARI DATA
@@ -848,13 +945,28 @@
 
         // Isi Field Opsi Berdasarkan Tipe
         if (s.tipe === 'PG') {
+           // Load Teks
            document.getElementById('pg-a').value = opsi.A || "";
            document.getElementById('pg-b').value = opsi.B || "";
            document.getElementById('pg-c').value = opsi.C || "";
            document.getElementById('pg-d').value = opsi.D || "";
            document.getElementById('pg-e').value = opsi.E || "";
+           
+           // Load Gambar (Cek key img_A, img_B dst)
+           ['A','B','C','D','E'].forEach(hur => {
+             const keyImg = 'img_' + hur;
+             if (opsi[keyImg]) {
+               opsiImages[hur] = opsi[keyImg]; // Set global variable
+               document.getElementById('prev-box-'+hur).classList.remove('hidden');
+               document.getElementById('img-prev-'+hur).src = opsi[keyImg];
+             } else {
+               // Reset jika tidak ada gambar di database
+               hapusGambarOpsi(hur);
+             }
+           });
+
            document.getElementById('kunci-pg').value = s.kunci;
-        } 
+        }
         else if (s.tipe === 'ISIAN') {
            document.getElementById('kunci-isian').value = s.kunci;
         }
@@ -1018,31 +1130,36 @@
       function simpanUser(e) {
         e.preventDefault();
         const btn = document.getElementById('btnSimpanUser');
-        btn.innerText = "Menyimpan..."; btn.disabled = true;
+        
+        // Animasi Loading
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Menyimpan...'; 
+        btn.disabled = true;
 
         const data = {
-          id: document.getElementById('u-id').value,
-          role: document.getElementById('u-role').value,
-          nama: document.getElementById('u-nama').value,
-          username: document.getElementById('u-username').value,
-          password: document.getElementById('u-password').value,
-          kelas: document.getElementById('u-kelas').value,
-          status: document.getElementById('u-status').value
+           id: document.getElementById('u-id').value,
+           role: document.getElementById('u-role').value,
+           nama: document.getElementById('u-nama').value,
+           username: document.getElementById('u-username').value,
+           password: document.getElementById('u-password').value,
+           kelas: document.getElementById('u-kelas').value,
+           status: document.getElementById('u-status').value
         };
 
         google.script.run
           .withSuccessHandler(res => {
-            btn.innerText = "Simpan"; btn.disabled = false;
+            // Reset Tombol
+            btn.innerHTML = 'Simpan'; btn.disabled = false;
+            
             if(res.status === 'success') {
               tutupModalUser();
               Swal.fire('Sukses', res.message, 'success');
-              loadUsers(); // Reload tabel
+              loadUsers();
             } else {
               Swal.fire('Gagal', res.message, 'error');
             }
           })
           .withFailureHandler(err => {
-             btn.innerText = "Simpan"; btn.disabled = false;
+             btn.innerHTML = 'Simpan'; btn.disabled = false;
              Swal.fire('Error', err.message, 'error');
           })
           .simpanUser(data);
@@ -1088,23 +1205,90 @@
         }
       }
 
-      // Inisialisasi Quill saat halaman dimuat (atau saat pertama kali buka menu)
+      // 1. UPDATE FUNGSI INIT QUILL (Tambahkan Module ImageResize)
       function initQuill() {
-        if(!quillEditor) {
-          quillEditor = new Quill('#editor-container', {
-            theme: 'snow',
-            placeholder: 'Tulis pertanyaan disini... (Bisa Paste Gambar)',
-            modules: {
-              toolbar: [
-                ['bold', 'italic', 'underline', 'strike'],
-                [{ 'list': 'ordered'}, { 'list': 'bullet' }],
-                [{ 'script': 'sub'}, { 'script': 'super' }],
-                [{ 'color': [] }, { 'background': [] }],
-                ['image', 'formula'] // Tombol Image aktif
-              ]
-            }
-          });
+        // 1. CEGAH DUPLIKAT (Guard Clause)
+        if (quillEditor != null) { return; }
+
+        // 2. BERSIHKAN TAMPILAN LAMA (Jika ada sisa toolbar nyangkut)
+        const container = document.getElementById('editor-container');
+        if (container) {
+             const prevElem = container.previousElementSibling;
+             if (prevElem && prevElem.classList.contains('ql-toolbar')) {
+                 prevElem.remove();
+             }
         }
+
+        // 3. SIAPKAN KONFIGURASI MODUL
+        // Kita susun config modul secara dinamis
+        let modulesConfig = {
+            toolbar: [
+              ['bold', 'italic', 'underline', 'strike'],
+              [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+              [{ 'script': 'sub'}, { 'script': 'super' }],
+              [{ 'color': [] }, { 'background': [] }],
+              ['image', 'formula'] 
+            ]
+        };
+
+        // 4. CEK & REGISTRASI IMAGE RESIZE (Hanya jika script sudah load)
+        // Ini mencegah error "Cannot import" jika script gagal load/blokir
+        if (window.Quill && window.ImageResize) {
+           // Handle kemungkinan export default (common issue di CDN)
+           const ResizeModule = window.ImageResize.default || window.ImageResize;
+           
+           // Registrasi Module
+           Quill.register('modules/imageResize', ResizeModule);
+           
+           // Tambahkan ke config HANYA jika registrasi berhasil
+           modulesConfig.imageResize = {
+              displaySize: true
+           };
+        } else {
+           console.warn("Module ImageResize belum terload. Fitur resize gambar dimatikan sementara.");
+        }
+          
+        // 5. BUAT EDITOR BARU
+        quillEditor = new Quill('#editor-container', {
+          theme: 'snow',
+          placeholder: 'Tulis pertanyaan disini... (Klik gambar untuk resize)',
+          modules: modulesConfig // Gunakan config dinamis
+        });
+      }
+
+      // 2. FUNGSI HANDLE UPLOAD GAMBAR OPSI
+      function handleOpsiGambar(input, hur) {
+        if (input.files && input.files[0]) {
+          const file = input.files[0];
+          // Limit size 2MB (Base64 berat di Spreadsheet)
+          if(file.size > 2 * 1024 * 1024) {
+            Swal.fire('Terlalu Besar', 'Maksimal ukuran gambar 2MB', 'warning');
+            input.value = ""; return;
+          }
+
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            const base64 = e.target.result;
+            opsiImages[hur] = base64; // Simpan ke variabel global
+            
+            // Tampilkan Preview
+            document.getElementById('prev-box-'+hur).classList.remove('hidden');
+            document.getElementById('img-prev-'+hur).src = base64;
+          }
+          reader.readAsDataURL(file);
+        }
+      }
+
+      function hapusGambarOpsi(hur) {
+        opsiImages[hur] = null; // Hapus dari memori
+        document.getElementById('file-'+hur.toLowerCase()).value = ""; // Reset input file
+        document.getElementById('prev-box-'+hur).classList.add('hidden'); // Sembunyikan preview
+        document.getElementById('img-prev-'+hur).src = "";
+      }
+      
+      // Helper zoom sederhana
+      function zoomImg(el) {
+         Swal.fire({ imageUrl: el.src, width: '90%', showConfirmButton: false, background: 'transparent' });
       }
 
       // Fungsi Ganti Tipe Soal (Show/Hide Area)
@@ -1151,19 +1335,34 @@
         if (quillEditor.getText().trim().length === 0 && !htmlSoal.includes('<img')) {
           return Swal.fire('Error', 'Pertanyaan tidak boleh kosong!', 'warning');
         }
-
-        // ... (LOGIKA PENGAMBILAN OPSI & KUNCI SAMA SEPERTI KODE SEBELUMNYA) ...
-        // Copy paste logika if(tipe==='PG')... dst dari kode submitSoal sebelumnya
-        // Pastikan variabel 'opsiData' dan 'kunciJawaban' terisi.
         
         // --- COPIED & ADAPTED LOGIC START ---
         let opsiData = {}; let kunciJawaban = "";
         if (tipe === 'PG') {
+          // Kita simpan struktur: { "A": "Teks A", "img_A": "base64...", "B": "Teks B", "img_B": "..." }
+          // Ini agar kompatibel dengan kode lama yang cuma baca key A, B, C.
+          
           opsiData = {
-            A: document.getElementById('pg-a').value, B: document.getElementById('pg-b').value,
-            C: document.getElementById('pg-c').value, D: document.getElementById('pg-d').value, E: document.getElementById('pg-e').value
+            A: document.getElementById('pg-a').value,
+            B: document.getElementById('pg-b').value,
+            C: document.getElementById('pg-c').value,
+            D: document.getElementById('pg-d').value,
+            E: document.getElementById('pg-e').value
           };
+          
+          // Masukkan gambar jika ada
+          if(opsiImages.A) opsiData.img_A = opsiImages.A;
+          if(opsiImages.B) opsiData.img_B = opsiImages.B;
+          if(opsiImages.C) opsiData.img_C = opsiImages.C;
+          if(opsiImages.D) opsiData.img_D = opsiImages.D;
+          if(opsiImages.E) opsiData.img_E = opsiImages.E;
+
           kunciJawaban = document.getElementById('kunci-pg').value;
+          
+          // Validasi: Minimal Teks A/B ATAU Gambar A/B harus ada
+          const validA = opsiData.A || opsiData.img_A;
+          const validB = opsiData.B || opsiData.img_B;
+          if(!validA || !validB) return Swal.fire('Error', 'Minimal isi Opsi A dan B (Teks atau Gambar)', 'warning');
         } else if (tipe === 'ISIAN') {
           kunciJawaban = document.getElementById('kunci-isian').value;
         } else if (tipe === 'BS') {
@@ -1180,24 +1379,44 @@
         } else if (tipe === 'ESSAY') { kunciJawaban = "MANUAL"; }
         // --- LOGIC END ---
 
+        // --- UPDATE BAGIAN TOMBOL LOADING ---
         const btn = document.getElementById('btnSave');
-        btn.innerText = "MENYIMPAN..."; btn.disabled = true;
+        const originalText = btn.innerHTML; // Simpan teks/icon asli
+        // Ganti dengan Spinner Berputar
+        btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> SEDANG MENYIMPAN...'; 
+        btn.disabled = true;
+        btn.classList.add('opacity-75', 'cursor-not-allowed'); // Efek visual tambahan
 
         const payload = {
-          id: idSoal, // Kirim ID (kosong jika baru, isi jika edit)
+          id: idSoal,
           mapel: mapel, tipe: tipe, soal: htmlSoal,
           opsiJson: JSON.stringify(opsiData),
           kunci: kunciJawaban
         };
 
-        google.script.run.withSuccessHandler((res) => {
-            btn.innerText = "SIMPAN SOAL"; btn.disabled = false;
-            if(res.status === 'success') {
-              Swal.fire('Sukses', res.message, 'success');
-              tampilFormSoal(false); // Kembali ke List
-              loadDaftarSoal(); // Refresh Tabel
-            } else { Swal.fire('Gagal', res.message, 'error'); }
-        }).withFailureHandler(err => { btn.disabled=false; Swal.fire('Err', err.message, 'error'); }).simpanSoal(payload);
+        google.script.run
+          .withSuccessHandler((res) => {
+             // --- KEMBALIKAN TOMBOL ---
+             btn.innerHTML = 'SIMPAN SOAL'; // Atau gunakan originalText
+             btn.disabled = false;
+             btn.classList.remove('opacity-75', 'cursor-not-allowed');
+
+             if(res.status === 'success') {
+               Swal.fire('Sukses', res.message, 'success');
+               tampilFormSoal(false); 
+               loadDaftarSoal();
+             } else { 
+               Swal.fire('Gagal', res.message, 'error'); 
+             }
+          })
+          .withFailureHandler((err) => { 
+             // --- KEMBALIKAN TOMBOL (ERROR) ---
+             btn.innerHTML = 'SIMPAN SOAL';
+             btn.disabled = false;
+             btn.classList.remove('opacity-75', 'cursor-not-allowed');
+             Swal.fire('Error', err.message, 'error'); 
+          })
+          .simpanSoal(payload);
       }
 
       // 6. HAPUS SOAL
