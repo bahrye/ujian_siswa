@@ -1,0 +1,249 @@
+// ==========================================
+// KONFIGURASI
+// ==========================================
+const SS_ID = '1L2NpLGZlnVA_gRvEshCQoXeCaYlsPXXEsBdAfkqXOSg'; 
+
+// ==========================================
+// 0. SETUP AWAL (Jalankan sekali manual untuk Izin)
+// ==========================================
+function setupIzinAwal() {
+  const ss = SpreadsheetApp.openById(SS_ID);
+  console.log("Akses DB OK: " + ss.getName());
+  
+  const folderName = "CBT_Assets";
+  const folders = DriveApp.getFoldersByName(folderName);
+  if (folders.hasNext()) {
+    console.log("Folder Drive OK.");
+  } else {
+    DriveApp.createFolder(folderName);
+    console.log("Folder Drive Dibuat.");
+  }
+}
+
+// ==========================================
+// ROUTING & HTML
+// ==========================================
+function doGet(e) {
+  return HtmlService.createTemplateFromFile('index')
+      .evaluate()
+      .setTitle('CBT Ujian Online')
+      .addMetaTag('viewport', 'width=device-width, initial-scale=1')
+      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+// ==========================================
+// API 1: LOGIN
+// ==========================================
+function loginUser(username, password) {
+  try {
+    const ss = SpreadsheetApp.openById(SS_ID);
+    const sheet = ss.getSheetByName("Users");
+    if (!sheet) return { status: 'error', message: 'DB Users tidak ditemukan!' };
+
+    const data = sheet.getDataRange().getValues();
+    data.shift(); // Skip Header
+
+    for (let i = 0; i < data.length; i++) {
+      let row = data[i];
+      // [0:id, 1:username, 2:password, 3:role, 4:nama, 5:kelas, 6:status]
+      if (row[1] == username && row[2] == password) {
+        if(row[6] && row[6].toString().toLowerCase() !== 'aktif') {
+          return { status: 'error', message: 'Akun dinonaktifkan.' };
+        }
+        return { status: 'success', role: row[3], nama: row[4], kelas: row[5] };
+      }
+    }
+    return { status: 'error', message: 'Username/Password salah.' };
+  } catch (e) {
+    return { status: 'error', message: 'Server Error: ' + e.toString() };
+  }
+}
+
+// ==========================================
+// API 2: ADMIN - SIMPAN SOAL
+// ==========================================
+function simpanSoal(data) {
+  try {
+    const ss = SpreadsheetApp.openById(SS_ID);
+    const sheet = ss.getSheetByName("DB_Soal");
+    
+    // --- 1. Upload Gambar (Jika ada) ---
+    let fileUrl = "";
+    if (data.fileData && data.fileName) {
+      try {
+        const contentType = data.fileData.substring(5, data.fileData.indexOf(';'));
+        const base64 = data.fileData.substring(data.fileData.indexOf(',') + 1);
+        const blob = Utilities.newBlob(Utilities.base64Decode(base64), contentType, data.fileName);
+        
+        const folderName = "CBT_Assets";
+        const folders = DriveApp.getFoldersByName(folderName);
+        let folder = folders.hasNext() ? folders.next() : DriveApp.createFolder(folderName);
+        
+        const file = folder.createFile(blob);
+        file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+        fileUrl = file.getDownloadUrl();
+      } catch (err) {
+        return { status: 'error', message: 'Gagal Upload Drive: ' + err.toString() };
+      }
+    }
+
+    // --- 2. Format Opsi (Hanya yg isi) ---
+    const opsiObj = {};
+    if (data.opsiA && data.opsiA.trim()) opsiObj.A = data.opsiA;
+    if (data.opsiB && data.opsiB.trim()) opsiObj.B = data.opsiB;
+    if (data.opsiC && data.opsiC.trim()) opsiObj.C = data.opsiC;
+    if (data.opsiD && data.opsiD.trim()) opsiObj.D = data.opsiD;
+    if (data.opsiE && data.opsiE.trim()) opsiObj.E = data.opsiE;
+
+    const jsonOpsi = JSON.stringify(opsiObj);
+    const idSoal = "Q-" + Date.now();
+
+    // --- 3. Simpan DB ---
+    // [id, mapel, tipe, soal, img, opsi_json, kunci]
+    sheet.appendRow([
+      idSoal, data.mapel, data.tipe, data.soal, fileUrl, jsonOpsi, data.kunci
+    ]);
+
+    return { status: 'success', message: 'Soal Tersimpan!' };
+
+  } catch (e) {
+    return { status: 'error', message: 'DB Error: ' + e.toString() };
+  }
+}
+
+// ==========================================
+// API 3: SISWA - AMBIL SOAL
+// ==========================================
+function getSoalUjian(kodeMapel) {
+  try {
+    const ss = SpreadsheetApp.openById(SS_ID);
+    const sheet = ss.getSheetByName("DB_Soal");
+    const data = sheet.getDataRange().getValues();
+    data.shift(); 
+
+    let soalList = [];
+    
+    for (let i = 0; i < data.length; i++) {
+      let row = data[i];
+      // Cek Kode Mapel (Case Insensitive)
+      if (row[1].toString().toLowerCase() === kodeMapel.toLowerCase()) {
+        
+        // Parse JSON Opsi
+        let opsiObj = {};
+        try { opsiObj = JSON.parse(row[5]); } catch (e) {}
+
+        soalList.push({
+          id: row[0],
+          tipe: row[2],
+          pertanyaan: row[3],
+          gambar: row[4],
+          opsi: opsiObj 
+          // Kunci jawaban TIDAK dikirim ke frontend demi keamanan
+        });
+      }
+    }
+
+    if (soalList.length === 0) {
+      return { status: 'error', message: 'Soal tidak ditemukan untuk Mapel: ' + kodeMapel };
+    }
+
+    return { status: 'success', data: soalList };
+
+  } catch (e) {
+    return { status: 'error', message: e.toString() };
+  }
+}
+
+// ==========================================
+// API 4: SUBMIT & KOREKSI UJIAN
+// ==========================================
+function submitUjian(payload) {
+  try {
+    const ss = SpreadsheetApp.openById(SS_ID);
+    
+    // 1. Ambil Kunci Jawaban dari DB_Soal
+    const sheetSoal = ss.getSheetByName("DB_Soal");
+    const dataSoal = sheetSoal.getDataRange().getValues();
+    dataSoal.shift(); // Hapus Header
+    
+    let kunciJawaban = {}; // { "Q-123": "A", "Q-456": "C" }
+    let totalSoalPG = 0;
+    
+    // Filter soal sesuai Mapel
+    for (let i = 0; i < dataSoal.length; i++) {
+      let row = dataSoal[i]; // [0:id, 1:mapel, ..., 6:kunci]
+      if (row[1].toString().toLowerCase() === payload.mapel.toLowerCase()) {
+        // Hanya ambil kunci jika tipe PG
+        if (row[2] === "PG") {
+          kunciJawaban[row[0]] = row[6]; 
+          totalSoalPG++;
+        }
+      }
+    }
+
+    // 2. Hitung Nilai
+    let benar = 0;
+    let detailKoreksi = {}; // Untuk debug/riwayat
+    
+    // Loop jawaban siswa
+    for (let idSoal in payload.jawaban) {
+      const jwbSiswa = payload.jawaban[idSoal];
+      const jwbKunci = kunciJawaban[idSoal];
+      
+      // Cek Benar/Salah
+      if (jwbKunci && jwbSiswa === jwbKunci) {
+        benar++;
+        detailKoreksi[idSoal] = "BENAR";
+      } else {
+        detailKoreksi[idSoal] = "SALAH";
+      }
+    }
+
+    // Rumus Nilai (Skala 100)
+    // Jika soal essay, nilai sementara hanya dari PG
+    let nilaiAkhir = 0;
+    if (totalSoalPG > 0) {
+      nilaiAkhir = Math.round((benar / totalSoalPG) * 100);
+    }
+
+    // 3. Simpan ke DB_Nilai
+    const sheetNilai = ss.getSheetByName("DB_Nilai");
+    if (!sheetNilai) return { status: 'error', message: 'Sheet DB_Nilai belum dibuat!' };
+
+    sheetNilai.appendRow([
+      new Date(),           // Timestamp
+      "UJIAN-" + Date.now(),// ID Ujian (Dummy)
+      payload.nama,         // Nama Siswa
+      payload.mapel,        // Mapel
+      nilaiAkhir,           // Nilai
+      benar + " / " + totalSoalPG, // Jumlah Benar
+      JSON.stringify(payload.jawaban) // Simpan JSON jawaban mentah
+    ]);
+
+    return { 
+      status: 'success', 
+      nilai: nilaiAkhir, 
+      benar: benar, 
+      total: totalSoalPG,
+      message: 'Ujian Selesai! Nilai Anda: ' + nilaiAkhir 
+    };
+
+  } catch (e) {
+    return { status: 'error', message: 'Gagal Submit: ' + e.toString() };
+  }
+}
+
+// ==========================================
+// API 5: VERIFIKASI TOKEN PENGAWAS (UNLOCK)
+// ==========================================
+function verifikasiTokenUnlock(tokenInput) {
+  // Disini kita set Token Statis dulu: "ADMIN123"
+  // Nanti bisa diambil dari Sheet "Users" role Pengawas
+  const TOKEN_RAHASIA = "ADMIN123";
+  
+  if (tokenInput === TOKEN_RAHASIA) {
+    return { status: 'success' };
+  } else {
+    return { status: 'error', message: 'Token Salah!' };
+  }
+}
