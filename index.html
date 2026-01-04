@@ -8,6 +8,8 @@
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
+    <script src="https://cdn.quilljs.com/1.3.6/quill.min.js"></script>
     
     <style>
       body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; }
@@ -17,6 +19,11 @@
       
       /* Sidebar Active State */
       .nav-item.active { background-color: #3730a3; border-left: 4px solid #818cf8; }
+
+      /* Tambahan Style untuk Editor */
+      .ql-editor { min-height: 150px; font-family: 'Inter', sans-serif; font-size: 16px; background: white; }
+      .ql-container { border-bottom-left-radius: 0.5rem; border-bottom-right-radius: 0.5rem; }
+      .ql-toolbar { border-top-left-radius: 0.5rem; border-top-right-radius: 0.5rem; background: #f8fafc; }
     </style>
   </head>
   <body>
@@ -116,62 +123,137 @@
           </div>
 
           <div id="view-bank-soal" class="hidden animate__animated animate__fadeIn">
-            <div class="bg-white rounded-xl shadow-md p-8 max-w-4xl mx-auto">
-              <h2 class="text-xl font-bold text-gray-800 border-b pb-4 mb-6">📝 Input Soal Baru</h2>
-              <form id="formSoal" onsubmit="submitSoal(event)" class="space-y-5">
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
-                    <label class="block font-semibold mb-1">Kode Mapel</label>
-                    <select name="mapel" id="soal-mapel-select" class="input-std bg-white" required>
-                      <option value="">-- Pilih Mapel --</option>
+            
+            <div id="bs-list-section" class="w-full">
+              
+              <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-200 mb-6 flex flex-col md:flex-row justify-between items-end md:items-center gap-4">
+                <div>
+                  <h2 class="text-2xl font-bold text-gray-800">Bank Soal</h2>
+                  <p class="text-gray-500 text-sm">Kelola pertanyaan ujian per mata pelajaran.</p>
+                </div>
+                
+                <div class="flex gap-3 w-full md:w-auto">
+                  <div class="flex-1 md:w-64">
+                    <label class="text-xs font-bold text-gray-500 block mb-1">Filter Mapel</label>
+                    <select id="filter-mapel" onchange="loadDaftarSoal()" class="w-full p-2 border rounded-lg bg-gray-50 font-semibold text-gray-700 focus:ring-2 focus:ring-indigo-300 outline-none">
+                      <option value="">- Tampilkan Semua -</option>
                       </select>
                   </div>
-                  <div>
-                    <label class="block font-semibold mb-1">Tipe Soal</label>
-                    <select name="tipe" class="input-std bg-white">
-                      <option value="PG">Pilihan Ganda</option>
-                      <option value="ESSAY">Uraian / Essay</option>
-                    </select>
+                  
+                  <div class="flex items-end">
+                    <button onclick="tampilFormSoal(true)" class="px-5 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 shadow-lg font-bold flex items-center gap-2 transition transform hover:-translate-y-1">
+                      <i class="fas fa-plus"></i> <span class="hidden md:inline">Buat Soal</span>
+                    </button>
                   </div>
                 </div>
+              </div>
 
-                <div>
-                  <label class="block text-sm font-semibold mb-1">Pertanyaan</label>
-                  <textarea name="soal" rows="3" class="input-std" placeholder="Isi pertanyaan..." required></textarea>
+              <div class="bg-white rounded-xl shadow border border-gray-200 overflow-hidden">
+                <div class="overflow-x-auto">
+                  <table class="w-full text-left border-collapse">
+                    <thead class="bg-slate-50 text-slate-600 uppercase text-xs font-bold">
+                      <tr>
+                        <th class="p-4 border-b w-16 text-center">No</th>
+                        <th class="p-4 border-b w-32">Tipe</th>
+                        <th class="p-4 border-b">Pertanyaan (Snippet)</th>
+                        <th class="p-4 border-b w-24">Kunci</th>
+                        <th class="p-4 border-b w-32 text-right">Aksi</th>
+                      </tr>
+                    </thead>
+                    <tbody id="tbody-soal" class="text-sm text-gray-700 divide-y divide-gray-100">
+                      <tr><td colspan="5" class="p-8 text-center text-gray-400">Silakan pilih Mapel atau klik 'Buat Soal'</td></tr>
+                    </tbody>
+                  </table>
                 </div>
-
-                <div class="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center cursor-pointer bg-gray-50 relative group">
-                   <input type="file" accept="image/*" onchange="handleFile(this)" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer">
-                   <div id="upload-placeholder">
-                     <i class="fas fa-image text-gray-400 text-2xl mb-1"></i>
-                     <p class="text-xs text-gray-500">Upload Gambar (Max 2MB)</p>
-                   </div>
-                   <img id="preview" class="hidden h-32 mx-auto object-contain rounded relative z-10">
-                </div>
-
-                <div class="bg-gray-50 p-4 rounded-lg border">
-                  <p class="text-xs font-bold text-gray-600 mb-2 uppercase">Pilihan Jawaban</p>
-                  <div class="grid gap-2">
-                    <div class="flex gap-2"><span class="w-6 pt-1 font-bold text-center text-sm">A</span><input type="text" name="opsiA" class="input-std py-1 text-sm"></div>
-                    <div class="flex gap-2"><span class="w-6 pt-1 font-bold text-center text-sm">B</span><input type="text" name="opsiB" class="input-std py-1 text-sm"></div>
-                    <div class="flex gap-2"><span class="w-6 pt-1 font-bold text-center text-sm">C</span><input type="text" name="opsiC" class="input-std py-1 text-sm"></div>
-                    <div class="flex gap-2"><span class="w-6 pt-1 font-bold text-center text-sm">D</span><input type="text" name="opsiD" class="input-std py-1 text-sm"></div>
-                    <div class="flex gap-2"><span class="w-6 pt-1 font-bold text-center text-gray-400 text-sm">E</span><input type="text" name="opsiE" class="input-std py-1 text-sm border-dashed"></div>
-                  </div>
-                </div>
-
-                <div>
-                  <label class="block text-sm font-semibold mb-1">Kunci Jawaban</label>
-                  <select name="kunci" class="input-std bg-white" required>
-                    <option value="">-- Pilih --</option>
-                    <option value="A">A</option><option value="B">B</option><option value="C">C</option><option value="D">D</option><option value="E">E</option>
-                    <option value="ESSAY">ESSAY</option>
-                  </select>
-                </div>
-
-                <button type="submit" id="btnSave" class="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg shadow">SIMPAN DATA</button>
-              </form>
+              </div>
             </div>
+
+            <div id="bs-form-section" class="hidden">
+              <div class="flex items-center gap-4 mb-4">
+                <button onclick="tampilFormSoal(false)" class="p-2 rounded-full bg-white border hover:bg-gray-100 text-gray-600 shadow-sm">
+                  <i class="fas fa-arrow-left"></i>
+                </button>
+                <h2 class="text-xl font-bold text-gray-800" id="form-soal-title">Input Soal Baru</h2>
+              </div>
+
+              <div class="bg-white rounded-xl shadow-md p-6 max-w-5xl mx-auto border border-gray-200">
+                <form id="formSoal" onsubmit="submitSoal(event)" class="space-y-6">
+                  <input type="hidden" id="soal-id" name="id"> <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <label class="block font-semibold mb-1 text-sm text-gray-600">Kode Mapel</label>
+                      <select name="mapel" id="soal-mapel-select" class="input-std bg-gray-50" required>
+                        <option value="">-- Pilih Mapel --</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label class="block font-semibold mb-1 text-sm text-gray-600">Tipe Soal</label>
+                      <select name="tipe" id="tipe-soal" class="input-std bg-gray-50 font-bold text-indigo-700" onchange="gantiTipeSoal()">
+                        <option value="PG">Pilihan Ganda</option>
+                        <option value="ISIAN">Isian Singkat</option>
+                        <option value="ESSAY">Uraian / Essay</option>
+                        <option value="BS">Benar / Salah</option>
+                        <option value="COCOK">Pencocokan (Matching)</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label class="block font-semibold mb-1 text-sm text-gray-600">Pertanyaan</label>
+                    <div id="editor-container"></div>
+                  </div>
+
+                  <div class="bg-slate-50 p-5 rounded-lg border border-slate-200">
+                    
+                    <div id="area-pg" class="opsi-area">
+                      <p class="text-xs font-bold text-gray-500 mb-3 uppercase">Pilihan Jawaban</p>
+                      <div class="space-y-2">
+                        <div class="flex gap-2 items-center"><span class="w-6 font-bold text-center">A</span><input type="text" id="pg-a" class="input-std text-sm" placeholder="Jawaban A"></div>
+                        <div class="flex gap-2 items-center"><span class="w-6 font-bold text-center">B</span><input type="text" id="pg-b" class="input-std text-sm" placeholder="Jawaban B"></div>
+                        <div class="flex gap-2 items-center"><span class="w-6 font-bold text-center">C</span><input type="text" id="pg-c" class="input-std text-sm" placeholder="Jawaban C"></div>
+                        <div class="flex gap-2 items-center"><span class="w-6 font-bold text-center">D</span><input type="text" id="pg-d" class="input-std text-sm" placeholder="Jawaban D"></div>
+                        <div class="flex gap-2 items-center"><span class="w-6 font-bold text-center text-gray-400">E</span><input type="text" id="pg-e" class="input-std text-sm" placeholder="Opsional"></div>
+                      </div>
+                      <div class="mt-4">
+                        <label class="block text-xs font-bold text-gray-500 mb-1">Kunci Jawaban</label>
+                        <select id="kunci-pg" class="input-std bg-white w-32">
+                          <option value="A">A</option><option value="B">B</option><option value="C">C</option><option value="D">D</option><option value="E">E</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div id="area-isian" class="opsi-area hidden">
+                      <p class="text-sm text-gray-600 mb-2">Kunci jawaban singkat.</p>
+                      <input type="text" id="kunci-isian" class="input-std border-indigo-300">
+                    </div>
+
+                    <div id="area-essay" class="opsi-area hidden">
+                      <p class="text-sm text-yellow-600"><i class="fas fa-info-circle"></i> Koreksi manual oleh Guru.</p>
+                    </div>
+
+                    <div id="area-bs" class="opsi-area hidden">
+                      <p class="text-xs font-bold text-gray-500 mb-2">Kunci</p>
+                      <div class="flex gap-4">
+                        <label class="flex items-center gap-2 cursor-pointer"><input type="radio" name="kunci_bs" value="BENAR" class="accent-green-600"> <span class="font-bold text-green-700">BENAR</span></label>
+                        <label class="flex items-center gap-2 cursor-pointer"><input type="radio" name="kunci_bs" value="SALAH" class="accent-red-600"> <span class="font-bold text-red-700">SALAH</span></label>
+                      </div>
+                    </div>
+
+                    <div id="area-cocok" class="opsi-area hidden">
+                      <p class="text-xs font-bold text-gray-500 mb-2">Pasangan Jawaban</p>
+                      <div id="container-cocok" class="space-y-2 mb-3"></div>
+                      <button type="button" onclick="tambahBarisCocok()" class="text-xs bg-indigo-100 text-indigo-700 px-3 py-1 rounded font-bold">+ Tambah</button>
+                    </div>
+
+                  </div>
+
+                  <div class="flex gap-3">
+                    <button type="button" onclick="tampilFormSoal(false)" class="flex-1 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-lg">BATAL</button>
+                    <button type="submit" id="btnSave" class="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg shadow">SIMPAN SOAL</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+
           </div>
 
           <div id="view-akun" class="hidden animate__animated animate__fadeIn">
@@ -400,6 +482,7 @@
       let currentTabRole = 'all';
 
       let allMapel = [];
+      let quillEditor;
 
       // Update Tanggal
       document.getElementById('current-date').innerText = new Date().toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
@@ -520,6 +603,7 @@
             document.getElementById('view-bank-soal').classList.remove('hidden');
             // Saat buka bank soal, kita harus load opsi mapel ke dropdown
             loadOptionsMapel(); 
+            setTimeout(initQuill, 100);
          } else {
             document.getElementById('view-placeholder').classList.remove('hidden');
          }
@@ -641,20 +725,165 @@
 
       // 3. FUNGSI UNTUK MENGISI DROPDOWN DI BANK SOAL
       function loadOptionsMapel() {
-         const select = document.getElementById('soal-mapel-select');
-         // Jangan reload jika sudah ada isinya (opsional, tapi biar fresh kita reload aja)
-         select.innerHTML = '<option>Memuat Mapel...</option>';
+         // Reset Dropdown
+         const selFilter = document.getElementById('filter-mapel');
+         const selForm = document.getElementById('soal-mapel-select');
          
+         selFilter.innerHTML = '<option value="">Loading...</option>';
+         selForm.innerHTML = '<option value="">Loading...</option>';
+
          google.script.run.withSuccessHandler(data => {
-            select.innerHTML = '<option value="">-- Pilih Mapel --</option>';
-            if(data.length === 0) {
-              select.innerHTML += '<option value="" disabled>Belum ada Mapel (Input di Menu Mapel)</option>';
-            }
+            // Isi Filter
+            selFilter.innerHTML = '<option value="">- Tampilkan Semua -</option>';
+            // Isi Form
+            selForm.innerHTML = '<option value="">-- Pilih Mapel --</option>';
+
             data.forEach(m => {
-               // Value yang dikirim ke server tetap kode mapel (ex: MTK-X)
-               select.insertAdjacentHTML('beforeend', `<option value="${m.kode}">${m.kode} - ${m.nama}</option>`);
+               // Filter
+               selFilter.insertAdjacentHTML('beforeend', `<option value="${m.kode}">${m.kode} - ${m.nama}</option>`);
+               // Form
+               selForm.insertAdjacentHTML('beforeend', `<option value="${m.kode}">${m.kode} - ${m.nama}</option>`);
             });
+
+            // Setelah mapel loading, load soal pertama kali (default all)
+            loadDaftarSoal();
+            
          }).getAllMapel();
+      }
+
+      // 2. TAMPILKAN DAFTAR SOAL
+      function loadDaftarSoal() {
+        const tbody = document.getElementById('tbody-soal');
+        const filter = document.getElementById('filter-mapel').value;
+        
+        tbody.innerHTML = '<tr><td colspan="5" class="p-8 text-center"><i class="fas fa-spinner fa-spin text-indigo-600 text-2xl"></i><br>Mengambil data soal...</td></tr>';
+
+        google.script.run.withSuccessHandler(data => {
+          tbody.innerHTML = '';
+          if (data.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" class="p-8 text-center text-gray-400">Tidak ada soal ditemukan.</td></tr>';
+            return;
+          }
+
+          data.forEach((s, idx) => {
+             // Bersihkan HTML tag untuk snippet preview agar tabel rapi
+             const tmp = document.createElement("DIV");
+             tmp.innerHTML = s.soal;
+             let textSnippet = tmp.textContent || tmp.innerText || "";
+             if(textSnippet.length > 60) textSnippet = textSnippet.substring(0, 60) + "...";
+             if(s.soal.includes('<img')) textSnippet = "📷 [Gambar] " + textSnippet;
+
+             // Encode data untuk tombol Edit
+             const dataStr = encodeURIComponent(JSON.stringify(s));
+
+             tbody.insertAdjacentHTML('beforeend', `
+               <tr class="hover:bg-slate-50 transition border-b border-gray-100">
+                 <td class="p-4 text-center font-bold text-gray-500">${idx+1}</td>
+                 <td class="p-4"><span class="bg-indigo-100 text-indigo-800 text-xs px-2 py-1 rounded font-bold">${s.tipe}</span><br><span class="text-xs text-gray-400">${s.mapel}</span></td>
+                 <td class="p-4 text-gray-700 font-medium">${textSnippet}</td>
+                 <td class="p-4 font-mono text-sm text-emerald-600 font-bold">${s.kunci || '-'}</td>
+                 <td class="p-4 text-right">
+                   <button onclick="editSoal('${dataStr}')" class="text-blue-600 hover:text-blue-800 mr-3 tooltip" title="Edit"><i class="fas fa-edit"></i></button>
+                   <button onclick="hapusSoalConfirm('${s.id}')" class="text-red-500 hover:text-red-700 tooltip" title="Hapus"><i class="fas fa-trash"></i></button>
+                 </td>
+               </tr>
+             `);
+          });
+        }).getSoalAdmin(filter);
+      }
+
+      // 3. SWITCH VIEW: LIST <-> FORM
+      function tampilFormSoal(show) {
+        if(show) {
+           document.getElementById('bs-list-section').classList.add('hidden');
+           document.getElementById('bs-form-section').classList.remove('hidden');
+           // Inisialisasi Quill jika belum
+           setTimeout(initQuill, 100);
+           
+           // Mode Tambah Baru: Reset Form
+           if(!document.getElementById('soal-id').value) {
+             resetFormSoal();
+           }
+        } else {
+           document.getElementById('bs-list-section').classList.remove('hidden');
+           document.getElementById('bs-form-section').classList.add('hidden');
+           resetFormSoal(); // Bersihkan saat kembali
+        }
+      }
+
+      function resetFormSoal() {
+        document.getElementById('formSoal').reset();
+        document.getElementById('soal-id').value = ""; // Kosongkan ID
+        document.getElementById('form-soal-title').innerText = "Input Soal Baru";
+        document.getElementById('btnSave').innerText = "SIMPAN SOAL";
+        if(quillEditor) quillEditor.setContents([]);
+        gantiTipeSoal(); // Reset ke PG
+      }
+
+      // 4. MODE EDIT: ISI FORM DARI DATA
+      function editSoal(str) {
+        const s = JSON.parse(decodeURIComponent(str));
+        
+        // Setup Form
+        document.getElementById('soal-id').value = s.id;
+        document.getElementById('form-soal-title').innerText = "Edit Soal";
+        document.getElementById('btnSave').innerText = "UPDATE SOAL";
+        
+        // Switch View
+        tampilFormSoal(true);
+
+        // Isi Field Dasar
+        document.getElementById('soal-mapel-select').value = s.mapel;
+        document.getElementById('tipe-soal').value = s.tipe;
+        
+        // Isi Editor Quill
+        quillEditor.clipboard.dangerouslyPasteHTML(s.soal);
+
+        // Trigger Ganti Tipe untuk show area yang benar
+        gantiTipeSoal();
+
+        // Parse Opsi JSON
+        let opsi = {};
+        try { opsi = JSON.parse(s.opsi); } catch(e){}
+
+        // Isi Field Opsi Berdasarkan Tipe
+        if (s.tipe === 'PG') {
+           document.getElementById('pg-a').value = opsi.A || "";
+           document.getElementById('pg-b').value = opsi.B || "";
+           document.getElementById('pg-c').value = opsi.C || "";
+           document.getElementById('pg-d').value = opsi.D || "";
+           document.getElementById('pg-e').value = opsi.E || "";
+           document.getElementById('kunci-pg').value = s.kunci;
+        } 
+        else if (s.tipe === 'ISIAN') {
+           document.getElementById('kunci-isian').value = s.kunci;
+        }
+        else if (s.tipe === 'BS') {
+           // Radio Button
+           const radios = document.getElementsByName('kunci_bs');
+           for(let r of radios) {
+              if(r.value === s.kunci) r.checked = true;
+           }
+        }
+        else if (s.tipe === 'COCOK') {
+           // Opsi adalah Array object [{k:'..', v:'..'}]
+           const container = document.getElementById('container-cocok');
+           container.innerHTML = ""; // Bersihkan default row
+           
+           if(Array.isArray(opsi)) {
+             opsi.forEach(pair => {
+                const div = document.createElement('div');
+                div.className = 'flex gap-2 items-center';
+                div.innerHTML = `
+                  <input type="text" class="input-std text-sm cocok-kiri" value="${pair.k}" placeholder="Kiri">
+                  <i class="fas fa-arrow-right text-gray-400"></i>
+                  <input type="text" class="input-std text-sm cocok-kanan" value="${pair.v}" placeholder="Kanan">
+                  <button type="button" onclick="this.parentElement.remove()" class="text-red-400 hover:text-red-600 px-2"><i class="fas fa-times"></i></button>
+                `;
+                container.appendChild(div);
+             });
+           }
+        }
       }
 
       // 1. Load Data
@@ -859,31 +1088,131 @@
         }
       }
 
+      // Inisialisasi Quill saat halaman dimuat (atau saat pertama kali buka menu)
+      function initQuill() {
+        if(!quillEditor) {
+          quillEditor = new Quill('#editor-container', {
+            theme: 'snow',
+            placeholder: 'Tulis pertanyaan disini... (Bisa Paste Gambar)',
+            modules: {
+              toolbar: [
+                ['bold', 'italic', 'underline', 'strike'],
+                [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+                [{ 'script': 'sub'}, { 'script': 'super' }],
+                [{ 'color': [] }, { 'background': [] }],
+                ['image', 'formula'] // Tombol Image aktif
+              ]
+            }
+          });
+        }
+      }
+
+      // Fungsi Ganti Tipe Soal (Show/Hide Area)
+      function gantiTipeSoal() {
+        const tipe = document.getElementById('tipe-soal').value;
+        
+        // Hide Semua Area Dulu
+        document.querySelectorAll('.opsi-area').forEach(el => el.classList.add('hidden'));
+
+        // Show Area yang dipilih
+        if (tipe === 'PG') document.getElementById('area-pg').classList.remove('hidden');
+        if (tipe === 'ISIAN') document.getElementById('area-isian').classList.remove('hidden');
+        if (tipe === 'ESSAY') document.getElementById('area-essay').classList.remove('hidden');
+        if (tipe === 'BS') document.getElementById('area-bs').classList.remove('hidden');
+        if (tipe === 'COCOK') {
+          document.getElementById('area-cocok').classList.remove('hidden');
+          if(document.getElementById('container-cocok').children.length === 0) tambahBarisCocok(); // Tambah 1 baris default
+        }
+      }
+
+      // Fungsi Tambah Baris Pencocokan
+      function tambahBarisCocok() {
+        const div = document.createElement('div');
+        div.className = 'flex gap-2 items-center';
+        div.innerHTML = `
+          <input type="text" class="input-std text-sm cocok-kiri" placeholder="Premis (Kiri)">
+          <i class="fas fa-arrow-right text-gray-400"></i>
+          <input type="text" class="input-std text-sm cocok-kanan" placeholder="Jawaban (Kanan)">
+          <button type="button" onclick="this.parentElement.remove()" class="text-red-400 hover:text-red-600 px-2"><i class="fas fa-times"></i></button>
+        `;
+        document.getElementById('container-cocok').appendChild(div);
+      }
+
+      // FUNGSI SUBMIT SOAL (Diperbarui)
       function submitSoal(e) {
         e.preventDefault();
-        const f = document.getElementById('formSoal');
-        const btn = document.getElementById('btnSave');
-        btn.innerText = "Processing..."; btn.disabled = true;
+        
+        const idSoal = document.getElementById('soal-id').value; // Ambil ID jika ada
+        const mapel = document.getElementById('soal-mapel-select').value;
+        const tipe = document.getElementById('tipe-soal').value;
+        const htmlSoal = quillEditor.root.innerHTML;
+        
+        // Validasi Editor Kosong
+        if (quillEditor.getText().trim().length === 0 && !htmlSoal.includes('<img')) {
+          return Swal.fire('Error', 'Pertanyaan tidak boleh kosong!', 'warning');
+        }
 
-        const data = {
-          mapel: f.mapel.value, tipe: f.tipe.value, soal: f.soal.value,
-          opsiA: f.opsiA.value, opsiB: f.opsiB.value, opsiC: f.opsiC.value, opsiD: f.opsiD.value, opsiE: f.opsiE.value,
-          kunci: f.kunci.value, fileData: filePayload, fileName: fileName
+        // ... (LOGIKA PENGAMBILAN OPSI & KUNCI SAMA SEPERTI KODE SEBELUMNYA) ...
+        // Copy paste logika if(tipe==='PG')... dst dari kode submitSoal sebelumnya
+        // Pastikan variabel 'opsiData' dan 'kunciJawaban' terisi.
+        
+        // --- COPIED & ADAPTED LOGIC START ---
+        let opsiData = {}; let kunciJawaban = "";
+        if (tipe === 'PG') {
+          opsiData = {
+            A: document.getElementById('pg-a').value, B: document.getElementById('pg-b').value,
+            C: document.getElementById('pg-c').value, D: document.getElementById('pg-d').value, E: document.getElementById('pg-e').value
+          };
+          kunciJawaban = document.getElementById('kunci-pg').value;
+        } else if (tipe === 'ISIAN') {
+          kunciJawaban = document.getElementById('kunci-isian').value;
+        } else if (tipe === 'BS') {
+          const r = document.querySelector('input[name="kunci_bs"]:checked');
+          if(r) kunciJawaban = r.value; else return Swal.fire('Warning','Pilih Benar/Salah','warning');
+          opsiData = { A: "BENAR", B: "SALAH" };
+        } else if (tipe === 'COCOK') {
+          const kiris = document.querySelectorAll('.cocok-kiri');
+          const kanans = document.querySelectorAll('.cocok-kanan');
+          let pairs = [];
+          kiris.forEach((el, idx) => { if(el.value && kanans[idx].value) pairs.push({ k: el.value, v: kanans[idx].value }); });
+          if(pairs.length < 2) return Swal.fire('Warning','Minimal 2 pasang','warning');
+          opsiData = pairs; kunciJawaban = "COCOK_AUTO";
+        } else if (tipe === 'ESSAY') { kunciJawaban = "MANUAL"; }
+        // --- LOGIC END ---
+
+        const btn = document.getElementById('btnSave');
+        btn.innerText = "MENYIMPAN..."; btn.disabled = true;
+
+        const payload = {
+          id: idSoal, // Kirim ID (kosong jika baru, isi jika edit)
+          mapel: mapel, tipe: tipe, soal: htmlSoal,
+          opsiJson: JSON.stringify(opsiData),
+          kunci: kunciJawaban
         };
 
-        google.script.run
-          .withSuccessHandler((res) => {
-             btn.innerText = "SIMPAN DATA"; btn.disabled = false;
-             if(res.status === 'success') {
-                Swal.fire('Sukses', 'Soal berhasil disimpan', 'success');
-                f.reset(); 
-                document.getElementById('preview').classList.add('hidden');
-                document.getElementById('upload-placeholder').classList.remove('hidden');
-                filePayload = null;
-             } else { Swal.fire('Gagal', res.message, 'error'); }
-          })
-          .withFailureHandler(err => { btn.disabled = false; Swal.fire('Err', err.message, 'error'); })
-          .simpanSoal(data);
+        google.script.run.withSuccessHandler((res) => {
+            btn.innerText = "SIMPAN SOAL"; btn.disabled = false;
+            if(res.status === 'success') {
+              Swal.fire('Sukses', res.message, 'success');
+              tampilFormSoal(false); // Kembali ke List
+              loadDaftarSoal(); // Refresh Tabel
+            } else { Swal.fire('Gagal', res.message, 'error'); }
+        }).withFailureHandler(err => { btn.disabled=false; Swal.fire('Err', err.message, 'error'); }).simpanSoal(payload);
+      }
+
+      // 6. HAPUS SOAL
+      function hapusSoalConfirm(id) {
+        Swal.fire({
+          title: 'Hapus Soal?', text: "Data tidak bisa dikembalikan.", icon: 'warning',
+          showCancelButton: true, confirmButtonColor: '#d33', confirmButtonText: 'Ya, Hapus'
+        }).then((result) => {
+          if (result.isConfirmed) {
+            google.script.run.withSuccessHandler(res => {
+               if(res.status === 'success') { loadDaftarSoal(); Swal.fire('Deleted', res.message, 'success'); }
+               else Swal.fire('Gagal', res.message, 'error');
+            }).hapusSoalDb(id);
+          }
+        });
       }
 
       // --- 4. LOGIC SISWA (Disederhanakan untuk integrasi) ---
