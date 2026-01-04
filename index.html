@@ -1614,22 +1614,54 @@
         });
       }
 
-      // Helper: Paksa Logout tanpa konfirmasi (untuk timeout)
       function forceLogout() {
-        sessionStorage.clear(); // HAPUS SEMUA SESI
-        localStorage.clear();   // Hapus local storage juga jika ada
-        window.location.reload(); // Reload halaman agar bersih
+        // 1. Hapus Sesi Penyimpanan
+        sessionStorage.clear();
+        localStorage.clear();
+        
+        // 2. Bersihkan Data di Memori (Agar akun berikutnya bersih)
+        resetGlobals();
+
+        // 3. Update Tampilan ke Login (Tanpa Reload Halaman)
+        showLoginOnly();
+        
+        // 4. Reset Form Login
+        document.getElementById('user').value = "";
+        document.getElementById('pass').value = "";
       }
 
-      // Helper: Tampilkan Halaman Login Saja
+      function resetGlobals() {
+        // Reset variabel global penting
+        currentUserRole = '';
+        allUsers = [];
+        allMapel = [];
+        daftarSoal = [];
+        jawabanSiswa = {};
+        
+        // Reset Editor Quill jika ada
+        if (quillEditor) {
+           quillEditor.setContents([]);
+        }
+        
+        // Reset Tampilan-tampilan
+        document.getElementById('tbody-users').innerHTML = '';
+        document.getElementById('tbody-mapel').innerHTML = '';
+        document.getElementById('tbody-soal').innerHTML = '';
+        
+        // Sembunyikan Modal jika sedang terbuka
+        document.querySelectorAll('.fixed.z-50').forEach(el => el.classList.add('hidden'));
+      }
+
       function showLoginOnly() {
-        // Sembunyikan semua container lain
+        // Sembunyikan Semua Container Halaman
         document.getElementById('dashboard-container').classList.add('hidden');
         document.getElementById('page-siswa').classList.add('hidden');
         document.getElementById('lock-screen').classList.add('hidden');
         
-        // Munculkan Login
-        document.getElementById('login-container').classList.remove('hidden');
+        // Pastikan Login Container Muncul
+        const loginContainer = document.getElementById('login-container');
+        loginContainer.classList.remove('hidden');
+        loginContainer.classList.add('flex'); // Pastikan display flex aktif agar di tengah
       }
 
       // --- LOGIKA AUTO LOGOUT (INACTIVITY 10 MENIT) ---
@@ -1668,7 +1700,10 @@
 
       // Cek setiap 1 menit apakah user idle
       setInterval(checkInactivity, 60 * 1000);
-      checkSession();
+      
+      window.addEventListener('load', () => {
+         checkSession();
+      });
 
     </script>
   </body>
