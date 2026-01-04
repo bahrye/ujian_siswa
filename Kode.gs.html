@@ -277,3 +277,104 @@ function verifikasiTokenUnlock(tokenInput) {
     return { status: 'error', message: 'Token Salah!' };
   }
 }
+
+// ==========================================
+// API 6: KELOLA AKUN (CRUD USERS)
+// ==========================================
+
+// A. AMBIL SEMUA DATA USER
+function getAllUsers() {
+  const ss = SpreadsheetApp.openById(SS_ID);
+  const sheet = ss.getSheetByName("Users");
+  if (!sheet) return [];
+  
+  const data = sheet.getDataRange().getValues();
+  data.shift(); // Hapus Header
+  
+  // Mapping array ke object biar rapi di JS
+  return data.map(row => ({
+    id: row[0],
+    username: row[1],
+    password: row[2],
+    role: row[3],
+    nama: row[4],
+    kelas: row[5],
+    status: row[6]
+  }));
+}
+
+// B. TAMBAH / EDIT USER
+function simpanUser(data) {
+  try {
+    const ss = SpreadsheetApp.openById(SS_ID);
+    const sheet = ss.getSheetByName("Users");
+    
+    // Validasi sederhana
+    if (!data.username || !data.password || !data.nama) {
+      return { status: 'error', message: 'Data tidak lengkap!' };
+    }
+
+    // Jika Mode EDIT (ada ID)
+    if (data.id) {
+      const allData = sheet.getDataRange().getValues();
+      // Cari baris berdasarkan ID (Kolom A / Index 0)
+      let rowIndex = -1;
+      for (let i = 1; i < allData.length; i++) {
+        if (allData[i][0].toString() === data.id.toString()) {
+          rowIndex = i + 1; // Row di sheet mulai dari 1
+          
+          // CEK KEAMANAN: Jangan edit jika role target adalah ADMIN (kecuali via sheet)
+          if (allData[i][3].toString().toLowerCase() === 'admin') {
+             return { status: 'error', message: 'Akun ADMIN hanya bisa diedit lewat Spreadsheet!' };
+          }
+          break;
+        }
+      }
+
+      if (rowIndex !== -1) {
+        // Update Baris
+        sheet.getRange(rowIndex, 2, 1, 6).setValues([[
+          data.username, data.password, data.role, data.nama, data.kelas || '-', data.status
+        ]]);
+        return { status: 'success', message: 'User berhasil diperbarui!' };
+      } else {
+        return { status: 'error', message: 'ID User tidak ditemukan.' };
+      }
+
+    } else {
+      // Mode TAMBAH BARU
+      const newId = "U-" + Date.now();
+      sheet.appendRow([
+        newId, data.username, data.password, data.role, data.nama, data.kelas || '-', 'Aktif'
+      ]);
+      return { status: 'success', message: 'User baru ditambahkan!' };
+    }
+
+  } catch (e) {
+    return { status: 'error', message: 'DB Error: ' + e.toString() };
+  }
+}
+
+// C. HAPUS USER
+function hapusUser(id) {
+  try {
+    const ss = SpreadsheetApp.openById(SS_ID);
+    const sheet = ss.getSheetByName("Users");
+    const data = sheet.getDataRange().getValues();
+    
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][0].toString() === id.toString()) {
+        // CEK KEAMANAN: Jangan hapus ADMIN
+        if (data[i][3].toString().toLowerCase() === 'admin') {
+           return { status: 'error', message: 'Akun ADMIN tidak boleh dihapus!' };
+        }
+        
+        sheet.deleteRow(i + 1);
+        return { status: 'success', message: 'User dihapus.' };
+      }
+    }
+    return { status: 'error', message: 'User tidak ditemukan.' };
+  } catch (e) {
+    return { status: 'error', message: e.toString() };
+  }
+}
