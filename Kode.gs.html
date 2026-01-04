@@ -32,7 +32,7 @@ function doGet(e) {
 }
 
 // ==========================================
-// API 1: LOGIN
+// API 1: LOGIN (Update Logic Role)
 // ==========================================
 function loginUser(username, password) {
   try {
@@ -50,13 +50,43 @@ function loginUser(username, password) {
         if(row[6] && row[6].toString().toLowerCase() !== 'aktif') {
           return { status: 'error', message: 'Akun dinonaktifkan.' };
         }
-        return { status: 'success', role: row[3], nama: row[4], kelas: row[5] };
+        
+        // Normalisasi role ke lowercase agar konsisten
+        const role = row[3].toString().toLowerCase();
+        
+        return { 
+          status: 'success', 
+          role: role, 
+          nama: row[4], 
+          kelas: row[5] 
+        };
       }
     }
     return { status: 'error', message: 'Username/Password salah.' };
   } catch (e) {
     return { status: 'error', message: 'Server Error: ' + e.toString() };
   }
+}
+
+// ==========================================
+// API BARU: DASHBOARD STATS
+// ==========================================
+function getDashboardStats() {
+  const ss = SpreadsheetApp.openById(SS_ID);
+  
+  // Hitung User
+  const sheetUser = ss.getSheetByName("Users");
+  const users = sheetUser ? sheetUser.getLastRow() - 1 : 0;
+  
+  // Hitung Soal
+  const sheetSoal = ss.getSheetByName("DB_Soal");
+  const soals = sheetSoal ? sheetSoal.getLastRow() - 1 : 0;
+  
+  // Hitung Ujian Masuk
+  const sheetNilai = ss.getSheetByName("DB_Nilai");
+  const nilais = sheetNilai ? sheetNilai.getLastRow() - 1 : 0;
+
+  return { users, soals, nilais };
 }
 
 // ==========================================
