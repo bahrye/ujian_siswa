@@ -830,52 +830,62 @@ function getMonitoringSiswa(idJadwal) {
   };
 }
 
-// 5. Update Monitoring Admin (List Ujian + Token masing-masing)
+// ==========================================
+// API 5: MONITORING ADMIN (DIPERBAIKI)
+// ==========================================
 function getAdminMonitoringSummary() {
   try {
     const ss = SpreadsheetApp.openById(SS_ID);
     const sheetJadwal = ss.getSheetByName("DB_Jadwal");
     
     // Validasi Sheet
-    if (!sheetJadwal) {
-      console.log("Error: Sheet DB_Jadwal tidak ditemukan.");
-      return { exams: [] }; 
-    }
+    if (!sheetJadwal) return { exams: [] };
     
     const dataJadwal = sheetJadwal.getDataRange().getValues();
-    
-    // Validasi Data Kosong (Hanya header atau kosong)
-    if (dataJadwal.length <= 1) {
-      console.log("Info: DB_Jadwal kosong (hanya header).");
-      return { exams: [] };
-    }
+    if (dataJadwal.length <= 1) return { exams: [] };
 
     dataJadwal.shift(); // Hapus Header
     
-    // Ambil jenis ujian dengan aman
-    let jenisUjian = [];
+    // 1. Ambil Jenis Ujian (Langsung dari sheet agar lebih aman & cepat)
+    let listJenis = [];
     try {
-      jenisUjian = getJenisUjian();
+      const sheetJenis = ss.getSheetByName("DB_JenisUjian");
+      if (sheetJenis) {
+        const dataJenis = sheetJenis.getDataRange().getValues();
+        dataJenis.shift();
+        // Simpan sebagai string untuk perbandingan aman
+        listJenis = dataJenis.map(r => ({ id: r[0].toString(), nama: r[1] }));
+      }
     } catch (err) {
       console.log("Warning: Gagal ambil Jenis Ujian. " + err.toString());
     }
   
+    // 2. Helper Format Tanggal (PENTING: Agar tidak error saat dikirim ke frontend)
+    const formatTime = (dateObj) => {
+      if (!dateObj) return "";
+      try {
+        // Ubah ke String ISO agar aman diterima Frontend
+        return Utilities.formatDate(new Date(dateObj), "Asia/Jakarta", "yyyy-MM-dd'T'HH:mm");
+      } catch (e) {
+        return "";
+      }
+    };
+
     let activeExams = [];
     
-    // Loop Data
-    dataJadwal.forEach((r, index) => {
-      // Ambil kolom Status (Index 5)
-      // Gunakan toString() dan trim() untuk membersihkan spasi tidak terlihat
+    // 3. Loop Data
+    dataJadwal.forEach((r) => {
+      // Pastikan kolom Status (Index 5) ada dan dibersihkan
       const rawStatus = r[5] ? r[5].toString() : "";
-      const status = rawStatus.trim().toLowerCase(); // ubah ke huruf kecil semua
+      const status = rawStatus.trim().toLowerCase();
       
-      // Cek Status (case-insensitive: 'aktif', 'Aktif', 'AKTIF' semua diterima)
+      // Filter hanya yang statusnya 'aktif'
       if (status === 'aktif') {
         const idJadwal = r[0];
         
-        // Cari Nama Jenis Ujian (Index 1)
-        const idJenis = r[1];
-        const objJenis = jenisUjian.find(j => j.id === idJenis);
+        // Cari Nama Jenis Ujian (Index 1) dengan perbandingan String
+        const idJenis = r[1] ? r[1].toString() : "";
+        const objJenis = listJenis.find(j => j.id === idJenis);
         const namaJenis = objJenis ? objJenis.nama : idJenis;
 
         // Generate Token
@@ -883,24 +893,21 @@ function getAdminMonitoringSummary() {
         try {
           thisToken = generateTokenForExam(idJadwal);
         } catch (errToken) {
-          console.log("Error Token untuk " + idJadwal + ": " + errToken.toString());
+          console.log("Error Token: " + errToken.toString());
         }
         
+        // Push data yang sudah bersih
         activeExams.push({
           id: idJadwal,
           jenis: namaJenis,
-          mapel: r[2], // Nama Mapel/Kode Mapel
-          mulai: r[3],
-          selesai: r[4],
+          mapel: r[2],               // Nama/Kode Mapel
+          mulai: formatTime(r[3]),   // Convert Date ke String
+          selesai: formatTime(r[4]), // Convert Date ke String
           token: thisToken
         });
-      } else {
-        // Log untuk debug baris yang tidak aktif (Bisa dicek di Executions Log)
-        console.log(`Baris ${index + 2} dilewati. Status: '${rawStatus}'`);
       }
     });
 
-    console.log(`Ditemukan ${activeExams.length} ujian aktif.`);
     return { exams: activeExams };
 
   } catch (e) {
