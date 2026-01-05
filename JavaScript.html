@@ -429,6 +429,84 @@
         }, 300); // <-- Delay 300 milidetik (0.3 detik)
       },
 
+      // --- IMPORT EXCEL & MEDIA ---
+      openImportModal: function() {
+        App.UI.openModal('modal-import');
+        document.getElementById('file-label').innerText = "Klik untuk pilih file ZIP";
+        document.getElementById('import-file').value = ""; // Reset file input
+
+        const sel = document.getElementById('import-mapel');
+        // Helper Render
+        const render = (data) => {
+            sel.innerHTML = '<option value="">- Pilih Mapel -</option>';
+            data.forEach(m => sel.insertAdjacentHTML('beforeend', `<option value="${m.kode}">${m.kode} - ${m.nama}</option>`));
+        };
+
+        if(App.Cache.get('mapel_opts')) {
+            render(App.Cache.get('mapel_opts'));
+        } else {
+            sel.innerHTML = '<option value="">Loading...</option>';
+            google.script.run.withSuccessHandler(d => {
+                App.Cache.set('mapel_opts', d);
+                render(d);
+            }).getAllMapel();
+        }
+      },
+
+      downloadTemplate: function() {
+        const btn = document.getElementById('btn-dl-template');
+        App.UI.setLoading(btn, true, 'Menyiapkan...');
+        
+        google.script.run.withSuccessHandler(res => {
+            App.UI.setLoading(btn, false, '<i class="fas fa-download"></i> Download .ZIP');
+            // Trik download file via JS
+            const link = document.createElement('a');
+            link.href = 'data:application/zip;base64,' + res.base64;
+            link.download = res.filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }).withFailureHandler(err => {
+            App.UI.setLoading(btn, false, 'Error');
+            Swal.fire('Gagal', err.message, 'error');
+        }).downloadTemplateImport();
+      },
+
+      handleImport: function(e) {
+        e.preventDefault();
+        const btn = document.getElementById('btn-action-import');
+        const mapel = document.getElementById('import-mapel').value;
+        const fileInput = document.getElementById('import-file');
+        
+        if(!mapel) return Swal.fire('Pilih Mapel', 'Silakan pilih mapel tujuan.', 'warning');
+        if(fileInput.files.length === 0) return Swal.fire('Pilih File', 'File ZIP belum dipilih.', 'warning');
+        
+        const file = fileInput.files[0];
+        // Limit client-side 25MB (Script limit is 50MB but safe 25)
+        if(file.size > 25 * 1024 * 1024) return Swal.fire('Terlalu Besar', 'Maksimal ukuran file ZIP adalah 25MB.', 'warning');
+
+        App.UI.setLoading(btn, true, 'Mengupload & Memproses...');
+        
+        const reader = new FileReader();
+        reader.onload = function(evt) {
+            const base64 = evt.target.result.split(',')[1];
+            
+            google.script.run.withSuccessHandler(res => {
+                App.UI.setLoading(btn, false, 'Mulai Import');
+                if(res.status === 'success') {
+                    App.UI.closeModal('modal-import');
+                    Swal.fire('Sukses!', res.message, 'success');
+                    App.Cache.clearPattern('soal_'); // Clear cache soal lama
+                    App.Cache.remove('stats');
+                    App.BankSoal.loadDaftar(true); // Refresh tabel
+                } else {
+                    Swal.fire('Gagal Import', res.message, 'error');
+                }
+            }).processImportZip(base64, mapel);
+        };
+        reader.readAsDataURL(file);
+      },
+
       hapus: function(id) {
         Swal.fire({ title: 'Hapus?', text: "Tak bisa balik.", icon: 'warning', showCancelButton: true, confirmButtonColor: '#d33' })
         .then((r) => { 
