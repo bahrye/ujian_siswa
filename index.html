@@ -135,6 +135,9 @@
                   <button onclick="App.BankSoal.toggleForm(true)" class="w-full md:w-auto px-5 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 shadow font-bold">
                     <i class="fas fa-plus"></i> Buat Soal
                   </button>
+                  <button onclick="App.BankSoal.openImportModal()" class="w-full md:w-auto px-4 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 shadow font-bold flex items-center justify-center gap-2">
+                    <i class="fas fa-file-excel"></i> Import Excel
+                  </button>
                 </div>
               </div>
               <div class="bg-white rounded-xl shadow border border-gray-200 overflow-hidden">
@@ -553,6 +556,50 @@
 
              <div class="pt-4 text-right"><button type="submit" id="btnSimpanJadwal" class="px-6 py-2 bg-indigo-600 text-white rounded font-bold shadow">Simpan Enrollment</button></div>
           </form>
+       </div>
+    </div>
+
+    <div id="modal-import" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm p-4">
+       <div class="bg-white w-full max-w-lg rounded-xl shadow-2xl p-6 animate__animated animate__zoomIn">
+          <div class="flex justify-between items-center mb-5 border-b pb-3">
+             <h3 class="text-xl font-bold text-gray-800"><i class="fas fa-file-excel text-green-600"></i> Import Bank Soal (Excel)</h3>
+             <button onclick="App.UI.closeModal('modal-import')" class="text-gray-400"><i class="fas fa-times"></i></button>
+          </div>
+          
+          <div class="space-y-4">
+            <div class="bg-green-50 p-4 rounded-lg border border-green-200 flex justify-between items-center">
+              <div>
+                <h4 class="font-bold text-green-800 text-sm">Download Format</h4>
+                <p class="text-xs text-green-600">Dapatkan template Excel & Petunjuk.</p>
+              </div>
+              <button onclick="App.BankSoal.downloadTemplate()" id="btn-dl-template" class="px-3 py-1.5 bg-green-600 text-white text-xs font-bold rounded hover:bg-green-700 shadow transition">
+                <i class="fas fa-download"></i> Download .ZIP
+              </button>
+            </div>
+      
+            <form onsubmit="App.BankSoal.handleImport(event)" class="space-y-4">
+              <div>
+                 <label class="block font-semibold mb-1 text-sm text-gray-600">Mapel Tujuan</label>
+                 <select id="import-mapel" class="input-std bg-gray-50" required>
+                   <option value="">Loading...</option>
+                 </select>
+              </div>
+              
+              <div class="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:bg-gray-50 transition relative">
+                 <input type="file" id="import-file" accept=".zip" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer" onchange="document.getElementById('file-label').innerText = this.files[0].name" required>
+                 <div class="pointer-events-none">
+                    <i class="fas fa-cloud-upload-alt text-3xl text-gray-400 mb-2"></i>
+                    <p class="text-sm font-bold text-gray-600" id="file-label">Klik untuk pilih file ZIP</p>
+                    <p class="text-[10px] text-gray-400 mt-1">Wajib format .ZIP berisi file Excel (.xlsx) dan Media.</p>
+                 </div>
+              </div>
+      
+              <div class="pt-2 flex justify-end gap-3">
+                 <button type="button" onclick="App.UI.closeModal('modal-import')" class="px-4 py-2 bg-gray-100 rounded-lg text-sm font-bold">Batal</button>
+                 <button type="submit" id="btn-action-import" class="px-6 py-2 bg-indigo-600 text-white rounded-lg font-bold shadow hover:bg-indigo-700 text-sm">Mulai Import</button>
+              </div>
+            </form>
+          </div>
        </div>
     </div>
 
