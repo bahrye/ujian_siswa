@@ -782,9 +782,10 @@
       },
 
       // A. RENDER TABEL JADWAL (Tambah kolom Pengawas)
+      // 1. UPDATE: Render Tabel Jadwal (Menampilkan Info Kelas)
       renderJadwal: function(data) {
         const tb = document.getElementById('tbody-jadwal'); tb.innerHTML = '';
-        if(data.length===0) { tb.innerHTML='<tr><td colspan="5" class="p-4 text-center text-gray-400">Belum ada Jadwal / Set Ujian.</td></tr>'; return; }
+        if(data.length===0) { tb.innerHTML='<tr><td colspan="6" class="p-4 text-center text-gray-400">Belum ada Jadwal.</td></tr>'; return; } // Colspan update jadi 6
 
         data.forEach((item, i) => {
            const badge = item.status === 'Aktif' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500';
@@ -793,7 +794,12 @@
            const selesai = new Date(item.selesai).toLocaleString('id-ID', fmt);
            const json = encodeURIComponent(JSON.stringify(item));
            
-           // Tampilan Pengawas
+           // Display Kelas
+           const kelasDisplay = item.target_kelas === 'Semua' 
+              ? '<span class="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs font-bold">Semua Kelas</span>' 
+              : `<span class="px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded text-xs font-bold"><i class="fas fa-users"></i> ${item.target_kelas}</span>`;
+
+           // Display Pengawas
            let pengawasDisplay = '<span class="text-gray-400 italic">Semua</span>';
            if(item.pengawas && item.pengawas.toLowerCase() !== 'semua') {
               pengawasDisplay = `<span class="bg-purple-100 text-purple-700 px-2 py-0.5 rounded text-xs font-bold"><i class="fas fa-user-shield"></i> ${item.pengawas}</span>`;
@@ -810,7 +816,7 @@
                  <div class="text-gray-600 mt-1"><i class="fas fa-stop text-red-500 w-4"></i> ${selesai}</div>
                </td>
                <td class="p-3 text-xs">${pengawasDisplay}</td>
-               <td class="p-3"><span class="px-2 py-1 rounded text-xs font-bold ${badge}">${item.status}</span></td>
+               <td class="p-3 text-xs">${kelasDisplay}</td> <td class="p-3"><span class="px-2 py-1 rounded text-xs font-bold ${badge}">${item.status}</span></td>
                <td class="p-3 text-right">
                  <button onclick="App.Ujian.editJadwal('${json}')" class="text-indigo-600 mr-2"><i class="fas fa-edit"></i></button>
                  <button onclick="App.Ujian.hapusJadwal('${item.id}')" class="text-red-500"><i class="fas fa-trash"></i></button>
@@ -837,17 +843,12 @@
       openModalJenis: function() { App.UI.openModal('modal-jenis'); document.getElementById('modal-jenis-title').innerText="Tambah Nama Ujian"; document.getElementById('formJenis').reset(); document.getElementById('j-id').value=""; },
 
       // B. SAVE JADWAL (Kirim data Pengawas)
+      // 2. UPDATE: Save Jadwal (Kirim data Kelas ke Backend)
       saveJadwal: function(e) {
         e.preventDefault(); 
         const btn = document.getElementById('btnSimpanJadwal'); 
         App.UI.setLoading(btn, true, 'Simpan');
         
-        // --- KODE LAMA (HAPUS/GANTI INI) ---
-        // const m = new Date(document.getElementById('sch-mulai').value).toISOString();
-        // const s = new Date(document.getElementById('sch-selesai').value).toISOString();
-
-        // --- KODE BARU (PAKAI INI) ---
-        // Mengambil nilai string langsung (format: YYYY-MM-DDTHH:mm) tanpa konversi ke UTC
         const m = document.getElementById('sch-mulai').value;
         const s = document.getElementById('sch-selesai').value;
         
@@ -858,7 +859,8 @@
           mulai: m, 
           selesai: s, 
           status: document.getElementById('sch-status').value,
-          pengawas: document.getElementById('sch-pengawas').value 
+          pengawas: document.getElementById('sch-pengawas').value,
+          target_kelas: document.getElementById('sch-kelas').value // <--- KIRIM KELAS
         };
         
         google.script.run.withSuccessHandler(r=>{
@@ -869,23 +871,19 @@
       },
 
       // C. EDIT JADWAL (Isi dropdown Pengawas)
+      // 4. UPDATE: Edit Jadwal (Passing data kelas)
       editJadwal: function(str) {
         const d = JSON.parse(decodeURIComponent(str)); 
         
-        // UPDATE: Kirim 'd.kode_mapel' sebagai parameter ke-3
-        App.Ujian.openModalJadwal(true, d.pengawas || 'semua', d.kode_mapel); 
+        // Passing 'd.target_kelas' sebagai parameter ke-4
+        App.Ujian.openModalJadwal(true, d.pengawas || 'semua', d.kode_mapel, d.target_kelas || 'Semua'); 
         
         document.getElementById('modal-jadwal-title').innerText = "Edit Set Ujian";
         document.getElementById('sch-id').value = d.id;
         
         setTimeout(() => {
           document.getElementById('sch-jenis').value = d.id_jenis;
-          // HAPUS baris mapel ini, karena sudah dipindah ke openModalJadwal
-          // document.getElementById('sch-mapel').value = d.kode_mapel; (HAPUS)
-          
           document.getElementById('sch-status').value = d.status;
-          
-          // Pastikan format tanggal sudah benar (sesuai perbaikan sebelumnya)
           document.getElementById('sch-mulai').value = d.mulai;
           document.getElementById('sch-selesai').value = d.selesai;
         }, 500); 
@@ -894,7 +892,9 @@
       hapusJadwal: function(id) { Swal.fire({title:'Hapus Jadwal?',icon:'warning',showCancelButton:true,confirmButtonColor:'#d33'}).then(r=>{ if(r.isConfirmed) google.script.run.withSuccessHandler(()=>{ App.Cache.remove('jadwal'); App.Ujian.loadJadwal(true); }).hapusJadwal(id); }); },
       
       // Tambahkan parameter 'selectedVal' (default null)
-      openModalJadwal: function(isEdit=false, selectedPengawas=null, selectedMapel=null) {
+      // 3. UPDATE: Open Modal (Load Dropdown Kelas)
+      // Tambahkan parameter 'selectedKelas'
+      openModalJadwal: function(isEdit=false, selectedPengawas=null, selectedMapel=null, selectedKelas=null) {
         App.UI.openModal('modal-jadwal'); 
         
         if(!isEdit) {
@@ -902,10 +902,11 @@
           document.getElementById('formJadwal').reset(); 
           document.getElementById('sch-id').value = "";
           selectedPengawas = 'semua';
-          selectedMapel = ""; // Reset mapel jika baru
+          selectedMapel = "";
+          selectedKelas = "Semua"; // Default
         }
         
-        // --- Bagian Jenis Ujian (Biarkan) ---
+        // --- LOGIKA JENIS UJIAN ---
         const selJenis = document.getElementById('sch-jenis');
         if(selJenis.options.length <= 1) {
             selJenis.innerHTML = '<option value="">- Pilih Ujian -</option>';
@@ -914,43 +915,39 @@
             });
         }
         
-        // --- PERBAIKAN LOGIKA MAPEL DISINI ---
+        // --- LOGIKA MAPEL ---
         const selMapel = document.getElementById('sch-mapel');
-        
-        // Fungsi Helper Render
         const renderMapelOpts = (data) => {
             selMapel.innerHTML = '<option value="">- Pilih Mapel/Bank Soal -</option>';
             data.forEach(m => selMapel.insertAdjacentHTML('beforeend', `<option value="${m.kode}">${m.kode} - ${m.nama}</option>`));
-            // LANGSUNG SET VALUE SETELAH RENDER
             if(selectedMapel) selMapel.value = selectedMapel;
         };
-
         if(selMapel.options.length <= 1) {
-            // Jika kosong, cek cache atau load server
-            if(App.Cache.get('mapel')) {
-                renderMapelOpts(App.Cache.get('mapel'));
-            } else {
-                selMapel.innerHTML = '<option value="">Loading...</option>';
-                google.script.run.withSuccessHandler(d => { 
-                    App.Cache.set('mapel',d); 
-                    renderMapelOpts(d); 
-                }).getAllMapel();
-            }
+            if(App.Cache.get('mapel')) renderMapelOpts(App.Cache.get('mapel'));
+            else google.script.run.withSuccessHandler(d => { App.Cache.set('mapel',d); renderMapelOpts(d); }).getAllMapel();
         } else {
-            // Jika data sudah ada (tidak kosong), langsung set value
             if(selectedMapel) selMapel.value = selectedMapel;
         }
 
-        // --- Bagian Pengawas (Sesuai perbaikan sebelumnya) ---
+        // --- LOGIKA PENGAWAS ---
         const selPengawas = document.getElementById('sch-pengawas');
         selPengawas.innerHTML = '<option value="">Loading...</option>';
         google.script.run.withSuccessHandler(users => {
             selPengawas.innerHTML = '<option value="semua">Semua Pengawas</option>';
-            users.forEach(u => {
-                selPengawas.insertAdjacentHTML('beforeend', `<option value="${u.username}">${u.nama} (${u.username})</option>`);
-            });
+            users.forEach(u => selPengawas.insertAdjacentHTML('beforeend', `<option value="${u.username}">${u.nama} (${u.username})</option>`));
             if(selectedPengawas) selPengawas.value = selectedPengawas;
         }).getListPengawas();
+
+        // --- TAMBAHAN: LOGIKA DROP DOWN KELAS ---
+        const selKelas = document.getElementById('sch-kelas');
+        selKelas.innerHTML = '<option value="Semua">Loading...</option>';
+        google.script.run.withSuccessHandler(kelasList => {
+           selKelas.innerHTML = '<option value="Semua">Semua Kelas</option>';
+           kelasList.forEach(k => {
+               selKelas.insertAdjacentHTML('beforeend', `<option value="${k}">${k}</option>`);
+           });
+           if(selectedKelas) selKelas.value = selectedKelas;
+        }).getListKelasUnik();
       }
     },
 
@@ -1111,23 +1108,45 @@
           
           google.script.run.withSuccessHandler(jadwal => {
              div.innerHTML = '';
-             if(jadwal.length === 0) { div.innerHTML = '<p class="text-center text-gray-400">Tidak ada jadwal ujian aktif.</p>'; return; }
              
-             jadwal.forEach(j => {
-                // Filter Jadwal di Client side atau Server side (sebaiknya server)
-                // Disini kita tampilkan tombol "Mulai"
+             // ----------------------------------------------------
+             // FILTER PENTING:
+             // 1. Status harus Aktif
+             // 2. Kelas harus "Semua" ATAU sama dengan kelas Siswa yang login
+             // ----------------------------------------------------
+             const userKelas = App.data.user.kelas ? App.data.user.kelas.trim().toLowerCase() : "";
+             
+             const filtered = jadwal.filter(j => {
+                 const statusAktif = j.status === 'Aktif';
+                 const targetKelas = j.target_kelas ? j.target_kelas.toString().trim().toLowerCase() : 'semua';
+                 const kelasMatch = (targetKelas === 'semua') || (targetKelas === userKelas);
+                 
+                 return statusAktif && kelasMatch;
+             });
+
+             if(filtered.length === 0) { 
+                 div.innerHTML = '<p class="text-center text-gray-400">Tidak ada jadwal ujian aktif untuk kelas Anda.</p>'; 
+                 return; 
+             }
+             
+             filtered.forEach(j => {
                 div.insertAdjacentHTML('beforeend', `
-                  <div class="flex justify-between items-center bg-gray-50 p-4 rounded border hover:bg-indigo-50 transition">
+                  <div class="flex flex-col md:flex-row justify-between items-start md:items-center bg-gray-50 p-4 rounded border hover:bg-indigo-50 transition gap-4">
                      <div>
                         <h4 class="font-bold text-lg text-indigo-700">${j.nama_mapel}</h4>
-                        <p class="text-xs text-gray-500"><i class="fas fa-clock"></i> ${new Date(j.mulai).toLocaleTimeString()} - ${new Date(j.selesai).toLocaleTimeString()}</p>
+                        <div class="flex gap-3 text-xs text-gray-500 mt-1">
+                           <span><i class="fas fa-clock"></i> ${new Date(j.mulai).toLocaleTimeString()} - ${new Date(j.selesai).toLocaleTimeString()}</span>
+                           <span class="bg-yellow-100 text-yellow-700 px-2 rounded font-bold">${j.target_kelas || 'Semua'}</span>
+                        </div>
+                        <p class="text-xs text-gray-400 mt-1">${j.nama_ujian}</p>
                      </div>
-                     <button onclick="App.Siswa.promptToken('${j.kode_mapel}', '${j.id}')" class="px-6 py-2 bg-indigo-600 text-white rounded-full font-bold shadow hover:bg-indigo-700">KERJAKAN</button>
+                     <button onclick="App.Siswa.promptToken('${j.kode_mapel}', '${j.id}')" class="w-full md:w-auto px-6 py-2 bg-indigo-600 text-white rounded-full font-bold shadow hover:bg-indigo-700">KERJAKAN</button>
                   </div>
                 `);
              });
-          }).getJadwalUjian(); // Perlu modif getJadwalUjian agar mengembalikan jadwal yang statusnya Aktif saja
+          }).getJadwalUjian(); 
        },
+       
        promptToken: function(kodeMapel, idJadwal) {
           Swal.fire({
             title: 'Masukkan Token',
