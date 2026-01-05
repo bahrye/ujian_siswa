@@ -357,28 +357,105 @@
             </div>
           </div>
 
-          <div id="view-pengawas" class="hidden animate__animated animate__fadeIn space-y-6">
-            
-            <div class="bg-gradient-to-r from-indigo-600 to-purple-600 rounded-xl p-6 text-white shadow-lg flex flex-col items-center justify-center relative overflow-hidden transition-all duration-300" id="box-token-pengawas">
-              <div class="absolute top-0 right-0 p-4 opacity-20"><i class="fas fa-key text-8xl"></i></div>
-              <p class="text-indigo-100 text-sm font-semibold uppercase tracking-wider mb-2" id="label-token-pengawas">Pilih Ujian Terlebih Dahulu</p>
-              <h1 id="token-display" class="text-4xl md:text-5xl font-black tracking-widest font-mono">-- -- --</h1>
-            </div>
+          <div id="view-pengawas-token" class="hidden animate__animated animate__fadeIn">
+             <div class="bg-blue-50 border-l-4 border-blue-500 p-4 mb-6 rounded-r shadow-sm">
+                <div class="flex">
+                   <div class="flex-shrink-0"><i class="fas fa-info-circle text-blue-500"></i></div>
+                   <div class="ml-3">
+                      <p class="text-sm text-blue-700">
+                         Halaman ini menampilkan daftar ujian yang ditugaskan kepada Anda.
+                         Tombol <b>Lihat Token</b> hanya akan aktif sesuai jadwal ujian.
+                      </p>
+                   </div>
+                </div>
+             </div>
+             
+             <div id="list-token-pengawas" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                </div>
+          </div>
 
-            <div class="bg-white rounded-xl shadow border p-4">
-              <div class="flex justify-between items-center mb-4 border-b pb-2">
-                <h3 class="font-bold text-gray-700"><i class="fas fa-desktop text-indigo-500"></i> Monitoring Siswa</h3>
-                <select id="mon-pilih-jadwal" onchange="App.Pengawas.loadMonitoring()" class="input-std text-sm w-64 bg-gray-50"></select>
-              </div>
-              <div class="overflow-x-auto">
-                <table class="w-full text-left text-sm">
-                  <thead class="bg-slate-50 text-slate-600">
-                    <tr><th class="p-3">Nama Siswa</th><th class="p-3">Kelas</th><th class="p-3 text-center">Status</th><th class="p-3 text-center">Aksi</th></tr>
-                  </thead>
-                  <tbody id="tbody-monitoring" class="divide-y"></tbody>
-                </table>
-              </div>
-            </div>
+          <div id="view-pengawas-monitor" class="hidden animate__animated animate__fadeIn">
+             <div class="bg-white rounded-xl shadow border border-gray-200 overflow-hidden flex flex-col min-h-[500px]">
+                
+                <div class="p-4 bg-slate-50 border-b flex flex-col md:flex-row justify-between items-center gap-4">
+                   <div class="flex items-center gap-3 w-full md:w-auto">
+                      <div class="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600"><i class="fas fa-desktop"></i></div>
+                      <div>
+                         <h3 class="font-bold text-gray-700">Monitoring Siswa</h3>
+                         <p class="text-xs text-gray-400">Pilih ujian untuk melihat status realtime</p>
+                      </div>
+                   </div>
+                   <div class="flex gap-2 w-full md:w-auto">
+                      <select id="mon-list-ujian" onchange="App.Pengawas.refreshMonitoring()" class="input-std bg-white shadow-sm border-gray-300 w-full md:w-64">
+                         <option value="">- Pilih Ujian -</option>
+                      </select>
+                      <button onclick="App.Pengawas.refreshMonitoring()" class="px-3 py-2 bg-white border rounded shadow hover:text-indigo-600" title="Refresh Data"><i class="fas fa-sync-alt"></i></button>
+                   </div>
+                </div>
+
+                <div id="mon-info-panel" class="hidden bg-indigo-600 text-white p-3 flex justify-between items-center px-6 shadow-inner">
+                    <span class="text-xs font-bold uppercase tracking-wider text-indigo-200">Token Ujian Ini:</span>
+                    <span id="mon-token-small" class="font-mono font-bold text-xl text-yellow-300 tracking-widest">---</span>
+                </div>
+
+                <div class="flex-1 overflow-auto bg-white relative">
+                   <table class="w-full text-left text-sm border-collapse">
+                      <thead class="bg-gray-100 text-gray-600 sticky top-0 z-10 shadow-sm uppercase text-xs">
+                         <tr>
+                            <th class="p-3 border-b">Siswa</th>
+                            <th class="p-3 border-b text-center">Kelas</th>
+                            <th class="p-3 border-b text-center">Status</th>
+                            <th class="p-3 border-b text-center">Aksi</th>
+                         </tr>
+                      </thead>
+                      <tbody id="tbody-mon-pgw" class="divide-y divide-gray-100">
+                         <tr><td colspan="4" class="p-10 text-center text-gray-400">Silakan pilih ujian di atas.</td></tr>
+                      </tbody>
+                   </table>
+                </div>
+             </div>
+          </div>
+
+          <div id="view-pengawas-pelanggaran" class="hidden animate__animated animate__fadeIn">
+             <div class="bg-white rounded-xl shadow-lg border border-red-100 overflow-hidden flex flex-col min-h-[500px]">
+                
+                <div class="p-5 bg-red-50 border-b border-red-100 flex flex-col md:flex-row justify-between items-center gap-4">
+                   <div class="flex items-center gap-4 w-full md:w-auto">
+                      <div class="w-12 h-12 rounded-full bg-red-100 border border-red-200 flex items-center justify-center text-red-600 text-xl shadow-sm">
+                          <i class="fas fa-exclamation-triangle"></i>
+                      </div>
+                      <div>
+                         <h3 class="font-bold text-gray-800 text-lg">Pelanggaran Siswa</h3>
+                         <p class="text-xs text-red-500 font-semibold">Daftar siswa yang terkunci sistem</p>
+                      </div>
+                   </div>
+                   <div class="flex gap-2 w-full md:w-auto">
+                      <select id="pel-list-ujian" onchange="App.Pengawas.refreshPelanggaran()" class="input-std bg-white shadow-sm border-gray-300 w-full md:w-64">
+                         <option value="">- Pilih Ujian -</option>
+                      </select>
+                      <button onclick="App.Pengawas.refreshPelanggaran()" class="px-4 py-2 bg-white border border-red-200 text-red-500 rounded shadow hover:bg-red-500 hover:text-white transition" title="Refresh Data">
+                          <i class="fas fa-sync-alt"></i>
+                      </button>
+                   </div>
+                </div>
+
+                <div class="flex-1 overflow-auto bg-white">
+                   <table class="w-full text-left text-sm border-collapse">
+                      <thead class="bg-gray-100 text-gray-600 sticky top-0 z-10 shadow-sm uppercase text-xs">
+                         <tr>
+                            <th class="p-4 border-b">Nama Siswa</th>
+                            <th class="p-4 border-b text-center">Kelas</th>
+                            <th class="p-4 border-b text-center">Status</th>
+                            <th class="p-4 border-b">Keterangan Pelanggaran</th>
+                            <th class="p-4 border-b text-center">Aksi</th>
+                         </tr>
+                      </thead>
+                      <tbody id="tbody-pel-pgw" class="divide-y divide-gray-100">
+                         <tr><td colspan="5" class="p-10 text-center text-gray-400">Pilih ujian untuk memindai pelanggaran.</td></tr>
+                      </tbody>
+                   </table>
+                </div>
+             </div>
           </div>
 
           <div id="view-admin-monitoring" class="hidden animate__animated animate__fadeIn">
