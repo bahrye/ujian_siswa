@@ -215,6 +215,52 @@
               </div>
             </div>
           </div>
+
+          <div id="view-ujian" class="hidden animate__animated animate__fadeIn space-y-8">
+            
+            <div>
+              <div class="flex justify-between items-center mb-4">
+                <div>
+                   <h3 class="text-lg font-bold text-gray-800">1. Nama Ujian</h3>
+                   <p class="text-xs text-gray-500">Kelola master jenis ujian (Misal: PAS, PAT).</p>
+                </div>
+                <div class="flex gap-2">
+                   <button onclick="App.Ujian.loadJenis(true)" class="p-2 bg-white border rounded hover:text-indigo-600"><i id="btn-refresh-ujian" class="fas fa-sync-alt"></i></button>
+                   <button onclick="App.Ujian.openModalJenis()" class="px-3 py-2 bg-slate-700 text-white rounded text-sm font-bold shadow hover:bg-slate-800"><i class="fas fa-plus"></i> Buat Nama</button>
+                </div>
+              </div>
+              <div class="bg-white rounded-xl shadow-sm border overflow-hidden">
+                <div class="overflow-x-auto">
+                  <table class="w-full text-left border-collapse min-w-[500px]">
+                    <thead class="bg-slate-50 text-slate-600 uppercase text-xs">
+                      <tr><th class="p-3">Nama Ujian</th><th class="p-3">Keterangan</th><th class="p-3">Status</th><th class="p-3 text-right">Aksi</th></tr>
+                    </thead>
+                    <tbody id="tbody-jenis-ujian" class="text-sm text-gray-700 divide-y"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <div class="flex justify-between items-center mb-4">
+                <div>
+                   <h3 class="text-lg font-bold text-gray-800">2. Set Ujian / Enrollment</h3>
+                   <p class="text-xs text-gray-500">Hubungkan mapel ke ujian & atur jadwal.</p>
+                </div>
+                <button onclick="App.Ujian.openModalJadwal()" class="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-bold shadow hover:bg-indigo-700"><i class="fas fa-plus-circle"></i> Tambah Set Ujian</button>
+              </div>
+              <div class="bg-white rounded-xl shadow-md border overflow-hidden">
+                <div class="overflow-x-auto">
+                  <table class="w-full text-left border-collapse min-w-[600px]">
+                    <thead class="bg-indigo-50 text-indigo-800 uppercase text-xs">
+                      <tr><th class="p-3">Ujian & Mapel</th><th class="p-3">Jadwal (Mulai - Selesai)</th><th class="p-3">Status</th><th class="p-3 text-right">Aksi</th></tr>
+                    </thead>
+                    <tbody id="tbody-jadwal" class="text-sm text-gray-700 divide-y"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
           
           <div id="view-akun" class="hidden animate__animated animate__fadeIn">
              <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
@@ -321,6 +367,41 @@
            <div class="pt-4 flex justify-end gap-3"><button type="button" onclick="App.UI.closeModal('modal-user')" class="px-4 py-2 bg-gray-100 rounded-lg">Batal</button><button type="submit" id="btnSimpanUser" class="px-6 py-2 bg-indigo-600 text-white rounded-lg font-bold">Simpan</button></div>
         </form>
       </div>
+    </div>
+
+    <div id="modal-jenis" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm p-4">
+       <div class="bg-white w-full max-w-sm rounded-xl shadow-2xl p-6">
+          <div class="flex justify-between mb-4 border-b pb-2"><h3 class="font-bold text-lg" id="modal-jenis-title">Nama Ujian</h3><button onclick="App.UI.closeModal('modal-jenis')"><i class="fas fa-times"></i></button></div>
+          <form id="formJenis" onsubmit="App.Ujian.saveJenis(event)" class="space-y-3">
+             <input type="hidden" id="j-id">
+             <div><label class="text-xs font-bold text-gray-500">Nama Event</label><input type="text" id="j-nama" class="input-std" placeholder="Contoh: PAS Ganjil 2024" required></div>
+             <div><label class="text-xs font-bold text-gray-500">Keterangan</label><input type="text" id="j-ket" class="input-std" placeholder="Opsional"></div>
+             <div><label class="text-xs font-bold text-gray-500">Status</label><select id="j-status" class="input-std"><option value="Aktif">Aktif</option><option value="Nonaktif">Nonaktif</option></select></div>
+             <div class="pt-2 text-right"><button type="submit" id="btnSimpanJenis" class="px-4 py-2 bg-slate-700 text-white rounded font-bold">Simpan</button></div>
+          </form>
+       </div>
+    </div>
+
+    <div id="modal-jadwal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm p-4">
+       <div class="bg-white w-full max-w-md rounded-xl shadow-2xl p-6">
+          <div class="flex justify-between mb-4 border-b pb-2"><h3 class="font-bold text-lg" id="modal-jadwal-title">Set Ujian</h3><button onclick="App.UI.closeModal('modal-jadwal')"><i class="fas fa-times"></i></button></div>
+          <form id="formJadwal" onsubmit="App.Ujian.saveJadwal(event)" class="space-y-3">
+             <input type="hidden" id="sch-id">
+             
+             <div><label class="text-xs font-bold text-gray-500">Pilih Nama Ujian</label><select id="sch-jenis" class="input-std bg-gray-50" required><option value="">Loading...</option></select></div>
+             
+             <div><label class="text-xs font-bold text-gray-500">Pilih Mapel / Bank Soal</label><select id="sch-mapel" class="input-std bg-gray-50" required><option value="">Loading...</option></select></div>
+             
+             <div class="grid grid-cols-2 gap-3">
+               <div><label class="text-xs font-bold text-gray-500">Mulai</label><input type="datetime-local" id="sch-mulai" class="input-std" required></div>
+               <div><label class="text-xs font-bold text-gray-500">Selesai</label><input type="datetime-local" id="sch-selesai" class="input-std" required></div>
+             </div>
+
+             <div><label class="text-xs font-bold text-gray-500">Status Enrollment</label><select id="sch-status" class="input-std"><option value="Aktif">Aktif (Bisa dikerjakan)</option><option value="Nonaktif">Nonaktif / Tutup</option></select></div>
+
+             <div class="pt-4 text-right"><button type="submit" id="btnSimpanJadwal" class="px-6 py-2 bg-indigo-600 text-white rounded font-bold shadow">Simpan Enrollment</button></div>
+          </form>
+       </div>
     </div>
 
     <div id="lock-screen" class="hidden fixed inset-0 z-[100] bg-red-900 flex items-center justify-center text-white text-center p-6">
