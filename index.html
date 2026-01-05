@@ -328,6 +328,25 @@
             </div>
           </div>
 
+          <div id="view-hasil-siswa" class="hidden animate__animated animate__fadeIn">
+            <h2 class="text-xl font-bold text-gray-800 mb-4">Riwayat Hasil Ujian</h2>
+            <div class="bg-white rounded-xl shadow overflow-hidden border border-gray-200">
+               <div class="overflow-x-auto">
+                 <table class="w-full text-left border-collapse">
+                    <thead class="bg-slate-50 text-slate-600 uppercase text-xs font-bold">
+                       <tr>
+                          <th class="p-4 border-b">Tanggal</th>
+                          <th class="p-4 border-b">Mata Pelajaran / Ujian</th>
+                          <th class="p-4 border-b text-center">Jawaban Benar</th>
+                          <th class="p-4 border-b text-center">Nilai Akhir</th>
+                       </tr>
+                    </thead>
+                    <tbody id="tbody-hasil-siswa" class="text-sm divide-y divide-gray-100"></tbody>
+                 </table>
+               </div>
+            </div>
+          </div>
+
           <div id="view-hasil-ujian" class="hidden animate__animated animate__fadeIn">
             <div class="flex justify-between items-center mb-4">
               <h2 class="text-xl font-bold text-gray-800">Rekap Nilai</h2>
