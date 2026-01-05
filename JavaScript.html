@@ -100,15 +100,28 @@
         document.getElementById('dash-nama').innerText = user.nama;
         document.getElementById('dash-initial').innerText = user.nama.charAt(0);
         document.getElementById('dash-role').innerText = user.role;
+        
         App.Dashboard.renderMenu(user.role);
-        App.Dashboard.loadStats();
+        
+        // === PERBAIKAN LOGIKA DISINI ===
+        // Cari tombol menu pertama (biasanya Dashboard)
+        const firstMenuBtn = document.querySelector('#sidebar-menu .nav-item');
+
+        if (user.role === 'siswa') {
+            // Jika SISWA: Langsung buka view 'dashboard' (yang akan diredirect ke Jadwal oleh switchView)
+            // JANGAN panggil App.Dashboard.loadStats()
+            App.UI.switchView('dashboard', firstMenuBtn);
+        } else {
+            // Jika ADMIN/GURU: Load statistik dan buka dashboard admin
+            App.Dashboard.loadStats();
+            App.UI.switchView('dashboard', firstMenuBtn);
+        }
       },
 
       renderMenu: function(role) {
         const menuContainer = document.getElementById('sidebar-menu');
         menuContainer.innerHTML = '';
         
-        // DEFINISI MENU STRICT SESUAI REQUEST
         let menus = [];
         
         if (role === 'admin') {
@@ -118,8 +131,8 @@
              { id: 'mapel', icon: 'fa-tags', label: 'Kelola Mapel' },
              { id: 'bank-soal', icon: 'fa-file-alt', label: 'Bank Soal' },
              { id: 'ujian', icon: 'fa-calendar-alt', label: 'Kelola Ujian' },
-             { id: 'admin-monitoring', icon: 'fa-desktop', label: 'Monitoring Live' }, // Menu Baru
-             { id: 'admin-hasil', icon: 'fa-poll', label: 'Hasil Ujian' },           // Menu Baru
+             { id: 'admin-monitoring', icon: 'fa-desktop', label: 'Monitoring Live' }, 
+             { id: 'admin-hasil', icon: 'fa-poll', label: 'Hasil Ujian' },           
            ];
         } else if (role === 'guru') {
            menus = [
@@ -134,18 +147,23 @@
            ];
         } else if (role === 'siswa') {
            menus = [
-             { id: 'dashboard', icon: 'fa-home', label: 'Dashboard' }, // Dashboard Siswa (Jadwal)
-             { id: 'hasil-siswa', icon: 'fa-poll', label: 'Hasil Ujian' }, // Menu Baru
+             // Label tetap Dashboard, tapi isinya nanti Jadwal Ujian
+             { id: 'dashboard', icon: 'fa-calendar-check', label: 'Jadwal Ujian' }, 
+             { id: 'hasil-siswa', icon: 'fa-poll', label: 'Riwayat Nilai' }, 
            ];
         }
 
         menus.forEach(m => {
-            const isActive = m.id === 'dashboard' ? 'bg-slate-800 border-l-4 border-indigo-500' : 'hover:bg-slate-800 text-gray-400 hover:text-white';
-            menuContainer.insertAdjacentHTML('beforeend', `<button onclick="App.UI.switchView('${m.id}', this)" class="nav-item w-full flex items-center gap-3 px-6 py-3 transition text-left ${isActive}"><i class="fas ${m.icon} w-5"></i> <span>${m.label}</span></button>`);
+            // Hapus class active default saat render, biarkan switchView yang mengaturnya
+            const btnClass = 'nav-item w-full flex items-center gap-3 px-6 py-3 transition text-left hover:bg-slate-800 text-gray-400 hover:text-white';
+            menuContainer.insertAdjacentHTML('beforeend', `<button onclick="App.UI.switchView('${m.id}', this)" class="${btnClass}"><i class="fas ${m.icon} w-5"></i> <span>${m.label}</span></button>`);
         });
       },
 
       loadStats: function(forceRefresh = false) {
+        // Guard: Pastikan Siswa tidak pernah memanggil ini
+        if (App.data.role === 'siswa') return;
+
         if (!forceRefresh && App.Cache.get('stats')) {
            App.Dashboard.renderStats(App.Cache.get('stats')); return;
         }
