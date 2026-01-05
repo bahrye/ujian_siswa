@@ -537,9 +537,10 @@
         });
       },
 
+      // A. RENDER TABEL JADWAL (Tambah kolom Pengawas)
       renderJadwal: function(data) {
         const tb = document.getElementById('tbody-jadwal'); tb.innerHTML = '';
-        if(data.length===0) { tb.innerHTML='<tr><td colspan="6" class="p-4 text-center text-gray-400">Belum ada Jadwal / Set Ujian.</td></tr>'; return; }
+        if(data.length===0) { tb.innerHTML='<tr><td colspan="5" class="p-4 text-center text-gray-400">Belum ada Jadwal / Set Ujian.</td></tr>'; return; }
 
         data.forEach((item, i) => {
            const badge = item.status === 'Aktif' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500';
@@ -547,6 +548,12 @@
            const mulai = new Date(item.mulai).toLocaleString('id-ID', fmt);
            const selesai = new Date(item.selesai).toLocaleString('id-ID', fmt);
            const json = encodeURIComponent(JSON.stringify(item));
+           
+           // Tampilan Pengawas
+           let pengawasDisplay = '<span class="text-gray-400 italic">Semua</span>';
+           if(item.pengawas && item.pengawas.toLowerCase() !== 'semua') {
+              pengawasDisplay = `<span class="bg-purple-100 text-purple-700 px-2 py-0.5 rounded text-xs font-bold"><i class="fas fa-user-shield"></i> ${item.pengawas}</span>`;
+           }
            
            tb.insertAdjacentHTML('beforeend', `
              <tr class="border-b hover:bg-slate-50">
@@ -558,6 +565,7 @@
                  <div class="text-gray-600"><i class="fas fa-play text-green-500 w-4"></i> ${mulai}</div>
                  <div class="text-gray-600 mt-1"><i class="fas fa-stop text-red-500 w-4"></i> ${selesai}</div>
                </td>
+               <td class="p-3 text-xs">${pengawasDisplay}</td>
                <td class="p-3"><span class="px-2 py-1 rounded text-xs font-bold ${badge}">${item.status}</span></td>
                <td class="p-3 text-right">
                  <button onclick="App.Ujian.editJadwal('${json}')" class="text-indigo-600 mr-2"><i class="fas fa-edit"></i></button>
@@ -584,7 +592,7 @@
       hapusJenis: function(id) { Swal.fire({title:'Hapus?',text:'Jadwal terkait mungkin error',icon:'warning',showCancelButton:true,confirmButtonColor:'#d33'}).then(r=>{ if(r.isConfirmed) google.script.run.withSuccessHandler(()=>{ App.Cache.remove('jenis_ujian'); App.Ujian.loadJenis(true); }).hapusJenisUjian(id); }); },
       openModalJenis: function() { App.UI.openModal('modal-jenis'); document.getElementById('modal-jenis-title').innerText="Tambah Nama Ujian"; document.getElementById('formJenis').reset(); document.getElementById('j-id').value=""; },
 
-      // D. CRUD Operations (Jadwal)
+      // B. SAVE JADWAL (Kirim data Pengawas)
       saveJadwal: function(e) {
         e.preventDefault(); const btn=document.getElementById('btnSimpanJadwal'); App.UI.setLoading(btn,true,'Simpan');
         const m = new Date(document.getElementById('sch-mulai').value).toISOString();
@@ -594,30 +602,38 @@
           id: document.getElementById('sch-id').value, 
           id_jenis: document.getElementById('sch-jenis').value,
           kode_mapel: document.getElementById('sch-mapel').value,
-          mulai: m, selesai: s, status: document.getElementById('sch-status').value 
+          mulai: m, selesai: s, 
+          status: document.getElementById('sch-status').value,
+          pengawas: document.getElementById('sch-pengawas').value // Data Baru
         };
+        
         google.script.run.withSuccessHandler(r=>{
            App.UI.setLoading(btn,false,'Simpan'); 
            if(r.status==='success') { App.UI.closeModal('modal-jadwal'); App.Cache.remove('jadwal'); App.Ujian.loadJadwal(true); Swal.fire('Sukses',r.message,'success'); }
            else Swal.fire('Error', r.message, 'error');
         }).simpanJadwal(d);
       },
+
+      // C. EDIT JADWAL (Isi dropdown Pengawas)
       editJadwal: function(str) {
         const d=JSON.parse(decodeURIComponent(str)); 
-        App.Ujian.openModalJadwal(true); // Load dropdowns first
+        App.Ujian.openModalJadwal(true); 
         document.getElementById('modal-jadwal-title').innerText="Edit Set Ujian";
         document.getElementById('sch-id').value=d.id;
-        // Delay setting values to wait for dropdowns
+        
         setTimeout(() => {
            document.getElementById('sch-jenis').value=d.id_jenis;
            document.getElementById('sch-mapel').value=d.kode_mapel;
            document.getElementById('sch-status').value=d.status;
+           document.getElementById('sch-pengawas').value=d.pengawas || 'semua'; // Set Value Pengawas
            document.getElementById('sch-mulai').value=d.mulai.slice(0,16);
            document.getElementById('sch-selesai').value=d.selesai.slice(0,16);
-        }, 300);
+        }, 500); // Delay sedikit lebih lama agar list pengawas termuat
       },
+
       hapusJadwal: function(id) { Swal.fire({title:'Hapus Jadwal?',icon:'warning',showCancelButton:true,confirmButtonColor:'#d33'}).then(r=>{ if(r.isConfirmed) google.script.run.withSuccessHandler(()=>{ App.Cache.remove('jadwal'); App.Ujian.loadJadwal(true); }).hapusJadwal(id); }); },
       
+      // D. OPEN MODAL (Load List Pengawas)
       openModalJadwal: function(isEdit=false) {
         App.UI.openModal('modal-jadwal'); 
         if(!isEdit) {
@@ -626,26 +642,35 @@
            document.getElementById('sch-id').value="";
         }
         
-        // Populate Dropdown Jenis
+        // Populate Jenis & Mapel (Sama seperti sebelumnya...)
         const selJenis = document.getElementById('sch-jenis');
-        selJenis.innerHTML = '<option value="">- Pilih Ujian -</option>';
-        (App.data.jenisUjianList || []).forEach(j => {
-           if(j.status === 'Aktif') selJenis.insertAdjacentHTML('beforeend', `<option value="${j.id}">${j.nama}</option>`);
-        });
-
-        // Populate Dropdown Mapel
-        const selMapel = document.getElementById('sch-mapel');
-        selMapel.innerHTML = '<option value="">- Loading -</option>';
-        if(App.Cache.get('mapel')) {
-           renderMapelOpts(App.Cache.get('mapel'));
-        } else {
-           google.script.run.withSuccessHandler(d=>{ App.Cache.set('mapel',d); renderMapelOpts(d); }).getAllMapel();
+        if(selJenis.options.length <= 1) { // Load only if empty
+            selJenis.innerHTML = '<option value="">- Pilih Ujian -</option>';
+            (App.data.jenisUjianList || []).forEach(j => {
+               if(j.status === 'Aktif') selJenis.insertAdjacentHTML('beforeend', `<option value="${j.id}">${j.nama}</option>`);
+            });
         }
-
+        
+        const selMapel = document.getElementById('sch-mapel');
+        if(selMapel.options.length <= 1) {
+            selMapel.innerHTML = '<option value="">- Pilih Mapel -</option>';
+            if(App.Cache.get('mapel')) renderMapelOpts(App.Cache.get('mapel'));
+            else google.script.run.withSuccessHandler(d=>{ App.Cache.set('mapel',d); renderMapelOpts(d); }).getAllMapel();
+        }
         function renderMapelOpts(d) {
            selMapel.innerHTML = '<option value="">- Pilih Mapel/Bank Soal -</option>';
            d.forEach(m => selMapel.insertAdjacentHTML('beforeend', `<option value="${m.kode}">${m.kode} - ${m.nama}</option>`));
         }
+
+        // --- BARU: POPULATE PENGAWAS ---
+        const selPengawas = document.getElementById('sch-pengawas');
+        selPengawas.innerHTML = '<option value="">Loading...</option>';
+        google.script.run.withSuccessHandler(users => {
+             selPengawas.innerHTML = '<option value="semua">Semua Pengawas</option>';
+             users.forEach(u => {
+                 selPengawas.insertAdjacentHTML('beforeend', `<option value="${u.username}">${u.nama} (${u.username})</option>`);
+             });
+        }).getListPengawas();
       }
     },
 
@@ -713,19 +738,25 @@
     // --- Module Pengawas ---
     Pengawas: {
        loadToken: function() {
-          // Reset Tampilan
+          // Reset UI
           document.getElementById('token-display').innerText = "-- -- --";
           document.getElementById('label-token-pengawas').innerText = "Pilih Ujian";
           
+          // Ambil Username Pengawas yang sedang login
+          const currentUser = App.data.user ? App.data.user.username : '';
+
           google.script.run.withSuccessHandler(res => {
              const sel = document.getElementById('mon-pilih-jadwal');
              sel.innerHTML = '<option value="">- Pilih Ujian -</option>';
-             // res.jadwal berisi array jadwal aktif
+             
+             if(res.jadwal.length === 0) {
+                 sel.innerHTML = '<option value="">(Tidak ada jadwal ujian aktif untuk Anda)</option>';
+             }
+
              res.jadwal.forEach(j => {
-                // Value = ID Jadwal (PENTING untuk token unik)
-                sel.insertAdjacentHTML('beforeend', `<option value="${j.id}">${j.mapel} (${j.mulai})</option>`);
+                sel.insertAdjacentHTML('beforeend', `<option value="${j.id}">${j.mapel} (${new Date(j.mulai).toLocaleTimeString()})</option>`);
              });
-          }).getPengawasDashboard();
+          }).getPengawasDashboard(currentUser); // KIRIM USERNAME DISINI
        },
        loadMonitoring: function() {
           const idJadwal = document.getElementById('mon-pilih-jadwal').value;
