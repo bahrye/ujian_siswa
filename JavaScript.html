@@ -922,7 +922,7 @@
           
           google.script.run.withSuccessHandler(res => {
              listDiv.innerHTML = '';
-             if(res.exams.length === 0) {
+             if (!res || !res.exams || res.exams.length === 0) {
                 listDiv.innerHTML = '<div class="text-center p-6 bg-white rounded-lg border border-gray-200"><i class="fas fa-coffee text-gray-300 text-3xl mb-2"></i><p class="text-gray-500 text-sm font-bold">Tidak ada ujian aktif.</p></div>';
                 return;
              }
@@ -1204,10 +1204,25 @@
   window.addEventListener("blur", () => { if(App.data.examRunning) App.Security.triggerLock("Keluar App"); });
   let activityTimer;
   ['click', 'mousemove', 'keypress', 'scroll', 'touchstart'].forEach(evt => document.addEventListener(evt, () => sessionStorage.setItem('last_activity', Date.now()), false));
+
   setInterval(() => {
      const lastAct = sessionStorage.getItem('last_activity');
+     // Cek jika ada sesi (lastAct) DAN waktu sudah lewat (misal 10 menit)
      if (lastAct && (Date.now() - parseInt(lastAct) > 10 * 60 * 1000)) { 
-        sessionStorage.clear(); Swal.fire('Sesi Habis', 'Login kembali.', 'warning').then(() => window.location.reload()); 
+        
+        // Hapus sesi
+        sessionStorage.clear(); 
+        
+        // Tampilkan pesan, lalu panggil forceLogout (bukan reload)
+        Swal.fire({
+          title: 'Sesi Habis', 
+          text: 'Silakan login kembali.', 
+          icon: 'warning',
+          confirmButtonText: 'OK'
+        }).then(() => {
+            // Panggil fungsi logout aplikasi agar langsung ganti ke tampilan Login
+            App.Auth.forceLogout(); 
+        });
      }
   }, 60 * 1000);
 
