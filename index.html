@@ -253,7 +253,12 @@
                 <div class="overflow-x-auto">
                   <table class="w-full text-left border-collapse min-w-[600px]">
                     <thead class="bg-indigo-50 text-indigo-800 uppercase text-xs">
-                      <tr><th class="p-3">Ujian & Mapel</th><th class="p-3">Jadwal (Mulai - Selesai)</th><th class="p-3">Status</th><th class="p-3 text-right">Aksi</th></tr>
+                      <tr>
+                        <th class="p-3">Ujian & Mapel</th>
+                        <th class="p-3">Jadwal (Mulai - Selesai)</th>
+                        <th class="p-3">Pengawas</th> <th class="p-3">Status</th>
+                        <th class="p-3 text-right">Aksi</th>
+                      </tr>
                     </thead>
                     <tbody id="tbody-jadwal" class="text-sm text-gray-700 divide-y"></tbody>
                   </table>
@@ -531,6 +536,14 @@
              </div>
 
              <div><label class="text-xs font-bold text-gray-500">Status Enrollment</label><select id="sch-status" class="input-std"><option value="Aktif">Aktif (Bisa dikerjakan)</option><option value="Nonaktif">Nonaktif / Tutup</option></select></div>
+
+             <div>
+               <label class="text-xs font-bold text-gray-500">Pilih Pengawas</label>
+               <select id="sch-pengawas" class="input-std bg-gray-50">
+                 <option value="">Loading...</option>
+               </select>
+               <p class="text-[10px] text-gray-400 mt-1">*Pilih "Semua" jika ujian bisa diawasi siapa saja.</p>
+             </div>
 
              <div class="pt-4 text-right"><button type="submit" id="btnSimpanJadwal" class="px-6 py-2 bg-indigo-600 text-white rounded font-bold shadow">Simpan Enrollment</button></div>
           </form>
