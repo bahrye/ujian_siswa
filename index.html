@@ -325,11 +325,10 @@
 
           <div id="view-pengawas" class="hidden animate__animated animate__fadeIn space-y-6">
             
-            <div class="bg-gradient-to-r from-indigo-600 to-purple-600 rounded-xl p-6 text-white shadow-lg flex flex-col items-center justify-center relative overflow-hidden">
+            <div class="bg-gradient-to-r from-indigo-600 to-purple-600 rounded-xl p-6 text-white shadow-lg flex flex-col items-center justify-center relative overflow-hidden transition-all duration-300" id="box-token-pengawas">
               <div class="absolute top-0 right-0 p-4 opacity-20"><i class="fas fa-key text-8xl"></i></div>
-              <p class="text-indigo-100 text-sm font-semibold uppercase tracking-wider mb-2">Token Ujian (Reset 15 Menit)</p>
-              <h1 id="token-display" class="text-5xl md:text-6xl font-black tracking-widest font-mono">------</h1>
-              <button onclick="App.Pengawas.loadToken()" class="mt-4 text-xs bg-white bg-opacity-20 hover:bg-opacity-30 px-3 py-1 rounded"><i class="fas fa-sync-alt"></i> Refresh Token</button>
+              <p class="text-indigo-100 text-sm font-semibold uppercase tracking-wider mb-2" id="label-token-pengawas">Pilih Ujian Terlebih Dahulu</p>
+              <h1 id="token-display" class="text-4xl md:text-5xl font-black tracking-widest font-mono">-- -- --</h1>
             </div>
 
             <div class="bg-white rounded-xl shadow border p-4">
@@ -340,12 +339,7 @@
               <div class="overflow-x-auto">
                 <table class="w-full text-left text-sm">
                   <thead class="bg-slate-50 text-slate-600">
-                    <tr>
-                      <th class="p-3">Nama Siswa</th>
-                      <th class="p-3">Kelas</th>
-                      <th class="p-3 text-center">Status</th>
-                      <th class="p-3 text-center">Aksi</th>
-                    </tr>
+                    <tr><th class="p-3">Nama Siswa</th><th class="p-3">Kelas</th><th class="p-3 text-center">Status</th><th class="p-3 text-center">Aksi</th></tr>
                   </thead>
                   <tbody id="tbody-monitoring" class="divide-y"></tbody>
                 </table>
@@ -353,73 +347,63 @@
             </div>
           </div>
 
-          <div id="view-admin-monitoring" class="hidden animate__animated animate__fadeIn space-y-6">
-             <div class="bg-indigo-900 rounded-xl p-6 text-white shadow-lg flex justify-between items-center relative overflow-hidden">
-                <div class="relative z-10">
-                   <p class="text-indigo-300 text-xs font-bold uppercase tracking-widest mb-1">Token Ujian Aktif (Global)</p>
-                   <h1 id="adm-token-display" class="text-5xl font-black font-mono tracking-widest">------</h1>
-                   <p class="text-[10px] text-indigo-400 mt-2">*Token berubah otomatis tiap 15 menit</p>
-                </div>
-                <div class="text-right z-10">
-                   <button onclick="App.AdminMonitor.loadSummary()" class="bg-white bg-opacity-10 hover:bg-opacity-20 px-4 py-2 rounded text-sm font-bold backdrop-blur-sm transition">
-                      <i class="fas fa-sync-alt"></i> Refresh Data
-                   </button>
-                </div>
-                <div class="absolute right-0 bottom-0 opacity-10 transform translate-x-10 translate-y-10">
-                   <i class="fas fa-shield-alt text-9xl"></i>
-                </div>
-             </div>
-
-             <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div id="view-admin-monitoring" class="hidden animate__animated animate__fadeIn">
+             <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
                 
-                <div class="bg-white rounded-xl shadow border border-gray-200 lg:col-span-1 flex flex-col h-[500px]">
-                   <div class="p-4 border-b bg-gray-50">
-                      <h3 class="font-bold text-gray-700"><i class="fas fa-satellite-dish text-green-500"></i> Ujian Aktif</h3>
-                      <p class="text-xs text-gray-500">Pilih ujian untuk melihat status siswa.</p>
-                   </div>
-                   <div id="adm-list-exams" class="overflow-y-auto flex-1 p-2 space-y-2">
-                      <p class="text-center text-gray-400 mt-10">Memuat data...</p>
-                   </div>
-                </div>
-
-                <div class="bg-white rounded-xl shadow border border-gray-200 lg:col-span-2 flex flex-col h-[500px]">
-                   <div class="p-4 border-b bg-gray-50 flex justify-between items-center">
+                <div class="lg:col-span-4 bg-white rounded-xl shadow border border-gray-200 flex flex-col h-[600px] overflow-hidden sticky top-6">
+                   <div class="p-4 border-b bg-gray-50 flex justify-between items-center shrink-0">
                       <div>
-                         <h3 class="font-bold text-gray-800" id="adm-mon-title">Detail Monitoring</h3>
-                         <p class="text-xs text-gray-500" id="adm-mon-subtitle">Pilih ujian di samping terlebih dahulu.</p>
+                        <h3 class="font-bold text-gray-700"><i class="fas fa-list"></i> Ujian Aktif</h3>
+                        <p class="text-[10px] text-gray-400">Pilih ujian untuk melihat detail</p>
                       </div>
-                      <div class="flex gap-2">
-                         <div class="text-xs px-3 py-1 bg-blue-100 text-blue-700 rounded font-bold" id="counter-active">Mengerjakan: 0</div>
-                         <div class="text-xs px-3 py-1 bg-red-100 text-red-700 rounded font-bold" id="counter-locked">Terkunci: 0</div>
-                      </div>
+                      <button onclick="App.AdminMonitor.loadSummary()" class="text-gray-500 hover:text-indigo-600 p-2"><i class="fas fa-sync-alt"></i></button>
                    </div>
-                   
-                   <div class="flex-1 overflow-auto bg-white relative">
-                      <table class="w-full text-left text-sm border-collapse">
-                         <thead class="bg-slate-100 text-slate-600 sticky top-0 z-10">
-                            <tr>
-                               <th class="p-3 border-b">Nama Siswa</th>
-                               <th class="p-3 border-b text-center">Kelas</th>
-                               <th class="p-3 border-b text-center">Status</th>
-                               <th class="p-3 border-b text-center">Aksi</th>
-                            </tr>
-                         </thead>
-                         <tbody id="tbody-adm-monitoring" class="divide-y divide-gray-100">
-                            <tr><td colspan="4" class="p-10 text-center text-gray-400">Silakan pilih ujian aktif di menu kiri.</td></tr>
-                         </tbody>
-                      </table>
-                   </div>
-
-                   <div class="h-40 border-t bg-red-50 p-4 overflow-y-auto shrink-0">
-                      <h4 class="text-xs font-bold text-red-800 uppercase mb-2 flex items-center gap-2">
-                         <i class="fas fa-exclamation-triangle"></i> Daftar Terkunci / Pelanggaran
-                      </h4>
-                      <div id="list-adm-locked" class="space-y-2">
-                         <p class="text-xs text-gray-400 italic">Tidak ada siswa terkunci pada ujian ini.</p>
-                      </div>
-                   </div>
+                   <div id="adm-list-exams" class="overflow-y-auto flex-1 p-3 space-y-3 bg-gray-50 scroll-smooth"></div>
                 </div>
 
+                <div class="lg:col-span-8 flex flex-col gap-6">
+                   
+                   <div class="bg-white rounded-xl shadow border border-gray-200 flex flex-col min-h-[500px] relative">
+                       <div class="p-4 border-b bg-indigo-600 text-white flex justify-between items-center z-10 shrink-0">
+                          <div>
+                             <h3 class="font-bold text-lg" id="adm-mon-title">Pilih Ujian</h3>
+                             <p class="text-xs text-indigo-200" id="adm-mon-subtitle">Klik list di samping kiri</p>
+                          </div>
+                          <div class="text-right hidden" id="adm-header-stats">
+                              <span class="block text-2xl font-mono font-black tracking-widest text-yellow-300" id="adm-mon-token">---</span>
+                              <span class="text-[10px] uppercase font-bold text-indigo-200">Token Ujian Ini</span>
+                          </div>
+                       </div>
+                       <div class="flex-1 overflow-auto bg-white">
+                          <table class="w-full text-left text-sm border-collapse">
+                             <thead class="bg-slate-100 text-slate-600 sticky top-0 z-10 shadow-sm">
+                                <tr>
+                                   <th class="p-3 border-b">Nama Siswa</th>
+                                   <th class="p-3 border-b text-center">Kelas</th>
+                                   <th class="p-3 border-b text-center">Status</th>
+                                   <th class="p-3 border-b text-center">Aksi</th>
+                                </tr>
+                             </thead>
+                             <tbody id="tbody-adm-monitoring" class="divide-y divide-gray-100">
+                                <tr><td colspan="4" class="p-10 text-center text-gray-400">Belum ada data.</td></tr>
+                             </tbody>
+                          </table>
+                       </div>
+                   </div>
+
+                   <div class="bg-red-50 rounded-xl shadow border border-red-200 h-48 flex flex-col shrink-0 overflow-hidden">
+                      <div class="px-4 py-2 border-b border-red-200 bg-red-100 flex justify-between items-center shrink-0">
+                         <h4 class="text-sm font-bold text-red-800 uppercase flex items-center gap-2">
+                            <i class="fas fa-exclamation-circle text-red-600"></i> Menu Pelanggaran / Buka Kunci
+                         </h4>
+                         <span id="badge-locked-count" class="bg-red-600 text-white text-[10px] px-2 py-0.5 rounded-full font-bold hidden">0</span>
+                      </div>
+                      <div id="list-adm-locked" class="p-3 overflow-y-auto grid grid-cols-1 md:grid-cols-2 gap-3 content-start">
+                         <p class="text-xs text-gray-400 italic w-full text-center col-span-full mt-4">Tidak ada siswa yang terkunci saat ini.</p>
+                      </div>
+                   </div>
+
+                </div>
              </div>
           </div>
 
