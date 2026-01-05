@@ -888,7 +888,6 @@ function getJadwalUjian() {
   let sheet = ss.getSheetByName("DB_Jadwal");
   if (!sheet) {
     sheet = ss.insertSheet("DB_Jadwal");
-    // Update Header: Tambah Kolom Pengawas di Index 6 (Kolom G)
     sheet.appendRow(["ID", "ID_Jenis", "Kode_Mapel", "Mulai", "Selesai", "Status", "Pengawas"]);
     return [];
   }
@@ -901,16 +900,33 @@ function getJadwalUjian() {
   return data.map(r => {
     const j = jenis.find(x => x.id === r[1]);
     const m = mapel.find(x => x.kode === r[2]);
+    
+    // --- TAMBAHAN KODE PERBAIKAN TANGGAL ---
+    // Fungsi kecil untuk format tanggal sesuai input HTML (datetime-local)
+    // Menggunakan Asia/Jakarta agar tidak lari ke UTC
+    const formatTime = (dateObj) => {
+      if (!dateObj) return "";
+      try {
+        return Utilities.formatDate(new Date(dateObj), "Asia/Jakarta", "yyyy-MM-dd'T'HH:mm");
+      } catch (e) {
+        return "";
+      }
+    };
+    // ----------------------------------------
+
     return {
       id: r[0],
       id_jenis: r[1],
       nama_ujian: j ? j.nama : r[1], 
       kode_mapel: r[2],
       nama_mapel: m ? m.nama : r[2],
-      mulai: r[3],   
-      selesai: r[4], 
+      
+      // Gunakan fungsi formatTime di sini
+      mulai: formatTime(r[3]),   
+      selesai: formatTime(r[4]), 
+      
       status: r[5],
-      pengawas: r[6] || '' // Kolom G: Username Pengawas
+      pengawas: r[6] || '' 
     };
   });
 }
