@@ -980,14 +980,14 @@ function getListKelasUnik() {
   return Array.from(kelasSet).sort();
 }
 
-// 2. UPDATE: getJadwalUjian (Tambahkan pembacaan kolom Kelas)
+// 2. UPDATE: getJadwalUjian (Tambahkan kolom Durasi, AcakSoal, AcakOpsi)
 function getJadwalUjian() {
   const ss = SpreadsheetApp.openById(SS_ID);
   let sheet = ss.getSheetByName("DB_Jadwal");
   if (!sheet) {
     sheet = ss.insertSheet("DB_Jadwal");
-    // Header diperbarui dengan kolom Kelas
-    sheet.appendRow(["ID", "ID_Jenis", "Kode_Mapel", "Mulai", "Selesai", "Status", "Pengawas", "Kelas"]);
+    // Header diperbarui (Col 1-8 Lama, 9-11 Baru)
+    sheet.appendRow(["ID", "ID_Jenis", "Kode_Mapel", "Mulai", "Selesai", "Status", "Pengawas", "Kelas", "Durasi", "Acak_Soal", "Acak_Opsi"]);
     return [];
   }
   const data = sheet.getDataRange().getValues();
@@ -1015,19 +1015,22 @@ function getJadwalUjian() {
       selesai: formatTime(r[4]), 
       status: r[5],
       pengawas: r[6] || '',
-      target_kelas: r[7] || 'Semua' // <--- DATA BARU (Kolom H)
+      target_kelas: r[7] || 'Semua',
+      durasi: r[8] || 60,         // Default 60 menit
+      acak_soal: r[9] === true || r[9] === 'true', // Boolean
+      acak_opsi: r[10] === true || r[10] === 'true' // Boolean
     };
   });
 }
 
-// 3. UPDATE: simpanJadwal (Simpan kolom Kelas ke DB)
+// 3. UPDATE: simpanJadwal (Simpan kolom baru)
 function simpanJadwal(data) {
   const ss = SpreadsheetApp.openById(SS_ID);
   let sheet = ss.getSheetByName("DB_Jadwal");
   
   if (!sheet) { 
     sheet = ss.insertSheet("DB_Jadwal"); 
-    sheet.appendRow(["ID", "ID_Jenis", "Kode_Mapel", "Mulai", "Selesai", "Status", "Pengawas", "Kelas"]); 
+    sheet.appendRow(["ID", "ID_Jenis", "Kode_Mapel", "Mulai", "Selesai", "Status", "Pengawas", "Kelas", "Durasi", "Acak_Soal", "Acak_Opsi"]); 
   }
   
   const allData = sheet.getDataRange().getValues();
@@ -1036,14 +1039,26 @@ function simpanJadwal(data) {
      return { status: 'error', message: 'Waktu Selesai harus lebih akhir dari Mulai.' };
   }
 
-  // Data yang akan disimpan (8 Kolom) -> Tambah data.target_kelas di akhir
-  const rowData = [data.id_jenis, data.kode_mapel, data.mulai, data.selesai, data.status, data.pengawas, data.target_kelas];
+  // Data yang akan disimpan (11 Kolom)
+  // Pastikan urutan sesuai Header: ID(skip), Jenis, Mapel, Mulai, Selesai, Status, Pengawas, Kelas, Durasi, AcakSoal, AcakOpsi
+  const rowData = [
+    data.id_jenis, 
+    data.kode_mapel, 
+    data.mulai, 
+    data.selesai, 
+    data.status, 
+    data.pengawas, 
+    data.target_kelas,
+    data.durasi,
+    data.acak_soal,
+    data.acak_opsi
+  ];
 
   if (data.id) { // Edit
     for (let i = 1; i < allData.length; i++) {
       if (allData[i][0].toString() === data.id.toString()) {
-        // Update range kolom 2 sampai 8 (sebanyak 7 kolom data)
-        sheet.getRange(i + 1, 2, 1, 7).setValues([rowData]);
+        // Update range kolom 2 sampai 11 (sebanyak 10 kolom data)
+        sheet.getRange(i + 1, 2, 1, 10).setValues([rowData]);
         return { status: 'success', message: 'Jadwal diperbarui!' };
       }
     }
