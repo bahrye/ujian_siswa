@@ -832,33 +832,81 @@ function getMonitoringSiswa(idJadwal) {
 
 // 5. Update Monitoring Admin (List Ujian + Token masing-masing)
 function getAdminMonitoringSummary() {
-  const ss = SpreadsheetApp.openById(SS_ID);
-  const sheetJadwal = ss.getSheetByName("DB_Jadwal");
-  const dataJadwal = sheetJadwal.getDataRange().getValues();
-  dataJadwal.shift();
-  
-  const jenisUjian = getJenisUjian(); 
-  
-  let activeExams = [];
-  
-  dataJadwal.forEach(r => {
-    if (r[5] === 'Aktif') {
-      const namaJenis = jenisUjian.find(j => j.id === r[1])?.nama || r[1];
-      // Generate Token untuk setiap ujian di list
-      const thisToken = generateTokenForExam(r[0]);
-      
-      activeExams.push({
-        id: r[0],
-        jenis: namaJenis,
-        mapel: r[2],
-        mulai: r[3],
-        selesai: r[4],
-        token: thisToken // Sertakan token di list
-      });
+  try {
+    const ss = SpreadsheetApp.openById(SS_ID);
+    const sheetJadwal = ss.getSheetByName("DB_Jadwal");
+    
+    // Validasi Sheet
+    if (!sheetJadwal) {
+      console.log("Error: Sheet DB_Jadwal tidak ditemukan.");
+      return { exams: [] }; 
     }
-  });
+    
+    const dataJadwal = sheetJadwal.getDataRange().getValues();
+    
+    // Validasi Data Kosong (Hanya header atau kosong)
+    if (dataJadwal.length <= 1) {
+      console.log("Info: DB_Jadwal kosong (hanya header).");
+      return { exams: [] };
+    }
 
-  return { exams: activeExams };
+    dataJadwal.shift(); // Hapus Header
+    
+    // Ambil jenis ujian dengan aman
+    let jenisUjian = [];
+    try {
+      jenisUjian = getJenisUjian();
+    } catch (err) {
+      console.log("Warning: Gagal ambil Jenis Ujian. " + err.toString());
+    }
+  
+    let activeExams = [];
+    
+    // Loop Data
+    dataJadwal.forEach((r, index) => {
+      // Ambil kolom Status (Index 5)
+      // Gunakan toString() dan trim() untuk membersihkan spasi tidak terlihat
+      const rawStatus = r[5] ? r[5].toString() : "";
+      const status = rawStatus.trim().toLowerCase(); // ubah ke huruf kecil semua
+      
+      // Cek Status (case-insensitive: 'aktif', 'Aktif', 'AKTIF' semua diterima)
+      if (status === 'aktif') {
+        const idJadwal = r[0];
+        
+        // Cari Nama Jenis Ujian (Index 1)
+        const idJenis = r[1];
+        const objJenis = jenisUjian.find(j => j.id === idJenis);
+        const namaJenis = objJenis ? objJenis.nama : idJenis;
+
+        // Generate Token
+        let thisToken = "ERROR";
+        try {
+          thisToken = generateTokenForExam(idJadwal);
+        } catch (errToken) {
+          console.log("Error Token untuk " + idJadwal + ": " + errToken.toString());
+        }
+        
+        activeExams.push({
+          id: idJadwal,
+          jenis: namaJenis,
+          mapel: r[2], // Nama Mapel/Kode Mapel
+          mulai: r[3],
+          selesai: r[4],
+          token: thisToken
+        });
+      } else {
+        // Log untuk debug baris yang tidak aktif (Bisa dicek di Executions Log)
+        console.log(`Baris ${index + 2} dilewati. Status: '${rawStatus}'`);
+      }
+    });
+
+    console.log(`Ditemukan ${activeExams.length} ujian aktif.`);
+    return { exams: activeExams };
+
+  } catch (e) {
+    console.log("CRITICAL ERROR getAdminMonitoringSummary: " + e.toString());
+    return { exams: [] };
+  }
 }
 
 // ==========================================
