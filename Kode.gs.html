@@ -956,13 +956,38 @@ function getListPengawas() {
   return list;
 }
 
-// 2. Update Get Jadwal (Baca Kolom Pengawas)
+// ==========================================
+// TAMBAHAN: MODIFIKASI UNTUK FITUR KELAS
+// ==========================================
+
+// 1. Fungsi Baru: Ambil Daftar Kelas Unik dari Data User
+function getListKelasUnik() {
+  const ss = SpreadsheetApp.openById(SS_ID);
+  const sheet = ss.getSheetByName("Users");
+  const data = sheet.getDataRange().getValues();
+  data.shift(); // Skip Header
+  
+  let kelasSet = new Set();
+  
+  data.forEach(row => {
+    // row[3] = Role, row[5] = Kelas
+    if (row[3] && row[3].toString().toLowerCase() === 'siswa' && row[5]) {
+      kelasSet.add(row[5].toString().trim());
+    }
+  });
+  
+  // Return array diurutkan
+  return Array.from(kelasSet).sort();
+}
+
+// 2. UPDATE: getJadwalUjian (Tambahkan pembacaan kolom Kelas)
 function getJadwalUjian() {
   const ss = SpreadsheetApp.openById(SS_ID);
   let sheet = ss.getSheetByName("DB_Jadwal");
   if (!sheet) {
     sheet = ss.insertSheet("DB_Jadwal");
-    sheet.appendRow(["ID", "ID_Jenis", "Kode_Mapel", "Mulai", "Selesai", "Status", "Pengawas"]);
+    // Header diperbarui dengan kolom Kelas
+    sheet.appendRow(["ID", "ID_Jenis", "Kode_Mapel", "Mulai", "Selesai", "Status", "Pengawas", "Kelas"]);
     return [];
   }
   const data = sheet.getDataRange().getValues();
@@ -971,46 +996,39 @@ function getJadwalUjian() {
   const jenis = getJenisUjian(); 
   const mapel = getAllMapel(); 
   
+  const formatTime = (dateObj) => {
+      if (!dateObj) return "";
+      try { return Utilities.formatDate(new Date(dateObj), "Asia/Jakarta", "yyyy-MM-dd'T'HH:mm"); } catch (e) { return ""; }
+  };
+
   return data.map(r => {
     const j = jenis.find(x => x.id === r[1]);
     const m = mapel.find(x => x.kode === r[2]);
     
-    // --- TAMBAHAN KODE PERBAIKAN TANGGAL ---
-    // Fungsi kecil untuk format tanggal sesuai input HTML (datetime-local)
-    // Menggunakan Asia/Jakarta agar tidak lari ke UTC
-    const formatTime = (dateObj) => {
-      if (!dateObj) return "";
-      try {
-        return Utilities.formatDate(new Date(dateObj), "Asia/Jakarta", "yyyy-MM-dd'T'HH:mm");
-      } catch (e) {
-        return "";
-      }
-    };
-    // ----------------------------------------
-
     return {
       id: r[0],
       id_jenis: r[1],
       nama_ujian: j ? j.nama : r[1], 
       kode_mapel: r[2],
       nama_mapel: m ? m.nama : r[2],
-      
-      // Gunakan fungsi formatTime di sini
       mulai: formatTime(r[3]),   
       selesai: formatTime(r[4]), 
-      
       status: r[5],
-      pengawas: r[6] || '' 
+      pengawas: r[6] || '',
+      target_kelas: r[7] || 'Semua' // <--- DATA BARU (Kolom H)
     };
   });
 }
 
-// 3. Update Simpan Jadwal (Simpan Kolom Pengawas)
+// 3. UPDATE: simpanJadwal (Simpan kolom Kelas ke DB)
 function simpanJadwal(data) {
   const ss = SpreadsheetApp.openById(SS_ID);
   let sheet = ss.getSheetByName("DB_Jadwal");
-  // Pastikan header ada 7 kolom jika sheet baru dibuat
-  if (!sheet) { sheet = ss.insertSheet("DB_Jadwal"); sheet.appendRow(["ID", "ID_Jenis", "Kode_Mapel", "Mulai", "Selesai", "Status", "Pengawas"]); }
+  
+  if (!sheet) { 
+    sheet = ss.insertSheet("DB_Jadwal"); 
+    sheet.appendRow(["ID", "ID_Jenis", "Kode_Mapel", "Mulai", "Selesai", "Status", "Pengawas", "Kelas"]); 
+  }
   
   const allData = sheet.getDataRange().getValues();
   
@@ -1018,15 +1036,14 @@ function simpanJadwal(data) {
      return { status: 'error', message: 'Waktu Selesai harus lebih akhir dari Mulai.' };
   }
 
-  // Data yang akan disimpan (7 Kolom)
-  // [ID, Jenis, Mapel, Mulai, Selesai, Status, Pengawas]
-  const rowData = [data.id_jenis, data.kode_mapel, data.mulai, data.selesai, data.status, data.pengawas];
+  // Data yang akan disimpan (8 Kolom) -> Tambah data.target_kelas di akhir
+  const rowData = [data.id_jenis, data.kode_mapel, data.mulai, data.selesai, data.status, data.pengawas, data.target_kelas];
 
   if (data.id) { // Edit
     for (let i = 1; i < allData.length; i++) {
       if (allData[i][0].toString() === data.id.toString()) {
-        // Update range kolom 2 sampai 7
-        sheet.getRange(i + 1, 2, 1, 6).setValues([rowData]);
+        // Update range kolom 2 sampai 8 (sebanyak 7 kolom data)
+        sheet.getRange(i + 1, 2, 1, 7).setValues([rowData]);
         return { status: 'success', message: 'Jadwal diperbarui!' };
       }
     }
