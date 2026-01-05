@@ -603,3 +603,123 @@ function getListGuru() {
   });
   return gurus;
 }
+
+// ==========================================
+// API 8: KELOLA UJIAN (JENIS & JADWAL)
+// ==========================================
+
+// A. JENIS UJIAN (Master Nama Ujian)
+function getJenisUjian() {
+  const ss = SpreadsheetApp.openById(SS_ID);
+  let sheet = ss.getSheetByName("DB_JenisUjian");
+  if (!sheet) {
+    sheet = ss.insertSheet("DB_JenisUjian");
+    sheet.appendRow(["ID", "Nama Ujian", "Keterangan", "Status"]); 
+    return [];
+  }
+  const data = sheet.getDataRange().getValues();
+  data.shift();
+  return data.map(r => ({ id: r[0], nama: r[1], ket: r[2], status: r[3] }));
+}
+
+function simpanJenisUjian(data) {
+  const ss = SpreadsheetApp.openById(SS_ID);
+  let sheet = ss.getSheetByName("DB_JenisUjian");
+  const allData = sheet.getDataRange().getValues();
+
+  if (data.id) { // Edit
+    for (let i = 1; i < allData.length; i++) {
+      if (allData[i][0].toString() === data.id.toString()) {
+        sheet.getRange(i + 1, 2, 1, 3).setValues([[data.nama, data.ket, data.status]]);
+        return { status: 'success', message: 'Jenis Ujian diupdate!' };
+      }
+    }
+  } else { // Baru
+    const newId = "UJ-" + Date.now();
+    sheet.appendRow([newId, data.nama, data.ket, data.status]);
+    return { status: 'success', message: 'Jenis Ujian dibuat!' };
+  }
+  return { status: 'error', message: 'Gagal menyimpan.' };
+}
+
+function hapusJenisUjian(id) {
+  return hapusDataUmum(id, "DB_JenisUjian");
+}
+
+// B. JADWAL / ENROLLMENT
+function getJadwalUjian() {
+  const ss = SpreadsheetApp.openById(SS_ID);
+  let sheet = ss.getSheetByName("DB_Jadwal");
+  if (!sheet) {
+    sheet = ss.insertSheet("DB_Jadwal");
+    sheet.appendRow(["ID", "ID_Jenis", "Kode_Mapel", "Mulai", "Selesai", "Status"]);
+    return [];
+  }
+  const data = sheet.getDataRange().getValues();
+  data.shift();
+  
+  // Kita perlu join data manual karena NoSQL structure
+  // Ambil data pendukung untuk referensi nama
+  const jenis = getJenisUjian(); 
+  const mapel = getAllMapel(); // Fungsi yg sudah ada di kode sebelumnya
+  
+  return data.map(r => {
+    const j = jenis.find(x => x.id === r[1]);
+    const m = mapel.find(x => x.kode === r[2]);
+    return {
+      id: r[0],
+      id_jenis: r[1],
+      nama_ujian: j ? j.nama : r[1], // Fallback ID jika nama terhapus
+      kode_mapel: r[2],
+      nama_mapel: m ? m.nama : r[2],
+      mulai: r[3],   // String ISO Date
+      selesai: r[4], // String ISO Date
+      status: r[5]
+    };
+  });
+}
+
+function simpanJadwal(data) {
+  const ss = SpreadsheetApp.openById(SS_ID);
+  let sheet = ss.getSheetByName("DB_Jadwal");
+  if (!sheet) { sheet = ss.insertSheet("DB_Jadwal"); sheet.appendRow(["ID", "ID_Jenis", "Kode_Mapel", "Mulai", "Selesai", "Status"]); }
+  
+  const allData = sheet.getDataRange().getValues();
+  
+  // Validasi Waktu
+  if(new Date(data.mulai) >= new Date(data.selesai)) {
+     return { status: 'error', message: 'Waktu Selesai harus lebih akhir dari Mulai.' };
+  }
+
+  if (data.id) { // Edit
+    for (let i = 1; i < allData.length; i++) {
+      if (allData[i][0].toString() === data.id.toString()) {
+        sheet.getRange(i + 1, 2, 1, 5).setValues([[data.id_jenis, data.kode_mapel, data.mulai, data.selesai, data.status]]);
+        return { status: 'success', message: 'Jadwal diperbarui!' };
+      }
+    }
+  } else { // Baru
+    const newId = "SCH-" + Date.now();
+    sheet.appendRow([newId, data.id_jenis, data.kode_mapel, data.mulai, data.selesai, data.status]);
+    return { status: 'success', message: 'Jadwal ditambahkan!' };
+  }
+  return { status: 'error', message: 'Error DB.' };
+}
+
+function hapusJadwal(id) {
+  return hapusDataUmum(id, "DB_Jadwal");
+}
+
+// Helper Hapus Global
+function hapusDataUmum(id, sheetName) {
+  const ss = SpreadsheetApp.openById(SS_ID);
+  const sheet = ss.getSheetByName(sheetName);
+  const data = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0].toString() === id.toString()) {
+      sheet.deleteRow(i + 1);
+      return { status: 'success', message: 'Data dihapus.' };
+    }
+  }
+  return { status: 'error', message: 'Data tidak ditemukan.' };
+}
