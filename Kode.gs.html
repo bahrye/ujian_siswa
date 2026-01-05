@@ -624,21 +624,46 @@ function getListGuru() {
 }
 
 // ==========================================
-// API 8: KELOLA UJIAN (JENIS & JADWAL)
+// API 8: KELOLA UJIAN (UPDATE: CEK KETERPAKAIAN)
 // ==========================================
 
-// A. JENIS UJIAN (Master Nama Ujian)
 function getJenisUjian() {
   const ss = SpreadsheetApp.openById(SS_ID);
+  
+  // 1. Cek Data Jadwal untuk melihat ID mana yang sedang dipakai
+  const sheetJadwal = ss.getSheetByName("DB_Jadwal");
+  let usedIds = new Set();
+  
+  if (sheetJadwal) {
+    const dataJadwal = sheetJadwal.getDataRange().getValues();
+    // Loop dari baris 1 (skip header)
+    // Asumsi: Kolom index 1 adalah 'ID_Jenis' (lihat fungsi getJadwalUjian)
+    for (let i = 1; i < dataJadwal.length; i++) {
+       if (dataJadwal[i][1]) {
+         usedIds.add(dataJadwal[i][1].toString());
+       }
+    }
+  }
+
+  // 2. Ambil Data Jenis Ujian
   let sheet = ss.getSheetByName("DB_JenisUjian");
   if (!sheet) {
     sheet = ss.insertSheet("DB_JenisUjian");
     sheet.appendRow(["ID", "Nama Ujian", "Keterangan", "Status"]); 
     return [];
   }
+  
   const data = sheet.getDataRange().getValues();
-  data.shift();
-  return data.map(r => ({ id: r[0], nama: r[1], ket: r[2], status: r[3] }));
+  data.shift(); // Skip Header
+  
+  // Map data dan tambahkan flag 'isUsed'
+  return data.map(r => ({ 
+    id: r[0], 
+    nama: r[1], 
+    ket: r[2], 
+    status: r[3],
+    isUsed: usedIds.has(r[0].toString()) // TRUE jika ID ada di jadwal
+  }));
 }
 
 function simpanJenisUjian(data) {
