@@ -1,6 +1,6 @@
 <script>
   // ===========================================
-  // MODULE: APPLICATION LOGIC
+  // MODULE: APPLICATION LOGIC (FULL & UPDATED)
   // ===========================================
   const App = {
     // --- Global Variables ---
@@ -10,6 +10,8 @@
       soalList: [],
       userList: [],
       mapelList: [],
+      jenisUjianList: [], // Data Baru
+      jadwalList: [],     // Data Baru
       jawabanSiswa: {},
       raguSiswa: {},
       opsiImages: { A:null, B:null, C:null, D:null, E:null },
@@ -20,36 +22,18 @@
       quill: null
     },
 
-    // --- Module 0: Caching System (BARU) ---
+    // --- Module 0: Caching System ---
     Cache: {
       store: {},
-      
-      // Ambil data dari cache
-      get: function(key) {
-        return this.store[key] || null;
-      },
-      
-      // Simpan data ke cache
-      set: function(key, data) {
-        this.store[key] = data;
-      },
-      
-      // Hapus satu key spesifik
-      remove: function(key) {
-        delete this.store[key];
-      },
-      
-      // Hapus cache yang mengandung kata tertentu (misal: 'soal_')
+      get: function(key) { return this.store[key] || null; },
+      set: function(key, data) { this.store[key] = data; },
+      remove: function(key) { delete this.store[key]; },
       clearPattern: function(pattern) {
         Object.keys(this.store).forEach(key => {
           if (key.includes(pattern)) delete this.store[key];
         });
       },
-
-      // Hapus semua (misal saat logout)
-      clearAll: function() {
-        this.store = {};
-      }
+      clearAll: function() { this.store = {}; }
     },
 
     // --- Module 1: Authentication ---
@@ -87,7 +71,7 @@
 
       forceLogout: function() {
         sessionStorage.clear();
-        App.Cache.clearAll(); // Bersihkan cache saat logout
+        App.Cache.clearAll();
         App.Util.resetGlobals();
         App.UI.showLoginOnly();
         document.getElementById('user').value = "";
@@ -131,7 +115,8 @@
           { id: 'akun', icon: 'fa-users-cog', label: 'Kelola Akun', roles: ['admin'] },
           { id: 'mapel', icon: 'fa-tags', label: 'Kelola Mapel', roles: ['admin', 'guru'] },
           { id: 'bank-soal', icon: 'fa-file-alt', label: 'Bank Soal', roles: ['admin', 'guru'] },
-          { id: 'ujian', icon: 'fa-clock', label: 'Jadwal Ujian', roles: ['admin', 'guru'] },
+          // UPDATE: Menu baru Kelola Ujian
+          { id: 'ujian', icon: 'fa-calendar-alt', label: 'Kelola Ujian', roles: ['admin', 'guru'] },
         ];
         menus.forEach(m => {
           if (m.roles.includes(role)) {
@@ -142,17 +127,12 @@
       },
 
       loadStats: function(forceRefresh = false) {
-        // Cek Cache Stats
         if (!forceRefresh && App.Cache.get('stats')) {
-           const stats = App.Cache.get('stats');
-           App.Dashboard.renderStats(stats);
-           return;
+           App.Dashboard.renderStats(App.Cache.get('stats')); return;
         }
-
         google.script.run.withSuccessHandler(stats => {
-           App.Cache.set('stats', stats); // Simpan Cache
+           App.Cache.set('stats', stats);
            App.Dashboard.renderStats(stats);
-           // Putar balik animasi tombol refresh jika ada
            const btn = document.getElementById('btn-refresh-dash');
            if(btn) btn.classList.remove('fa-spin');
         }).getDashboardStats();
@@ -192,13 +172,11 @@
       },
 
       loadOptionsMapel: function() {
-         // Dropdown mapel jarang berubah, bisa di-cache juga
          if(App.Cache.get('mapel_opts')) {
              App.BankSoal.renderOptionsMapel(App.Cache.get('mapel_opts'));
-             App.BankSoal.loadDaftar(); // Load soal setelah dropdown siap
+             App.BankSoal.loadDaftar();
              return;
          }
-
          google.script.run.withSuccessHandler(data => {
             App.Cache.set('mapel_opts', data);
             App.BankSoal.renderOptionsMapel(data);
@@ -209,18 +187,14 @@
       renderOptionsMapel: function(data) {
          const selFilter = document.getElementById('filter-mapel'); 
          const selForm = document.getElementById('soal-mapel-select');
-         // Simpan value lama agar tidak reset saat refresh
          const oldFilter = selFilter.value;
-
          selFilter.innerHTML = '<option value="">- Tampilkan Semua -</option>';
          selForm.innerHTML = '<option value="">-- Pilih Mapel --</option>';
-         
          data.forEach(m => {
             const opt = `<option value="${m.kode}">${m.kode} - ${m.nama}</option>`;
             selFilter.insertAdjacentHTML('beforeend', opt);
             selForm.insertAdjacentHTML('beforeend', opt);
          });
-
          if(oldFilter) selFilter.value = oldFilter;
       },
 
@@ -230,10 +204,8 @@
         const cacheKey = 'soal_' + (filter || 'all');
         const btnRefresh = document.getElementById('btn-refresh-soal');
 
-        // Animation
         if(forceRefresh && btnRefresh) btnRefresh.classList.add('fa-spin');
 
-        // 1. Cek Cache
         if (!forceRefresh && App.Cache.get(cacheKey)) {
           App.BankSoal.renderTable(App.Cache.get(cacheKey));
           return;
@@ -243,7 +215,7 @@
         
         google.script.run.withSuccessHandler(data => {
           if(btnRefresh) btnRefresh.classList.remove('fa-spin');
-          App.Cache.set(cacheKey, data); // Simpan ke Cache
+          App.Cache.set(cacheKey, data);
           App.BankSoal.renderTable(data);
         }).getSoalAdmin(filter);
       },
@@ -284,7 +256,6 @@
 
         if (App.data.quill.getText().trim().length === 0 && !htmlSoal.includes('<img')) return Swal.fire('Error', 'Pertanyaan kosong!', 'warning');
 
-        // Opsi Logic
         let opsiData = {}; let kunciJawaban = "";
         if (tipe === 'PG') {
           opsiData = { A: document.getElementById('pg-a').value, B: document.getElementById('pg-b').value, C: document.getElementById('pg-c').value, D: document.getElementById('pg-d').value, E: document.getElementById('pg-e').value };
@@ -303,7 +274,6 @@
 
         const btn = document.getElementById('btnSave');
         App.UI.setLoading(btn, true, 'MENYIMPAN...');
-        
         const payload = { id: idSoal, mapel: mapel, tipe: tipe, soal: htmlSoal, opsiJson: JSON.stringify(opsiData), kunci: kunciJawaban };
         
         google.script.run.withSuccessHandler((res) => {
@@ -311,14 +281,9 @@
            if(res.status === 'success') { 
              Swal.fire('Sukses', res.message, 'success'); 
              App.BankSoal.toggleForm(false); 
-             
-             // INVALIDATE CACHE (Hapus semua cache soal agar reload ulang)
-             App.Cache.clearPattern('soal_'); 
-             App.Cache.remove('stats'); // Reset stats dashboard juga
-             
-             App.BankSoal.loadDaftar(true); // Load ulang dengan data baru
-           } 
-           else Swal.fire('Gagal', res.message, 'error');
+             App.Cache.clearPattern('soal_'); App.Cache.remove('stats'); // Reset Cache
+             App.BankSoal.loadDaftar(true); 
+           } else Swal.fire('Gagal', res.message, 'error');
         }).simpanSoal(payload);
       },
 
@@ -328,12 +293,10 @@
         document.getElementById('form-soal-title').innerText = "Edit Soal";
         document.getElementById('btnSave').innerText = "UPDATE SOAL";
         App.BankSoal.toggleForm(true);
-        
         document.getElementById('soal-mapel-select').value = s.mapel;
         document.getElementById('tipe-soal').value = s.tipe;
         App.data.quill.clipboard.dangerouslyPasteHTML(s.soal);
         App.BankSoal.changeType();
-        
         let opsi = {}; try { opsi = JSON.parse(s.opsi); } catch(e){}
         if (s.tipe === 'PG') {
            ['A','B','C','D','E'].forEach(h => {
@@ -355,10 +318,7 @@
         .then((r) => { 
             if (r.isConfirmed) {
                 google.script.run.withSuccessHandler(res => { 
-                    // INVALIDATE CACHE
-                    App.Cache.clearPattern('soal_');
-                    App.Cache.remove('stats');
-
+                    App.Cache.clearPattern('soal_'); App.Cache.remove('stats');
                     App.BankSoal.loadDaftar(true); 
                     Swal.fire('Deleted', res.message, 'success'); 
                 }).hapusSoalDb(id); 
@@ -366,7 +326,6 @@
         });
       },
 
-      // Helpers Bank Soal (No changes needed, kept for consistency)
       resetForm: function() {
         document.getElementById('formSoal').reset();
         document.getElementById('soal-id').value = "";
@@ -390,24 +349,15 @@
           const file = input.files[0];
           if(file.size > 2 * 1024 * 1024) return Swal.fire('Max 2MB', '', 'warning');
           const reader = new FileReader();
-          reader.onload = (e) => {
-            const b64 = e.target.result;
-            App.data.opsiImages[hur] = b64;
-            document.getElementById('prev-box-'+hur).classList.remove('hidden');
-            document.getElementById('img-prev-'+hur).src = b64;
-          }
+          reader.onload = (e) => { const b64 = e.target.result; App.data.opsiImages[hur] = b64; document.getElementById('prev-box-'+hur).classList.remove('hidden'); document.getElementById('img-prev-'+hur).src = b64; }
           reader.readAsDataURL(file);
         }
       },
       removeImage: function(hur) {
-        App.data.opsiImages[hur] = null;
-        document.getElementById('file-'+hur.toLowerCase()).value = "";
-        document.getElementById('prev-box-'+hur).classList.add('hidden');
-        document.getElementById('img-prev-'+hur).src = "";
+        App.data.opsiImages[hur] = null; document.getElementById('file-'+hur.toLowerCase()).value = ""; document.getElementById('prev-box-'+hur).classList.add('hidden'); document.getElementById('img-prev-'+hur).src = "";
       },
       addRowCocok: function(k='', v='') {
-        const div = document.createElement('div');
-        div.className = 'flex gap-2 items-center';
+        const div = document.createElement('div'); div.className = 'flex gap-2 items-center';
         div.innerHTML = `<input type="text" class="input-std text-sm cocok-kiri" value="${k}" placeholder="Kiri"><i class="fas fa-arrow-right text-gray-400"></i><input type="text" class="input-std text-sm cocok-kanan" value="${v}" placeholder="Kanan"><button type="button" onclick="this.parentElement.remove()" class="text-red-400 px-2"><i class="fas fa-times"></i></button>`;
         document.getElementById('container-cocok').appendChild(div);
       }
@@ -418,25 +368,16 @@
       loadAll: function(forceRefresh = false) {
         const tbody = document.getElementById('tbody-users');
         const btnRefresh = document.getElementById('btn-refresh-user');
-        
         if(forceRefresh && btnRefresh) btnRefresh.classList.add('fa-spin');
-
-        // Cek Cache
         if (!forceRefresh && App.Cache.get('users')) {
-            App.data.userList = App.Cache.get('users');
-            App.User.render(App.data.currentTabRole || 'all');
-            return;
+            App.data.userList = App.Cache.get('users'); App.User.render(App.data.currentTabRole || 'all'); return;
         }
-
         tbody.innerHTML = '<tr><td colspan="5" class="p-6 text-center">Loading...</td></tr>';
         google.script.run.withSuccessHandler(data => {
             if(btnRefresh) btnRefresh.classList.remove('fa-spin');
-            App.Cache.set('users', data); // Set Cache
-            App.data.userList = data;
-            App.User.render(App.data.currentTabRole || 'all');
+            App.Cache.set('users', data); App.data.userList = data; App.User.render(App.data.currentTabRole || 'all');
         }).getAllUsers();
       },
-      
       render: function(role) {
         const tbody = document.getElementById('tbody-users'); tbody.innerHTML = '';
         const filtered = (role === 'all') ? App.data.userList : App.data.userList.filter(u => u.role.toLowerCase() === role);
@@ -455,19 +396,13 @@
         App.User.render(role);
       },
       save: function(e) {
-        e.preventDefault();
-        const btn = document.getElementById('btnSimpanUser'); App.UI.setLoading(btn, true, 'Simpan');
+        e.preventDefault(); const btn = document.getElementById('btnSimpanUser'); App.UI.setLoading(btn, true, 'Simpan');
         const data = { id: document.getElementById('u-id').value, role: document.getElementById('u-role').value, nama: document.getElementById('u-nama').value, username: document.getElementById('u-username').value, password: document.getElementById('u-password').value, kelas: document.getElementById('u-kelas').value, status: document.getElementById('u-status').value };
         google.script.run.withSuccessHandler(res => { 
             App.UI.setLoading(btn, false, 'Simpan'); 
             if(res.status === 'success') { 
-                App.UI.closeModal('modal-user'); 
-                Swal.fire('Sukses', res.message, 'success'); 
-                
-                // Clear Cache & Reload
-                App.Cache.remove('users');
-                App.Cache.remove('stats');
-                App.User.loadAll(true); 
+                App.UI.closeModal('modal-user'); Swal.fire('Sukses', res.message, 'success'); 
+                App.Cache.remove('users'); App.Cache.remove('stats'); App.User.loadAll(true); 
             } else Swal.fire('Gagal', res.message, 'error'); 
         }).simpanUser(data);
       },
@@ -479,18 +414,7 @@
       },
       hapus: function(id, nama) { 
           Swal.fire({ title: 'Hapus?', text: nama, icon: 'warning', showCancelButton: true, confirmButtonColor: '#d33' })
-          .then((r) => { 
-              if (r.isConfirmed) {
-                  google.script.run.withSuccessHandler(res => { 
-                      if(res.status === 'success') { 
-                          Swal.fire('Terhapus', '', 'success'); 
-                          App.Cache.remove('users');
-                          App.Cache.remove('stats');
-                          App.User.loadAll(true); 
-                      } else Swal.fire('Gagal', res.message, 'error'); 
-                  }).hapusUser(id); 
-              }
-          }); 
+          .then((r) => { if (r.isConfirmed) { google.script.run.withSuccessHandler(res => { if(res.status === 'success') { Swal.fire('Terhapus', '', 'success'); App.Cache.remove('users'); App.Cache.remove('stats'); App.User.loadAll(true); } else Swal.fire('Gagal', res.message, 'error'); }).hapusUser(id); }}); 
       },
       modalOpen: function() { App.UI.openModal('modal-user'); document.getElementById('modal-title').innerText = "Tambah User"; document.getElementById('u-id').value = ""; document.getElementById('u-role').value = "siswa"; document.getElementById('u-nama').value = ""; document.getElementById('u-username').value = ""; document.getElementById('u-password').value = ""; document.getElementById('u-kelas').value = ""; App.User.toggleKelasInput(); },
       toggleKelasInput: function() { const r = document.getElementById('u-role').value; const div = document.getElementById('div-kelas'); if(r === 'siswa') div.classList.remove('hidden'); else div.classList.add('hidden'); }
@@ -502,23 +426,15 @@
         const tbody = document.getElementById('tbody-mapel'); 
         const btnRefresh = document.getElementById('btn-refresh-mapel');
         if(forceRefresh && btnRefresh) btnRefresh.classList.add('fa-spin');
-
-        if (!forceRefresh && App.Cache.get('mapel')) {
-            App.Mapel.render(App.Cache.get('mapel'));
-            return;
-        }
-
+        if (!forceRefresh && App.Cache.get('mapel')) { App.Mapel.render(App.Cache.get('mapel')); return; }
         tbody.innerHTML = '<tr><td colspan="4" class="p-6 text-center">Loading...</td></tr>';
         google.script.run.withSuccessHandler(data => {
            if(btnRefresh) btnRefresh.classList.remove('fa-spin');
-           App.Cache.set('mapel', data);
-           App.Cache.set('mapel_opts', data); // Update juga cache opsi dropdown
-           App.Mapel.render(data);
+           App.Cache.set('mapel', data); App.Cache.set('mapel_opts', data); App.Mapel.render(data);
         }).getAllMapel();
       },
       render: function(data) {
-        const tbody = document.getElementById('tbody-mapel');
-        tbody.innerHTML = ''; 
+        const tbody = document.getElementById('tbody-mapel'); tbody.innerHTML = ''; 
         if(data.length===0) { tbody.innerHTML = '<tr><td colspan="4" class="p-6 text-center text-gray-400">Kosong.</td></tr>'; return; }
         data.forEach(m => { tbody.insertAdjacentHTML('beforeend', `<tr class="hover:bg-slate-50 transition border-b border-gray-100"><td class="p-4 font-mono font-bold text-indigo-600">${m.kode}</td><td class="p-4 font-semibold text-gray-700">${m.nama}</td><td class="p-4 text-gray-600">${m.guru || '-'}</td><td class="p-4 text-right"><button onclick="App.Mapel.edit('${encodeURIComponent(JSON.stringify(m))}')" class="text-indigo-600 mr-3"><i class="fas fa-edit"></i></button><button onclick="App.Mapel.hapus('${m.id}', '${m.kode}')" class="text-red-500"><i class="fas fa-trash"></i></button></td></tr>`); });
       },
@@ -527,12 +443,8 @@
         const data = { id: document.getElementById('m-id').value, kode: document.getElementById('m-kode').value.toUpperCase(), nama: document.getElementById('m-nama').value, guru: document.getElementById('m-guru').value };
         google.script.run.withSuccessHandler(res => { 
             App.UI.setLoading(btn, false, 'Simpan'); 
-            if(res.status === 'success') { 
-                App.UI.closeModal('modal-mapel'); 
-                Swal.fire('Sukses', res.message, 'success'); 
-                App.Cache.remove('mapel'); // Clear Cache
-                App.Mapel.load(true); 
-            } else Swal.fire('Gagal', res.message, 'error'); 
+            if(res.status === 'success') { App.UI.closeModal('modal-mapel'); Swal.fire('Sukses', res.message, 'success'); App.Cache.remove('mapel'); App.Mapel.load(true); } 
+            else Swal.fire('Gagal', res.message, 'error'); 
         }).simpanMapel(data);
       },
       edit: function(enc) {
@@ -542,19 +454,177 @@
       },
       hapus: function(id, kode) { 
           Swal.fire({ title: 'Hapus?', text: kode, icon: 'warning', showCancelButton: true, confirmButtonColor: '#d33' })
-          .then(r => { 
-              if(r.isConfirmed) {
-                  google.script.run.withSuccessHandler(res => { 
-                      if(res.status==='success') { 
-                          App.Cache.remove('mapel');
-                          App.Mapel.load(true); 
-                          Swal.fire('Deleted','','success'); 
-                      } else Swal.fire('Gagal', res.message, 'error'); 
-                  }).hapusMapel(id); 
-              }
-          }); 
+          .then(r => { if(r.isConfirmed) { google.script.run.withSuccessHandler(res => { if(res.status==='success') { App.Cache.remove('mapel'); App.Mapel.load(true); Swal.fire('Deleted','','success'); } else Swal.fire('Gagal', res.message, 'error'); }).hapusMapel(id); }}); 
       },
       modalOpen: function() { App.UI.openModal('modal-mapel'); document.getElementById('modal-mapel-title').innerText = "Tambah Mapel"; document.getElementById('m-id').value = ""; document.getElementById('m-kode').value = ""; document.getElementById('m-nama').value = ""; const selGuru = document.getElementById('m-guru'); selGuru.innerHTML = '<option value="-">Loading...</option>'; google.script.run.withSuccessHandler(gs => { selGuru.innerHTML = '<option value="-">- Pilih Guru -</option>'; gs.forEach(g => selGuru.insertAdjacentHTML('beforeend', `<option value="${g}">${g}</option>`)); }).getListGuru(); }
+    },
+
+    // ===========================================
+    // MODULE 8: KELOLA UJIAN (BARU !!!)
+    // ===========================================
+    Ujian: {
+      // A. Load Data
+      loadJenis: function(force=false) {
+        const tb = document.getElementById('tbody-jenis-ujian');
+        const btn = document.getElementById('btn-refresh-ujian');
+        if(force && btn) btn.classList.add('fa-spin');
+        
+        if(!force && App.Cache.get('jenis_ujian')) return App.Ujian.renderJenis(App.Cache.get('jenis_ujian'));
+
+        tb.innerHTML = '<tr><td colspan="4" class="p-4 text-center">Loading...</td></tr>';
+        google.script.run.withSuccessHandler(data => {
+           if(btn) btn.classList.remove('fa-spin');
+           App.Cache.set('jenis_ujian', data);
+           App.data.jenisUjianList = data; // Simpan untuk dropdown jadwal
+           App.Ujian.renderJenis(data);
+           // Jika Jenis berubah, dropdown jadwal harus update
+           App.Ujian.loadJadwal(true); 
+        }).getJenisUjian();
+      },
+
+      loadJadwal: function(force=false) {
+        const tb = document.getElementById('tbody-jadwal');
+        if(!force && App.Cache.get('jadwal')) return App.Ujian.renderJadwal(App.Cache.get('jadwal'));
+
+        tb.innerHTML = '<tr><td colspan="6" class="p-4 text-center">Loading...</td></tr>';
+        google.script.run.withSuccessHandler(data => {
+           App.Cache.set('jadwal', data);
+           App.Ujian.renderJadwal(data);
+        }).getJadwalUjian();
+      },
+
+      // B. Render Tables
+      renderJenis: function(data) {
+        const tb = document.getElementById('tbody-jenis-ujian'); tb.innerHTML = '';
+        if(data.length===0) { tb.innerHTML='<tr><td colspan="4" class="p-4 text-center text-gray-400">Belum ada Nama Ujian.</td></tr>'; return; }
+        
+        data.forEach((item, i) => {
+           const badge = item.status === 'Aktif' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700';
+           const json = encodeURIComponent(JSON.stringify(item));
+           tb.insertAdjacentHTML('beforeend', `
+             <tr class="border-b hover:bg-slate-50">
+               <td class="p-3 font-semibold text-gray-700">${item.nama}</td>
+               <td class="p-3 text-sm text-gray-500">${item.ket || '-'}</td>
+               <td class="p-3"><span class="px-2 py-1 rounded text-xs font-bold ${badge}">${item.status}</span></td>
+               <td class="p-3 text-right">
+                 <button onclick="App.Ujian.editJenis('${json}')" class="text-indigo-600 mr-2"><i class="fas fa-edit"></i></button>
+                 <button onclick="App.Ujian.hapusJenis('${item.id}')" class="text-red-500"><i class="fas fa-trash"></i></button>
+               </td>
+             </tr>
+           `);
+        });
+      },
+
+      renderJadwal: function(data) {
+        const tb = document.getElementById('tbody-jadwal'); tb.innerHTML = '';
+        if(data.length===0) { tb.innerHTML='<tr><td colspan="6" class="p-4 text-center text-gray-400">Belum ada Jadwal / Set Ujian.</td></tr>'; return; }
+
+        data.forEach((item, i) => {
+           const badge = item.status === 'Aktif' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500';
+           const fmt = { dateStyle: 'medium', timeStyle: 'short' };
+           const mulai = new Date(item.mulai).toLocaleString('id-ID', fmt);
+           const selesai = new Date(item.selesai).toLocaleString('id-ID', fmt);
+           const json = encodeURIComponent(JSON.stringify(item));
+           
+           tb.insertAdjacentHTML('beforeend', `
+             <tr class="border-b hover:bg-slate-50">
+               <td class="p-3">
+                 <div class="font-bold text-gray-700">${item.nama_ujian}</div>
+                 <div class="text-xs text-indigo-600 font-mono">${item.nama_mapel}</div>
+               </td>
+               <td class="p-3 text-xs">
+                 <div class="text-gray-600"><i class="fas fa-play text-green-500 w-4"></i> ${mulai}</div>
+                 <div class="text-gray-600 mt-1"><i class="fas fa-stop text-red-500 w-4"></i> ${selesai}</div>
+               </td>
+               <td class="p-3"><span class="px-2 py-1 rounded text-xs font-bold ${badge}">${item.status}</span></td>
+               <td class="p-3 text-right">
+                 <button onclick="App.Ujian.editJadwal('${json}')" class="text-indigo-600 mr-2"><i class="fas fa-edit"></i></button>
+                 <button onclick="App.Ujian.hapusJadwal('${item.id}')" class="text-red-500"><i class="fas fa-trash"></i></button>
+               </td>
+             </tr>
+           `);
+        });
+      },
+
+      // C. CRUD Operations (Jenis)
+      saveJenis: function(e) {
+        e.preventDefault(); const btn=document.getElementById('btnSimpanJenis'); App.UI.setLoading(btn,true,'Simpan');
+        const d = { id: document.getElementById('j-id').value, nama: document.getElementById('j-nama').value, ket: document.getElementById('j-ket').value, status: document.getElementById('j-status').value };
+        google.script.run.withSuccessHandler(r=>{
+           App.UI.setLoading(btn,false,'Simpan'); 
+           if(r.status==='success') { App.UI.closeModal('modal-jenis'); App.Cache.remove('jenis_ujian'); App.Ujian.loadJenis(true); Swal.fire('Sukses',r.message,'success'); }
+        }).simpanJenisUjian(d);
+      },
+      editJenis: function(str) {
+        const d=JSON.parse(decodeURIComponent(str)); App.UI.openModal('modal-jenis'); document.getElementById('modal-jenis-title').innerText="Edit Nama Ujian";
+        document.getElementById('j-id').value=d.id; document.getElementById('j-nama').value=d.nama; document.getElementById('j-ket').value=d.ket; document.getElementById('j-status').value=d.status;
+      },
+      hapusJenis: function(id) { Swal.fire({title:'Hapus?',text:'Jadwal terkait mungkin error',icon:'warning',showCancelButton:true,confirmButtonColor:'#d33'}).then(r=>{ if(r.isConfirmed) google.script.run.withSuccessHandler(()=>{ App.Cache.remove('jenis_ujian'); App.Ujian.loadJenis(true); }).hapusJenisUjian(id); }); },
+      openModalJenis: function() { App.UI.openModal('modal-jenis'); document.getElementById('modal-jenis-title').innerText="Tambah Nama Ujian"; document.getElementById('formJenis').reset(); document.getElementById('j-id').value=""; },
+
+      // D. CRUD Operations (Jadwal)
+      saveJadwal: function(e) {
+        e.preventDefault(); const btn=document.getElementById('btnSimpanJadwal'); App.UI.setLoading(btn,true,'Simpan');
+        const m = new Date(document.getElementById('sch-mulai').value).toISOString();
+        const s = new Date(document.getElementById('sch-selesai').value).toISOString();
+        
+        const d = { 
+          id: document.getElementById('sch-id').value, 
+          id_jenis: document.getElementById('sch-jenis').value,
+          kode_mapel: document.getElementById('sch-mapel').value,
+          mulai: m, selesai: s, status: document.getElementById('sch-status').value 
+        };
+        google.script.run.withSuccessHandler(r=>{
+           App.UI.setLoading(btn,false,'Simpan'); 
+           if(r.status==='success') { App.UI.closeModal('modal-jadwal'); App.Cache.remove('jadwal'); App.Ujian.loadJadwal(true); Swal.fire('Sukses',r.message,'success'); }
+           else Swal.fire('Error', r.message, 'error');
+        }).simpanJadwal(d);
+      },
+      editJadwal: function(str) {
+        const d=JSON.parse(decodeURIComponent(str)); 
+        App.Ujian.openModalJadwal(true); // Load dropdowns first
+        document.getElementById('modal-jadwal-title').innerText="Edit Set Ujian";
+        document.getElementById('sch-id').value=d.id;
+        // Delay setting values to wait for dropdowns
+        setTimeout(() => {
+           document.getElementById('sch-jenis').value=d.id_jenis;
+           document.getElementById('sch-mapel').value=d.kode_mapel;
+           document.getElementById('sch-status').value=d.status;
+           document.getElementById('sch-mulai').value=d.mulai.slice(0,16);
+           document.getElementById('sch-selesai').value=d.selesai.slice(0,16);
+        }, 300);
+      },
+      hapusJadwal: function(id) { Swal.fire({title:'Hapus Jadwal?',icon:'warning',showCancelButton:true,confirmButtonColor:'#d33'}).then(r=>{ if(r.isConfirmed) google.script.run.withSuccessHandler(()=>{ App.Cache.remove('jadwal'); App.Ujian.loadJadwal(true); }).hapusJadwal(id); }); },
+      
+      openModalJadwal: function(isEdit=false) {
+        App.UI.openModal('modal-jadwal'); 
+        if(!isEdit) {
+           document.getElementById('modal-jadwal-title').innerText="Set Ujian Baru";
+           document.getElementById('formJadwal').reset(); 
+           document.getElementById('sch-id').value="";
+        }
+        
+        // Populate Dropdown Jenis
+        const selJenis = document.getElementById('sch-jenis');
+        selJenis.innerHTML = '<option value="">- Pilih Ujian -</option>';
+        (App.data.jenisUjianList || []).forEach(j => {
+           if(j.status === 'Aktif') selJenis.insertAdjacentHTML('beforeend', `<option value="${j.id}">${j.nama}</option>`);
+        });
+
+        // Populate Dropdown Mapel
+        const selMapel = document.getElementById('sch-mapel');
+        selMapel.innerHTML = '<option value="">- Loading -</option>';
+        if(App.Cache.get('mapel')) {
+           renderMapelOpts(App.Cache.get('mapel'));
+        } else {
+           google.script.run.withSuccessHandler(d=>{ App.Cache.set('mapel',d); renderMapelOpts(d); }).getAllMapel();
+        }
+
+        function renderMapelOpts(d) {
+           selMapel.innerHTML = '<option value="">- Pilih Mapel/Bank Soal -</option>';
+           d.forEach(m => selMapel.insertAdjacentHTML('beforeend', `<option value="${m.kode}">${m.kode} - ${m.nama}</option>`));
+        }
+      }
     },
 
     // --- Module 6: Siswa / Exam Logic ---
@@ -625,19 +695,19 @@
         btn.innerHTML = isLoading ? `<i class="fas fa-circle-notch fa-spin"></i> ${text}` : text;
       },
       switchView: function(viewId, btn) {
-        if(window.innerWidth < 768) App.UI.toggleSidebar(false); // Close sidebar on mobile
+        if(window.innerWidth < 768) App.UI.toggleSidebar(false);
         document.querySelectorAll('.nav-item').forEach(el => el.className = 'nav-item w-full flex items-center gap-3 px-6 py-3 transition text-left hover:bg-slate-800 text-gray-400 hover:text-white');
         if(btn) btn.className = 'nav-item w-full flex items-center gap-3 px-6 py-3 transition text-left bg-slate-800 border-l-4 border-indigo-500 text-white';
         
-        ['view-dashboard','view-bank-soal','view-akun','view-mapel','view-placeholder'].forEach(id => { const el = document.getElementById(id); if(el) el.classList.add('hidden'); });
-        const map = { 'dashboard':'Dashboard', 'akun':'Kelola Akun', 'mapel':'Mapel', 'bank-soal':'Bank Soal' };
+        ['view-dashboard','view-bank-soal','view-akun','view-mapel','view-ujian','view-placeholder'].forEach(id => { const el = document.getElementById(id); if(el) el.classList.add('hidden'); });
+        const map = { 'dashboard':'Dashboard', 'akun':'Kelola Akun', 'mapel':'Mapel', 'bank-soal':'Bank Soal', 'ujian':'Kelola Ujian' };
         document.getElementById('page-title').innerText = map[viewId] || viewId.toUpperCase();
         
-        // Panggil fungsi load TANPA parameter forceRefresh (default: false = pakai cache)
         if(viewId==='dashboard') { document.getElementById('view-dashboard').classList.remove('hidden'); App.Dashboard.loadStats(); }
         else if(viewId==='akun') { document.getElementById('view-akun').classList.remove('hidden'); App.User.loadAll(); }
         else if(viewId==='mapel') { document.getElementById('view-mapel').classList.remove('hidden'); App.Mapel.load(); }
         else if(viewId==='bank-soal') { document.getElementById('view-bank-soal').classList.remove('hidden'); App.BankSoal.loadOptionsMapel(); }
+        else if(viewId==='ujian') { document.getElementById('view-ujian').classList.remove('hidden'); App.Ujian.loadJenis(); App.Ujian.loadJadwal(); }
         else document.getElementById('view-placeholder').classList.remove('hidden');
       },
       toggleSidebar: function(forceState) {
@@ -645,7 +715,6 @@
         const backdrop = document.getElementById('sidebar-backdrop');
         const isClosed = sidebar.classList.contains('-translate-x-full');
         const shouldOpen = forceState !== undefined ? forceState : isClosed;
-        
         if (shouldOpen) { sidebar.classList.remove('-translate-x-full'); backdrop.classList.remove('hidden'); } 
         else { sidebar.classList.add('-translate-x-full'); backdrop.classList.add('hidden'); }
       },
