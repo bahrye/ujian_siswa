@@ -843,7 +843,6 @@
       openModalJenis: function() { App.UI.openModal('modal-jenis'); document.getElementById('modal-jenis-title').innerText="Tambah Nama Ujian"; document.getElementById('formJenis').reset(); document.getElementById('j-id').value=""; },
 
       // B. SAVE JADWAL (Kirim data Pengawas)
-      // 2. UPDATE: Save Jadwal (Kirim data Kelas ke Backend)
       saveJadwal: function(e) {
         e.preventDefault(); 
         const btn = document.getElementById('btnSimpanJadwal'); 
@@ -860,7 +859,11 @@
           selesai: s, 
           status: document.getElementById('sch-status').value,
           pengawas: document.getElementById('sch-pengawas').value,
-          target_kelas: document.getElementById('sch-kelas').value // <--- KIRIM KELAS
+          target_kelas: document.getElementById('sch-kelas').value,
+          // DATA BARU
+          durasi: document.getElementById('sch-durasi').value,
+          acak_soal: document.getElementById('sch-acak-soal').checked,
+          acak_opsi: document.getElementById('sch-acak-opsi').checked
         };
         
         google.script.run.withSuccessHandler(r=>{
@@ -870,12 +873,8 @@
         }).simpanJadwal(d);
       },
 
-      // C. EDIT JADWAL (Isi dropdown Pengawas)
-      // 4. UPDATE: Edit Jadwal (Passing data kelas)
       editJadwal: function(str) {
         const d = JSON.parse(decodeURIComponent(str)); 
-        
-        // Passing 'd.target_kelas' sebagai parameter ke-4
         App.Ujian.openModalJadwal(true, d.pengawas || 'semua', d.kode_mapel, d.target_kelas || 'Semua'); 
         
         document.getElementById('modal-jadwal-title').innerText = "Edit Set Ujian";
@@ -886,6 +885,10 @@
           document.getElementById('sch-status').value = d.status;
           document.getElementById('sch-mulai').value = d.mulai;
           document.getElementById('sch-selesai').value = d.selesai;
+          // DATA BARU
+          document.getElementById('sch-durasi').value = d.durasi || 60;
+          document.getElementById('sch-acak-soal').checked = d.acak_soal;
+          document.getElementById('sch-acak-opsi').checked = d.acak_opsi;
         }, 500); 
       },
 
@@ -901,6 +904,11 @@
           document.getElementById('modal-jadwal-title').innerText = "Set Ujian Baru";
           document.getElementById('formJadwal').reset(); 
           document.getElementById('sch-id').value = "";
+          // RESET FIELD BARU
+          document.getElementById('sch-durasi').value = "60"; 
+          document.getElementById('sch-acak-soal').checked = false;
+          document.getElementById('sch-acak-opsi').checked = false;
+
           selectedPengawas = 'semua';
           selectedMapel = "";
           selectedKelas = "Semua"; // Default
@@ -958,32 +966,123 @@
         document.getElementById('header-nama').innerText = user.nama;
         Swal.fire({ title: 'Kode Mapel', input: 'text', allowOutsideClick: false, confirmButtonText: 'Mulai' }).then((r) => { if (r.value) App.Exam.start(r.value); else App.Auth.logout(); });
       },
-      start: function(kode) {
-        App.data.examRunning = true; App.Security.enterFullscreen();
-        document.getElementById('page-siswa').classList.remove('hidden'); document.getElementById('header-mapel').innerText = kode;
-        App.Exam.timerStart(60); // Default 60 mins
-        google.script.run.withSuccessHandler(res => {
-           if(res.status === 'success') {
-             App.data.soalList = res.data; document.getElementById('exam-loading').classList.add('hidden'); document.getElementById('soal-container').classList.remove('hidden'); document.getElementById('nav-buttons').classList.remove('hidden'); document.getElementById('nav-buttons').classList.add('flex'); App.Exam.render(0);
-           } else { Swal.fire('Gagal', res.message, 'warning').then(() => App.Auth.logout()); }
-        }).getSoalUjian(kode);
+
+      // Helper: Fisher-Yates Shuffle
+      shuffleArray: function(array) {
+          for (let i = array.length - 1; i > 0; i--) {
+              const j = Math.floor(Math.random() * (i + 1));
+              [array[i], array[j]] = [array[j], array[i]];
+          }
+          return array;
       },
+
+      // 1. Terima parameter config
+      start: function(kode, config) {
+          App.data.examRunning = true; 
+          App.Security.enterFullscreen();
+          document.getElementById('page-siswa').classList.remove('hidden'); 
+          document.getElementById('header-mapel').innerText = kode;
+          
+          // GUNAKAN DURASI DARI JADWAL
+          const durasiMenit = config ? parseInt(config.durasi) : 60;
+          App.Exam.timerStart(durasiMenit); 
+          
+          google.script.run.withSuccessHandler(res => {
+            if(res.status === 'success') {
+              let rawSoal = res.data;
+
+              // LOGIKA 1: ACAK SOAL
+              if(config && config.acakSoal) {
+                  rawSoal = App.Exam.shuffleArray(rawSoal);
+              }
+
+              // LOGIKA 2: PREPARE ACAK OPSI (PER SOAL)
+              // Kita buat property 'shuffledKeys' di setiap objek soal agar konsisten saat next/prev
+              rawSoal.forEach(s => {
+                  // Array kunci standar
+                  let keys = ['A','B','C','D','E'];
+                  
+                  if(config && config.acakOpsi && s.tipe === 'PG') {
+                      // Kita acak urutan kunci yang akan DIRENDER
+                      // Misal: ['C', 'A', 'E', 'B', 'D']
+                      s.shuffledKeys = App.Exam.shuffleArray([...keys]);
+                  } else {
+                      s.shuffledKeys = keys;
+                  }
+              });
+
+              App.data.soalList = rawSoal; 
+              document.getElementById('exam-loading').classList.add('hidden'); 
+              document.getElementById('soal-container').classList.remove('hidden'); 
+              document.getElementById('nav-buttons').classList.remove('hidden'); 
+              document.getElementById('nav-buttons').classList.add('flex'); 
+              App.Exam.render(0);
+
+            } else { 
+              Swal.fire('Gagal', res.message, 'warning').then(() => App.Auth.logout()); 
+            }
+          }).getSoalUjian(kode);
+      },
+
       render: function(idx) {
-        App.data.currentSoalIdx = idx; const s = App.data.soalList[idx];
-        document.getElementById('disp-no').innerText = idx + 1;
-        document.getElementById('disp-pertanyaan').innerText = s.pertanyaan;
-        const imgCont = document.getElementById('disp-gambar-container'); const img = document.getElementById('disp-gambar');
-        if(s.gambar) { imgCont.classList.remove('hidden'); img.src = s.gambar; } else { imgCont.classList.add('hidden'); }
-        const ops = document.getElementById('disp-opsi'); ops.innerHTML = '';
-        ['A','B','C','D','E'].forEach(h => {
-           if(s.opsi[h]) {
-             const active = App.data.jawabanSiswa[s.id] === h ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white hover:bg-gray-50';
-             ops.insertAdjacentHTML('beforeend', `<div onclick="App.Exam.pilih('${s.id}','${h}')" class="cursor-pointer border rounded p-3 flex gap-3 items-center transition ${active}"><span class="font-bold w-6 text-center shrink-0">${h}</span> <span class="text-sm md:text-base">${s.opsi[h]}</span></div>`);
-           }
-        });
-        App.Exam.renderGrid();
+          App.data.currentSoalIdx = idx; 
+          const s = App.data.soalList[idx];
+          document.getElementById('disp-no').innerText = idx + 1;
+          document.getElementById('disp-pertanyaan').innerText = s.pertanyaan; // Render HTML Aman
+          document.getElementById('disp-pertanyaan').innerHTML = s.pertanyaan; // Pakai innerHTML biar format teks muncul
+
+          const imgCont = document.getElementById('disp-gambar-container'); 
+          const img = document.getElementById('disp-gambar');
+          if(s.gambar) { imgCont.classList.remove('hidden'); img.src = s.gambar; } else { imgCont.classList.add('hidden'); }
+          
+          const ops = document.getElementById('disp-opsi'); 
+          ops.innerHTML = '';
+
+          // LOOP MENGGUNAKAN SHUFFLED KEYS
+          // Agar urutan visual teracak, tapi Value tetap sesuai.
+          // Trik Visual: Label (A, B, C...) tetap urut, tapi isinya mengambil dari kunci acak.
+          const labelUrut = ['A','B','C','D','E'];
+
+          if(s.tipe === 'PG') {
+              s.shuffledKeys.forEach((realKey, i) => {
+                if(s.opsi[realKey]) {
+                  // visualLabel: A, B, C... (Urut)
+                  // realKey: Kunci asli di database (Misal 'C')
+                  // s.opsi[realKey]: Isi teks jawaban C
+                  
+                  const visualLabel = labelUrut[i]; 
+                  
+                  const active = App.data.jawabanSiswa[s.id] === realKey ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white hover:bg-gray-50';
+                  
+                  // Saat diklik, kita kirim realKey ('C') agar penilaian valid
+                  ops.insertAdjacentHTML('beforeend', `
+                      <div onclick="App.Exam.pilih('${s.id}','${realKey}')" class="cursor-pointer border rounded p-3 flex gap-3 items-center transition ${active}">
+                          <span class="font-bold w-6 text-center shrink-0 border-r pr-2">${visualLabel}</span> 
+                          <span class="text-sm md:text-base pl-2">${s.opsi[realKey]}</span>
+                      </div>
+                  `);
+                }
+              });
+          } 
+          // Handle Tipe Lain (Essay/BS) sederhana
+          else if (s.tipe === 'BS') {
+              ['A','B'].forEach(h => {
+                  const txt = h==='A'?'BENAR':'SALAH';
+                  const val = h==='A'?'BENAR':'SALAH';
+                  const active = App.data.jawabanSiswa[s.id] === val ? 'bg-indigo-600 text-white' : 'bg-white';
+                  ops.insertAdjacentHTML('beforeend', `<div onclick="App.Exam.pilih('${s.id}','${val}')" class="cursor-pointer border rounded p-3 font-bold ${active}">${txt}</div>`);
+              });
+          }
+          else {
+              // Essay / Isian
+              const val = App.data.jawabanSiswa[s.id] || '';
+              ops.innerHTML = `<textarea onkeyup="App.Exam.pilih('${s.id}', this.value)" class="w-full border rounded p-2 h-32" placeholder="Tulis jawaban...">${val}</textarea>`;
+          }
+
+          App.Exam.renderGrid();
       },
-      pilih: function(id, h) { App.data.jawabanSiswa[id] = h; App.Exam.render(App.data.currentSoalIdx); },
+
+      pilih: function(id, val) { App.data.jawabanSiswa[id] = val; App.Exam.render(App.data.currentSoalIdx); },
       next: function() { if(App.data.currentSoalIdx < App.data.soalList.length-1) App.Exam.render(App.data.currentSoalIdx+1); },
       prev: function() { if(App.data.currentSoalIdx > 0) App.Exam.render(App.data.currentSoalIdx-1); },
       toggleRagu: function() { const id = App.data.soalList[App.data.currentSoalIdx].id; if(App.data.raguSiswa[id]) delete App.data.raguSiswa[id]; else App.data.raguSiswa[id] = true; App.Exam.render(App.data.currentSoalIdx); },
@@ -1130,35 +1229,40 @@
              }
              
              filtered.forEach(j => {
+                // Simpan CONFIG ke dalam atribut data HTML tombol
+                const config = encodeURIComponent(JSON.stringify({
+                    durasi: j.durasi || 60,
+                    acakSoal: j.acak_soal,
+                    acakOpsi: j.acak_opsi
+                }));
+
                 div.insertAdjacentHTML('beforeend', `
                   <div class="flex flex-col md:flex-row justify-between items-start md:items-center bg-gray-50 p-4 rounded border hover:bg-indigo-50 transition gap-4">
                      <div>
                         <h4 class="font-bold text-lg text-indigo-700">${j.nama_mapel}</h4>
                         <div class="flex gap-3 text-xs text-gray-500 mt-1">
-                           <span><i class="fas fa-clock"></i> ${new Date(j.mulai).toLocaleTimeString()} - ${new Date(j.selesai).toLocaleTimeString()}</span>
+                           <span><i class="fas fa-clock"></i> ${j.durasi || 60} Menit</span>
                            <span class="bg-yellow-100 text-yellow-700 px-2 rounded font-bold">${j.target_kelas || 'Semua'}</span>
                         </div>
                         <p class="text-xs text-gray-400 mt-1">${j.nama_ujian}</p>
                      </div>
-                     <button onclick="App.Siswa.promptToken('${j.kode_mapel}', '${j.id}')" class="w-full md:w-auto px-6 py-2 bg-indigo-600 text-white rounded-full font-bold shadow hover:bg-indigo-700">KERJAKAN</button>
+                     <button onclick="App.Siswa.promptToken('${j.kode_mapel}', '${j.id}', '${config}')" class="w-full md:w-auto px-6 py-2 bg-indigo-600 text-white rounded-full font-bold shadow hover:bg-indigo-700">KERJAKAN</button>
                   </div>
                 `);
              });
           }).getJadwalUjian(); 
        },
        
-       promptToken: function(kodeMapel, idJadwal) {
+       promptToken: function(kodeMapel, idJadwal, configStr) {
           Swal.fire({
             title: 'Masukkan Token',
             text: 'Minta token kepada Pengawas',
             input: 'text',
-            inputAttributes: { autocapitalize: 'off' },
             showCancelButton: true,
             confirmButtonText: 'Mulai Ujian',
             showLoaderOnConfirm: true,
             preConfirm: (token) => {
                return new Promise((resolve) => {
-                  // UPDATE: Kirim idJadwal juga untuk verifikasi
                   google.script.run.withSuccessHandler(res => {
                      if(res.status === 'success') resolve();
                      else Swal.showValidationMessage(res.message);
@@ -1167,8 +1271,12 @@
             }
           }).then((result) => {
              if (result.isConfirmed) {
+                // Decode Config
+                const config = JSON.parse(decodeURIComponent(configStr));
+                
                 google.script.run.startExamSession(App.data.user.username, idJadwal);
-                App.Exam.start(kodeMapel);
+                // PASSING CONFIG KE START
+                App.Exam.start(kodeMapel, config);
              }
           });
        }
