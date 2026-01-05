@@ -911,63 +911,80 @@
        }
     },
 
-    // --- MODULE MONITORING ADMIN ---
+    // --- MODULE MONITORING ADMIN (OPTIMIZED) ---
     AdminMonitor: {
        currentExamId: null,
-       
-       // LOAD LIST UJIAN (KIRI)
+       listCache: [], // Cache untuk menyimpan data agar tidak reload terus
+
+       // 1. Fetch Data dari Server (Hanya dipanggil saat awal buka menu)
        loadSummary: function() {
           const listDiv = document.getElementById('adm-list-exams');
           listDiv.innerHTML = '<div class="text-center mt-10 text-gray-400"><i class="fas fa-circle-notch fa-spin text-2xl"></i><p class="text-xs mt-2">Memuat Data...</p></div>';
           
           google.script.run.withSuccessHandler(res => {
-             listDiv.innerHTML = '';
-             if (!res || !res.exams || res.exams.length === 0) {
-                listDiv.innerHTML = '<div class="text-center p-6 bg-white rounded-lg border border-gray-200"><i class="fas fa-coffee text-gray-300 text-3xl mb-2"></i><p class="text-gray-500 text-sm font-bold">Tidak ada ujian aktif.</p></div>';
-                return;
-             }
-
-             res.exams.forEach(ex => {
-                 // FORMAT TANGGAL & JAM LENGKAP
-                 const dMulai = new Date(ex.mulai);
-                 const dSelesai = new Date(ex.selesai);
-                 
-                 const optsDate = { weekday: 'long', day: 'numeric', month: 'short' }; // Senin, 20 Okt
-                 const optsTime = { hour: '2-digit', minute: '2-digit' }; // 08:00
-                 
-                 const tanggalStr = dMulai.toLocaleDateString('id-ID', optsDate);
-                 const jamStr = dMulai.toLocaleTimeString('id-ID', optsTime) + ' - ' + dSelesai.toLocaleTimeString('id-ID', optsTime);
-
-                 // Render Item List
-                 const isActive = (App.AdminMonitor.currentExamId === ex.id) ? 'border-indigo-500 ring-1 ring-indigo-500 bg-indigo-50' : 'border-gray-200 bg-white hover:border-indigo-400';
-                 
-                 const item = document.createElement('div');
-                 item.className = `cursor-pointer p-4 rounded-xl border transition group relative overflow-hidden ${isActive}`;
-                 item.onclick = () => App.AdminMonitor.loadDetail(ex.id, ex.mapel, ex.jenis, ex.token);
-                 
-                 item.innerHTML = `
-                    <div class="flex justify-between items-start mb-2 relative z-10">
-                       <span class="text-[10px] font-bold uppercase tracking-wider text-gray-500 bg-gray-100 px-2 py-0.5 rounded">${ex.jenis}</span>
-                       <span class="text-[10px] text-indigo-600 font-bold bg-indigo-100 px-2 py-0.5 rounded flex items-center gap-1"><i class="fas fa-key"></i> ${ex.token}</span>
-                    </div>
-                    <h4 class="font-bold text-gray-800 text-base mb-1 leading-tight group-hover:text-indigo-700">${ex.mapel}</h4>
-                    
-                    <div class="mt-3 pt-3 border-t border-dashed border-gray-200 text-xs text-gray-600 space-y-1">
-                       <div class="flex items-center gap-2"><i class="far fa-calendar-alt w-4 text-center text-gray-400"></i> <span>${tanggalStr}</span></div>
-                       <div class="flex items-center gap-2"><i class="far fa-clock w-4 text-center text-gray-400"></i> <span class="font-mono font-bold">${jamStr}</span></div>
-                    </div>
-                 `;
-                 listDiv.appendChild(item);
-             });
+             // Simpan data ke cache browser
+             App.AdminMonitor.listCache = res.exams || []; 
+             // Panggil fungsi render dari cache
+             App.AdminMonitor.renderList(); 
           }).getAdminMonitoringSummary();
        },
 
-       // LOAD DETAIL SISWA & PELANGGARAN (KANAN)
+       // 2. Render List dari Cache (Instan, Tanpa Loading Server)
+       renderList: function() {
+          const listDiv = document.getElementById('adm-list-exams');
+          listDiv.innerHTML = '';
+          
+          const exams = App.AdminMonitor.listCache; // Ambil data dari cache
+
+          if (exams.length === 0) {
+             listDiv.innerHTML = '<div class="text-center p-6 bg-white rounded-lg border border-gray-200"><i class="fas fa-coffee text-gray-300 text-3xl mb-2"></i><p class="text-gray-500 text-sm font-bold">Tidak ada ujian aktif.</p></div>';
+             return;
+          }
+
+          exams.forEach(ex => {
+              // Format Tanggal
+              const dMulai = new Date(ex.mulai);
+              const dSelesai = new Date(ex.selesai);
+              
+              const optsDate = { weekday: 'long', day: 'numeric', month: 'short' }; 
+              const optsTime = { hour: '2-digit', minute: '2-digit' };
+              
+              const tanggalStr = dMulai.toLocaleDateString('id-ID', optsDate);
+              const jamStr = dMulai.toLocaleTimeString('id-ID', optsTime) + ' - ' + dSelesai.toLocaleTimeString('id-ID', optsTime);
+
+              // Cek Active State (Highlight)
+              const isActive = (App.AdminMonitor.currentExamId === ex.id) ? 'border-indigo-500 ring-1 ring-indigo-500 bg-indigo-50' : 'border-gray-200 bg-white hover:border-indigo-400';
+              
+              const item = document.createElement('div');
+              item.className = `cursor-pointer p-4 rounded-xl border transition group relative overflow-hidden ${isActive}`;
+              
+              // KLIK: Panggil loadDetail
+              item.onclick = () => App.AdminMonitor.loadDetail(ex.id, ex.mapel, ex.jenis, ex.token);
+              
+              item.innerHTML = `
+                 <div class="flex justify-between items-start mb-2 relative z-10">
+                    <span class="text-[10px] font-bold uppercase tracking-wider text-gray-500 bg-gray-100 px-2 py-0.5 rounded">${ex.jenis}</span>
+                    <span class="text-[10px] text-indigo-600 font-bold bg-indigo-100 px-2 py-0.5 rounded flex items-center gap-1"><i class="fas fa-key"></i> ${ex.token}</span>
+                 </div>
+                 <h4 class="font-bold text-gray-800 text-base mb-1 leading-tight group-hover:text-indigo-700">${ex.mapel}</h4>
+                 
+                 <div class="mt-3 pt-3 border-t border-dashed border-gray-200 text-xs text-gray-600 space-y-1">
+                    <div class="flex items-center gap-2"><i class="far fa-calendar-alt w-4 text-center text-gray-400"></i> <span>${tanggalStr}</span></div>
+                    <div class="flex items-center gap-2"><i class="far fa-clock w-4 text-center text-gray-400"></i> <span class="font-mono font-bold">${jamStr}</span></div>
+                 </div>
+              `;
+              listDiv.appendChild(item);
+          });
+       },
+
+       // 3. Load Detail (Kanan) & Update Highlight (Kiri)
        loadDetail: function(idJadwal, mapelName, jenisName, token) {
           App.AdminMonitor.currentExamId = idJadwal;
-          App.AdminMonitor.loadSummary(); // Refresh list agar highlight item aktif
+          
+          // REVISI PENTING: Render ulang list kiri dari CACHE (Cepat), jangan fetch server!
+          App.AdminMonitor.renderList(); 
 
-          // Update Header Kanan
+          // Update Tampilan Kanan (Detail)
           document.getElementById('adm-mon-title').innerText = mapelName;
           document.getElementById('adm-mon-subtitle').innerText = jenisName;
           document.getElementById('adm-mon-token').innerText = token;
@@ -979,8 +996,8 @@
           
           tbody.innerHTML = '<tr><td colspan="4" class="p-10 text-center"><i class="fas fa-spinner fa-spin text-indigo-500 text-2xl"></i><p class="mt-2 text-gray-500">Mengambil data realtime...</p></td></tr>';
           
+          // Panggil data siswa realtime (hanya refresh bagian kanan)
           google.script.run.withSuccessHandler(res => {
-             // Update token jaga-jaga berubah
              document.getElementById('adm-mon-token').innerText = res.token;
              
              const data = res.students;
@@ -991,7 +1008,6 @@
 
              if(data.length === 0) {
                  tbody.innerHTML = '<tr><td colspan="4" class="p-10 text-center text-gray-400 bg-gray-50 italic">Belum ada siswa yang login pada ujian ini.</td></tr>';
-                 // Reset panel pelanggaran
                  listLocked.innerHTML = '<p class="text-xs text-gray-400 italic w-full text-center col-span-full mt-4">Tidak ada data.</p>';
                  badgeLocked.classList.add('hidden');
                  return;
@@ -1011,16 +1027,13 @@
                 
                 let actionBtn = '<span class="text-gray-300">-</span>';
 
-                // LOGIKA PELANGGARAN / TERKUNCI
                 if(s.status === 'TERKUNCI' || s.isLocked) {
                     badge = "bg-red-600 text-white font-bold shadow-sm animate-bounce";
                     statusText = "TERKUNCI";
                     lockedCount++;
                     
-                    // Tombol di Tabel Utama
                     actionBtn = `<button onclick="App.Pengawas.bukaKunci('${s.username}', '${s.nama}')" class="px-3 py-1 bg-white border border-red-200 text-red-600 rounded text-xs font-bold hover:bg-red-50 shadow-sm transition"><i class="fas fa-unlock"></i> Buka</button>`;
                     
-                    // Item di Panel Pelanggaran (Bawah)
                     listLocked.insertAdjacentHTML('beforeend', `
                        <div class="flex justify-between items-center bg-white p-3 rounded-lg border-l-4 border-red-500 shadow-sm hover:shadow-md transition">
                           <div class="overflow-hidden mr-2">
@@ -1048,7 +1061,6 @@
                 `);
              });
 
-             // Update Status Panel Pelanggaran
              if(lockedCount === 0) {
                 listLocked.innerHTML = `
                    <div class="col-span-full flex flex-col items-center justify-center text-gray-400 py-4 opacity-70">
