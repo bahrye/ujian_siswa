@@ -20,6 +20,38 @@
       quill: null
     },
 
+    // --- Module 0: Caching System (BARU) ---
+    Cache: {
+      store: {},
+      
+      // Ambil data dari cache
+      get: function(key) {
+        return this.store[key] || null;
+      },
+      
+      // Simpan data ke cache
+      set: function(key, data) {
+        this.store[key] = data;
+      },
+      
+      // Hapus satu key spesifik
+      remove: function(key) {
+        delete this.store[key];
+      },
+      
+      // Hapus cache yang mengandung kata tertentu (misal: 'soal_')
+      clearPattern: function(pattern) {
+        Object.keys(this.store).forEach(key => {
+          if (key.includes(pattern)) delete this.store[key];
+        });
+      },
+
+      // Hapus semua (misal saat logout)
+      clearAll: function() {
+        this.store = {};
+      }
+    },
+
     // --- Module 1: Authentication ---
     Auth: {
       login: function(e) {
@@ -55,6 +87,7 @@
 
       forceLogout: function() {
         sessionStorage.clear();
+        App.Cache.clearAll(); // Bersihkan cache saat logout
         App.Util.resetGlobals();
         App.UI.showLoginOnly();
         document.getElementById('user').value = "";
@@ -108,12 +141,27 @@
         });
       },
 
-      loadStats: function() {
+      loadStats: function(forceRefresh = false) {
+        // Cek Cache Stats
+        if (!forceRefresh && App.Cache.get('stats')) {
+           const stats = App.Cache.get('stats');
+           App.Dashboard.renderStats(stats);
+           return;
+        }
+
         google.script.run.withSuccessHandler(stats => {
-           document.getElementById('stat-user').innerText = stats.users;
-           document.getElementById('stat-soal').innerText = stats.soals;
-           document.getElementById('stat-nilai').innerText = stats.nilais;
+           App.Cache.set('stats', stats); // Simpan Cache
+           App.Dashboard.renderStats(stats);
+           // Putar balik animasi tombol refresh jika ada
+           const btn = document.getElementById('btn-refresh-dash');
+           if(btn) btn.classList.remove('fa-spin');
         }).getDashboardStats();
+      },
+
+      renderStats: function(stats) {
+         document.getElementById('stat-user').innerText = stats.users;
+         document.getElementById('stat-soal').innerText = stats.soals;
+         document.getElementById('stat-nilai').innerText = stats.nilais;
       }
     },
 
@@ -144,33 +192,68 @@
       },
 
       loadOptionsMapel: function() {
-         const selFilter = document.getElementById('filter-mapel'); 
-         const selForm = document.getElementById('soal-mapel-select');
-         selFilter.innerHTML = '<option value="">Loading...</option>'; 
-         selForm.innerHTML = '<option value="">Loading...</option>';
-         
+         // Dropdown mapel jarang berubah, bisa di-cache juga
+         if(App.Cache.get('mapel_opts')) {
+             App.BankSoal.renderOptionsMapel(App.Cache.get('mapel_opts'));
+             App.BankSoal.loadDaftar(); // Load soal setelah dropdown siap
+             return;
+         }
+
          google.script.run.withSuccessHandler(data => {
-            selFilter.innerHTML = '<option value="">- Tampilkan Semua -</option>';
-            selForm.innerHTML = '<option value="">-- Pilih Mapel --</option>';
-            data.forEach(m => {
-               const opt = `<option value="${m.kode}">${m.kode} - ${m.nama}</option>`;
-               selFilter.insertAdjacentHTML('beforeend', opt);
-               selForm.insertAdjacentHTML('beforeend', opt);
-            });
+            App.Cache.set('mapel_opts', data);
+            App.BankSoal.renderOptionsMapel(data);
             App.BankSoal.loadDaftar();
          }).getAllMapel();
       },
 
-      loadDaftar: function() {
+      renderOptionsMapel: function(data) {
+         const selFilter = document.getElementById('filter-mapel'); 
+         const selForm = document.getElementById('soal-mapel-select');
+         // Simpan value lama agar tidak reset saat refresh
+         const oldFilter = selFilter.value;
+
+         selFilter.innerHTML = '<option value="">- Tampilkan Semua -</option>';
+         selForm.innerHTML = '<option value="">-- Pilih Mapel --</option>';
+         
+         data.forEach(m => {
+            const opt = `<option value="${m.kode}">${m.kode} - ${m.nama}</option>`;
+            selFilter.insertAdjacentHTML('beforeend', opt);
+            selForm.insertAdjacentHTML('beforeend', opt);
+         });
+
+         if(oldFilter) selFilter.value = oldFilter;
+      },
+
+      loadDaftar: function(forceRefresh = false) {
         const tbody = document.getElementById('tbody-soal');
         const filter = document.getElementById('filter-mapel').value;
+        const cacheKey = 'soal_' + (filter || 'all');
+        const btnRefresh = document.getElementById('btn-refresh-soal');
+
+        // Animation
+        if(forceRefresh && btnRefresh) btnRefresh.classList.add('fa-spin');
+
+        // 1. Cek Cache
+        if (!forceRefresh && App.Cache.get(cacheKey)) {
+          App.BankSoal.renderTable(App.Cache.get(cacheKey));
+          return;
+        }
+
         tbody.innerHTML = '<tr><td colspan="5" class="p-8 text-center"><i class="fas fa-spinner fa-spin"></i> Loading...</td></tr>';
         
         google.script.run.withSuccessHandler(data => {
-          tbody.innerHTML = '';
-          if (data.length === 0) { tbody.innerHTML = '<tr><td colspan="5" class="p-8 text-center text-gray-400">Tidak ada soal.</td></tr>'; return; }
-          
-          data.forEach((s, idx) => {
+          if(btnRefresh) btnRefresh.classList.remove('fa-spin');
+          App.Cache.set(cacheKey, data); // Simpan ke Cache
+          App.BankSoal.renderTable(data);
+        }).getSoalAdmin(filter);
+      },
+
+      renderTable: function(data) {
+        const tbody = document.getElementById('tbody-soal');
+        tbody.innerHTML = '';
+        if (data.length === 0) { tbody.innerHTML = '<tr><td colspan="5" class="p-8 text-center text-gray-400">Tidak ada soal.</td></tr>'; return; }
+        
+        data.forEach((s, idx) => {
              const tmp = document.createElement("DIV"); tmp.innerHTML = s.soal;
              let snippet = tmp.textContent || tmp.innerText || "";
              if(snippet.length > 50) snippet = snippet.substring(0, 50) + "...";
@@ -189,8 +272,7 @@
                  </td>
                </tr>`;
              tbody.insertAdjacentHTML('beforeend', row);
-          });
-        }).getSoalAdmin(filter);
+        });
       },
 
       submit: function(e) {
@@ -226,7 +308,16 @@
         
         google.script.run.withSuccessHandler((res) => {
            App.UI.setLoading(btn, false, 'SIMPAN SOAL');
-           if(res.status === 'success') { Swal.fire('Sukses', res.message, 'success'); App.BankSoal.toggleForm(false); App.BankSoal.loadDaftar(); } 
+           if(res.status === 'success') { 
+             Swal.fire('Sukses', res.message, 'success'); 
+             App.BankSoal.toggleForm(false); 
+             
+             // INVALIDATE CACHE (Hapus semua cache soal agar reload ulang)
+             App.Cache.clearPattern('soal_'); 
+             App.Cache.remove('stats'); // Reset stats dashboard juga
+             
+             App.BankSoal.loadDaftar(true); // Load ulang dengan data baru
+           } 
            else Swal.fire('Gagal', res.message, 'error');
         }).simpanSoal(payload);
       },
@@ -261,10 +352,21 @@
 
       hapus: function(id) {
         Swal.fire({ title: 'Hapus?', text: "Tak bisa balik.", icon: 'warning', showCancelButton: true, confirmButtonColor: '#d33' })
-        .then((r) => { if (r.isConfirmed) google.script.run.withSuccessHandler(res => { App.BankSoal.loadDaftar(); Swal.fire('Deleted', res.message, 'success'); }).hapusSoalDb(id); });
+        .then((r) => { 
+            if (r.isConfirmed) {
+                google.script.run.withSuccessHandler(res => { 
+                    // INVALIDATE CACHE
+                    App.Cache.clearPattern('soal_');
+                    App.Cache.remove('stats');
+
+                    App.BankSoal.loadDaftar(true); 
+                    Swal.fire('Deleted', res.message, 'success'); 
+                }).hapusSoalDb(id); 
+            }
+        });
       },
 
-      // Helpers Bank Soal
+      // Helpers Bank Soal (No changes needed, kept for consistency)
       resetForm: function() {
         document.getElementById('formSoal').reset();
         document.getElementById('soal-id').value = "";
@@ -313,11 +415,28 @@
 
     // --- Module 4: Users Management ---
     User: {
-      loadAll: function() {
+      loadAll: function(forceRefresh = false) {
         const tbody = document.getElementById('tbody-users');
+        const btnRefresh = document.getElementById('btn-refresh-user');
+        
+        if(forceRefresh && btnRefresh) btnRefresh.classList.add('fa-spin');
+
+        // Cek Cache
+        if (!forceRefresh && App.Cache.get('users')) {
+            App.data.userList = App.Cache.get('users');
+            App.User.render(App.data.currentTabRole || 'all');
+            return;
+        }
+
         tbody.innerHTML = '<tr><td colspan="5" class="p-6 text-center">Loading...</td></tr>';
-        google.script.run.withSuccessHandler(data => { App.data.userList = data; App.User.render(App.data.currentTabRole || 'all'); }).getAllUsers();
+        google.script.run.withSuccessHandler(data => {
+            if(btnRefresh) btnRefresh.classList.remove('fa-spin');
+            App.Cache.set('users', data); // Set Cache
+            App.data.userList = data;
+            App.User.render(App.data.currentTabRole || 'all');
+        }).getAllUsers();
       },
+      
       render: function(role) {
         const tbody = document.getElementById('tbody-users'); tbody.innerHTML = '';
         const filtered = (role === 'all') ? App.data.userList : App.data.userList.filter(u => u.role.toLowerCase() === role);
@@ -339,7 +458,18 @@
         e.preventDefault();
         const btn = document.getElementById('btnSimpanUser'); App.UI.setLoading(btn, true, 'Simpan');
         const data = { id: document.getElementById('u-id').value, role: document.getElementById('u-role').value, nama: document.getElementById('u-nama').value, username: document.getElementById('u-username').value, password: document.getElementById('u-password').value, kelas: document.getElementById('u-kelas').value, status: document.getElementById('u-status').value };
-        google.script.run.withSuccessHandler(res => { App.UI.setLoading(btn, false, 'Simpan'); if(res.status === 'success') { App.UI.closeModal('modal-user'); Swal.fire('Sukses', res.message, 'success'); App.User.loadAll(); } else Swal.fire('Gagal', res.message, 'error'); }).simpanUser(data);
+        google.script.run.withSuccessHandler(res => { 
+            App.UI.setLoading(btn, false, 'Simpan'); 
+            if(res.status === 'success') { 
+                App.UI.closeModal('modal-user'); 
+                Swal.fire('Sukses', res.message, 'success'); 
+                
+                // Clear Cache & Reload
+                App.Cache.remove('users');
+                App.Cache.remove('stats');
+                App.User.loadAll(true); 
+            } else Swal.fire('Gagal', res.message, 'error'); 
+        }).simpanUser(data);
       },
       edit: function(enc) {
         const u = JSON.parse(decodeURIComponent(enc));
@@ -347,31 +477,83 @@
         document.getElementById('u-id').value = u.id; document.getElementById('u-role').value = u.role.toLowerCase(); document.getElementById('u-nama').value = u.nama; document.getElementById('u-username').value = u.username; document.getElementById('u-password').value = u.password; document.getElementById('u-kelas').value = u.kelas; document.getElementById('u-status').value = u.status || 'Aktif';
         App.User.toggleKelasInput();
       },
-      hapus: function(id, nama) { Swal.fire({ title: 'Hapus?', text: nama, icon: 'warning', showCancelButton: true, confirmButtonColor: '#d33' }).then((r) => { if (r.isConfirmed) google.script.run.withSuccessHandler(res => { if(res.status === 'success') { Swal.fire('Terhapus', '', 'success'); App.User.loadAll(); } else Swal.fire('Gagal', res.message, 'error'); }).hapusUser(id); }); },
+      hapus: function(id, nama) { 
+          Swal.fire({ title: 'Hapus?', text: nama, icon: 'warning', showCancelButton: true, confirmButtonColor: '#d33' })
+          .then((r) => { 
+              if (r.isConfirmed) {
+                  google.script.run.withSuccessHandler(res => { 
+                      if(res.status === 'success') { 
+                          Swal.fire('Terhapus', '', 'success'); 
+                          App.Cache.remove('users');
+                          App.Cache.remove('stats');
+                          App.User.loadAll(true); 
+                      } else Swal.fire('Gagal', res.message, 'error'); 
+                  }).hapusUser(id); 
+              }
+          }); 
+      },
       modalOpen: function() { App.UI.openModal('modal-user'); document.getElementById('modal-title').innerText = "Tambah User"; document.getElementById('u-id').value = ""; document.getElementById('u-role').value = "siswa"; document.getElementById('u-nama').value = ""; document.getElementById('u-username').value = ""; document.getElementById('u-password').value = ""; document.getElementById('u-kelas').value = ""; App.User.toggleKelasInput(); },
       toggleKelasInput: function() { const r = document.getElementById('u-role').value; const div = document.getElementById('div-kelas'); if(r === 'siswa') div.classList.remove('hidden'); else div.classList.add('hidden'); }
     },
 
     // --- Module 5: Mapel Management ---
     Mapel: {
-      load: function() {
-        const tbody = document.getElementById('tbody-mapel'); tbody.innerHTML = '<tr><td colspan="4" class="p-6 text-center">Loading...</td></tr>';
+      load: function(forceRefresh = false) {
+        const tbody = document.getElementById('tbody-mapel'); 
+        const btnRefresh = document.getElementById('btn-refresh-mapel');
+        if(forceRefresh && btnRefresh) btnRefresh.classList.add('fa-spin');
+
+        if (!forceRefresh && App.Cache.get('mapel')) {
+            App.Mapel.render(App.Cache.get('mapel'));
+            return;
+        }
+
+        tbody.innerHTML = '<tr><td colspan="4" class="p-6 text-center">Loading...</td></tr>';
         google.script.run.withSuccessHandler(data => {
-           tbody.innerHTML = ''; if(data.length===0) { tbody.innerHTML = '<tr><td colspan="4" class="p-6 text-center text-gray-400">Kosong.</td></tr>'; return; }
-           data.forEach(m => { tbody.insertAdjacentHTML('beforeend', `<tr class="hover:bg-slate-50 transition border-b border-gray-100"><td class="p-4 font-mono font-bold text-indigo-600">${m.kode}</td><td class="p-4 font-semibold text-gray-700">${m.nama}</td><td class="p-4 text-gray-600">${m.guru || '-'}</td><td class="p-4 text-right"><button onclick="App.Mapel.edit('${encodeURIComponent(JSON.stringify(m))}')" class="text-indigo-600 mr-3"><i class="fas fa-edit"></i></button><button onclick="App.Mapel.hapus('${m.id}', '${m.kode}')" class="text-red-500"><i class="fas fa-trash"></i></button></td></tr>`); });
+           if(btnRefresh) btnRefresh.classList.remove('fa-spin');
+           App.Cache.set('mapel', data);
+           App.Cache.set('mapel_opts', data); // Update juga cache opsi dropdown
+           App.Mapel.render(data);
         }).getAllMapel();
+      },
+      render: function(data) {
+        const tbody = document.getElementById('tbody-mapel');
+        tbody.innerHTML = ''; 
+        if(data.length===0) { tbody.innerHTML = '<tr><td colspan="4" class="p-6 text-center text-gray-400">Kosong.</td></tr>'; return; }
+        data.forEach(m => { tbody.insertAdjacentHTML('beforeend', `<tr class="hover:bg-slate-50 transition border-b border-gray-100"><td class="p-4 font-mono font-bold text-indigo-600">${m.kode}</td><td class="p-4 font-semibold text-gray-700">${m.nama}</td><td class="p-4 text-gray-600">${m.guru || '-'}</td><td class="p-4 text-right"><button onclick="App.Mapel.edit('${encodeURIComponent(JSON.stringify(m))}')" class="text-indigo-600 mr-3"><i class="fas fa-edit"></i></button><button onclick="App.Mapel.hapus('${m.id}', '${m.kode}')" class="text-red-500"><i class="fas fa-trash"></i></button></td></tr>`); });
       },
       save: function(e) {
         e.preventDefault(); const btn = document.getElementById('btnSimpanMapel'); App.UI.setLoading(btn, true, 'Simpan');
         const data = { id: document.getElementById('m-id').value, kode: document.getElementById('m-kode').value.toUpperCase(), nama: document.getElementById('m-nama').value, guru: document.getElementById('m-guru').value };
-        google.script.run.withSuccessHandler(res => { App.UI.setLoading(btn, false, 'Simpan'); if(res.status === 'success') { App.UI.closeModal('modal-mapel'); Swal.fire('Sukses', res.message, 'success'); App.Mapel.load(); } else Swal.fire('Gagal', res.message, 'error'); }).simpanMapel(data);
+        google.script.run.withSuccessHandler(res => { 
+            App.UI.setLoading(btn, false, 'Simpan'); 
+            if(res.status === 'success') { 
+                App.UI.closeModal('modal-mapel'); 
+                Swal.fire('Sukses', res.message, 'success'); 
+                App.Cache.remove('mapel'); // Clear Cache
+                App.Mapel.load(true); 
+            } else Swal.fire('Gagal', res.message, 'error'); 
+        }).simpanMapel(data);
       },
       edit: function(enc) {
         const m = JSON.parse(decodeURIComponent(enc)); App.UI.openModal('modal-mapel'); document.getElementById('modal-mapel-title').innerText = "Edit Mapel"; document.getElementById('m-id').value = m.id; document.getElementById('m-kode').value = m.kode; document.getElementById('m-nama').value = m.nama;
         const selGuru = document.getElementById('m-guru'); selGuru.innerHTML = '<option>Loading...</option>';
         google.script.run.withSuccessHandler(gurus => { selGuru.innerHTML = '<option value="-">- Pilih Guru -</option>'; gurus.forEach(g => { selGuru.insertAdjacentHTML('beforeend', `<option value="${g}" ${g===m.guru?'selected':''}>${g}</option>`); }); }).getListGuru();
       },
-      hapus: function(id, kode) { Swal.fire({ title: 'Hapus?', text: kode, icon: 'warning', showCancelButton: true, confirmButtonColor: '#d33' }).then(r => { if(r.isConfirmed) google.script.run.withSuccessHandler(res => { if(res.status==='success') { App.Mapel.load(); Swal.fire('Deleted','','success'); } else Swal.fire('Gagal', res.message, 'error'); }).hapusMapel(id); }); },
+      hapus: function(id, kode) { 
+          Swal.fire({ title: 'Hapus?', text: kode, icon: 'warning', showCancelButton: true, confirmButtonColor: '#d33' })
+          .then(r => { 
+              if(r.isConfirmed) {
+                  google.script.run.withSuccessHandler(res => { 
+                      if(res.status==='success') { 
+                          App.Cache.remove('mapel');
+                          App.Mapel.load(true); 
+                          Swal.fire('Deleted','','success'); 
+                      } else Swal.fire('Gagal', res.message, 'error'); 
+                  }).hapusMapel(id); 
+              }
+          }); 
+      },
       modalOpen: function() { App.UI.openModal('modal-mapel'); document.getElementById('modal-mapel-title').innerText = "Tambah Mapel"; document.getElementById('m-id').value = ""; document.getElementById('m-kode').value = ""; document.getElementById('m-nama').value = ""; const selGuru = document.getElementById('m-guru'); selGuru.innerHTML = '<option value="-">Loading...</option>'; google.script.run.withSuccessHandler(gs => { selGuru.innerHTML = '<option value="-">- Pilih Guru -</option>'; gs.forEach(g => selGuru.insertAdjacentHTML('beforeend', `<option value="${g}">${g}</option>`)); }).getListGuru(); }
     },
 
@@ -451,7 +633,8 @@
         const map = { 'dashboard':'Dashboard', 'akun':'Kelola Akun', 'mapel':'Mapel', 'bank-soal':'Bank Soal' };
         document.getElementById('page-title').innerText = map[viewId] || viewId.toUpperCase();
         
-        if(viewId==='dashboard') document.getElementById('view-dashboard').classList.remove('hidden');
+        // Panggil fungsi load TANPA parameter forceRefresh (default: false = pakai cache)
+        if(viewId==='dashboard') { document.getElementById('view-dashboard').classList.remove('hidden'); App.Dashboard.loadStats(); }
         else if(viewId==='akun') { document.getElementById('view-akun').classList.remove('hidden'); App.User.loadAll(); }
         else if(viewId==='mapel') { document.getElementById('view-mapel').classList.remove('hidden'); App.Mapel.load(); }
         else if(viewId==='bank-soal') { document.getElementById('view-bank-soal').classList.remove('hidden'); App.BankSoal.loadOptionsMapel(); }
@@ -498,14 +681,9 @@
   // ===========================================
   // INITIALIZATION
   // ===========================================
-  // Setup Date
   document.getElementById('current-date').innerText = new Date().toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-  
-  // Security Listeners
   document.addEventListener("visibilitychange", () => { if(App.data.examRunning && document.hidden) App.Security.triggerLock("Pindah Tab"); });
   window.addEventListener("blur", () => { if(App.data.examRunning) App.Security.triggerLock("Keluar App"); });
-  
-  // Inactivity Check
   let activityTimer;
   ['click', 'mousemove', 'keypress', 'scroll', 'touchstart'].forEach(evt => document.addEventListener(evt, () => sessionStorage.setItem('last_activity', Date.now()), false));
   setInterval(() => {
@@ -515,7 +693,5 @@
      }
   }, 60 * 1000);
 
-  // Start App
   window.addEventListener('load', App.Auth.checkSession);
-
 </script>
