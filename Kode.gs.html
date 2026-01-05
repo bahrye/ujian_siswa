@@ -646,66 +646,6 @@ function hapusJenisUjian(id) {
   return hapusDataUmum(id, "DB_JenisUjian");
 }
 
-// B. JADWAL / ENROLLMENT
-function getJadwalUjian() {
-  const ss = SpreadsheetApp.openById(SS_ID);
-  let sheet = ss.getSheetByName("DB_Jadwal");
-  if (!sheet) {
-    sheet = ss.insertSheet("DB_Jadwal");
-    sheet.appendRow(["ID", "ID_Jenis", "Kode_Mapel", "Mulai", "Selesai", "Status"]);
-    return [];
-  }
-  const data = sheet.getDataRange().getValues();
-  data.shift();
-  
-  // Kita perlu join data manual karena NoSQL structure
-  // Ambil data pendukung untuk referensi nama
-  const jenis = getJenisUjian(); 
-  const mapel = getAllMapel(); // Fungsi yg sudah ada di kode sebelumnya
-  
-  return data.map(r => {
-    const j = jenis.find(x => x.id === r[1]);
-    const m = mapel.find(x => x.kode === r[2]);
-    return {
-      id: r[0],
-      id_jenis: r[1],
-      nama_ujian: j ? j.nama : r[1], // Fallback ID jika nama terhapus
-      kode_mapel: r[2],
-      nama_mapel: m ? m.nama : r[2],
-      mulai: r[3],   // String ISO Date
-      selesai: r[4], // String ISO Date
-      status: r[5]
-    };
-  });
-}
-
-function simpanJadwal(data) {
-  const ss = SpreadsheetApp.openById(SS_ID);
-  let sheet = ss.getSheetByName("DB_Jadwal");
-  if (!sheet) { sheet = ss.insertSheet("DB_Jadwal"); sheet.appendRow(["ID", "ID_Jenis", "Kode_Mapel", "Mulai", "Selesai", "Status"]); }
-  
-  const allData = sheet.getDataRange().getValues();
-  
-  // Validasi Waktu
-  if(new Date(data.mulai) >= new Date(data.selesai)) {
-     return { status: 'error', message: 'Waktu Selesai harus lebih akhir dari Mulai.' };
-  }
-
-  if (data.id) { // Edit
-    for (let i = 1; i < allData.length; i++) {
-      if (allData[i][0].toString() === data.id.toString()) {
-        sheet.getRange(i + 1, 2, 1, 5).setValues([[data.id_jenis, data.kode_mapel, data.mulai, data.selesai, data.status]]);
-        return { status: 'success', message: 'Jadwal diperbarui!' };
-      }
-    }
-  } else { // Baru
-    const newId = "SCH-" + Date.now();
-    sheet.appendRow([newId, data.id_jenis, data.kode_mapel, data.mulai, data.selesai, data.status]);
-    return { status: 'success', message: 'Jadwal ditambahkan!' };
-  }
-  return { status: 'error', message: 'Error DB.' };
-}
-
 function hapusJadwal(id) {
   return hapusDataUmum(id, "DB_Jadwal");
 }
@@ -833,29 +773,6 @@ function verifikasiTokenUjian(inputToken, idJadwal) {
   }
 }
 
-// 3. Update Dashboard Pengawas (Hanya return jadwal, token diambil saat pilih mapel)
-function getPengawasDashboard() {
-  const ss = SpreadsheetApp.openById(SS_ID);
-  const sheetJadwal = ss.getSheetByName("DB_Jadwal");
-  const dataJadwal = sheetJadwal.getDataRange().getValues();
-  dataJadwal.shift();
-  
-  let jadwalAktif = [];
-  dataJadwal.forEach(r => {
-    // r[5] = Status, r[0] = ID, r[2] = Kode Mapel
-    if (r[5] === 'Aktif') {
-      jadwalAktif.push({ 
-        id: r[0], 
-        mapel: r[2], 
-        mulai: r[3], 
-        selesai: r[4] 
-      });
-    }
-  });
-
-  return { jadwal: jadwalAktif };
-}
-
 // 4. Update Monitoring Siswa (Return Data Siswa + Token Ujian Tersebut)
 function getMonitoringSiswa(idJadwal) {
   const ss = SpreadsheetApp.openById(SS_ID);
@@ -942,4 +859,127 @@ function getAdminMonitoringSummary() {
   });
 
   return { exams: activeExams };
+}
+
+// ==========================================
+// UPDATE: FILTER PENGAWAS & CRUD JADWAL
+// ==========================================
+
+// 1. Ambil List User Role Pengawas (Untuk Dropdown)
+function getListPengawas() {
+  const ss = SpreadsheetApp.openById(SS_ID);
+  const sheet = ss.getSheetByName("Users");
+  const data = sheet.getDataRange().getValues();
+  data.shift();
+  
+  // Filter role = 'pengawas'
+  let list = [];
+  data.forEach(r => {
+    if(r[3].toString().toLowerCase() === 'pengawas') {
+      list.push({ username: r[1], nama: r[4] });
+    }
+  });
+  return list;
+}
+
+// 2. Update Get Jadwal (Baca Kolom Pengawas)
+function getJadwalUjian() {
+  const ss = SpreadsheetApp.openById(SS_ID);
+  let sheet = ss.getSheetByName("DB_Jadwal");
+  if (!sheet) {
+    sheet = ss.insertSheet("DB_Jadwal");
+    // Update Header: Tambah Kolom Pengawas di Index 6 (Kolom G)
+    sheet.appendRow(["ID", "ID_Jenis", "Kode_Mapel", "Mulai", "Selesai", "Status", "Pengawas"]);
+    return [];
+  }
+  const data = sheet.getDataRange().getValues();
+  data.shift();
+  
+  const jenis = getJenisUjian(); 
+  const mapel = getAllMapel(); 
+  
+  return data.map(r => {
+    const j = jenis.find(x => x.id === r[1]);
+    const m = mapel.find(x => x.kode === r[2]);
+    return {
+      id: r[0],
+      id_jenis: r[1],
+      nama_ujian: j ? j.nama : r[1], 
+      kode_mapel: r[2],
+      nama_mapel: m ? m.nama : r[2],
+      mulai: r[3],   
+      selesai: r[4], 
+      status: r[5],
+      pengawas: r[6] || '' // Kolom G: Username Pengawas
+    };
+  });
+}
+
+// 3. Update Simpan Jadwal (Simpan Kolom Pengawas)
+function simpanJadwal(data) {
+  const ss = SpreadsheetApp.openById(SS_ID);
+  let sheet = ss.getSheetByName("DB_Jadwal");
+  // Pastikan header ada 7 kolom jika sheet baru dibuat
+  if (!sheet) { sheet = ss.insertSheet("DB_Jadwal"); sheet.appendRow(["ID", "ID_Jenis", "Kode_Mapel", "Mulai", "Selesai", "Status", "Pengawas"]); }
+  
+  const allData = sheet.getDataRange().getValues();
+  
+  if(new Date(data.mulai) >= new Date(data.selesai)) {
+     return { status: 'error', message: 'Waktu Selesai harus lebih akhir dari Mulai.' };
+  }
+
+  // Data yang akan disimpan (7 Kolom)
+  // [ID, Jenis, Mapel, Mulai, Selesai, Status, Pengawas]
+  const rowData = [data.id_jenis, data.kode_mapel, data.mulai, data.selesai, data.status, data.pengawas];
+
+  if (data.id) { // Edit
+    for (let i = 1; i < allData.length; i++) {
+      if (allData[i][0].toString() === data.id.toString()) {
+        // Update range kolom 2 sampai 7
+        sheet.getRange(i + 1, 2, 1, 6).setValues([rowData]);
+        return { status: 'success', message: 'Jadwal diperbarui!' };
+      }
+    }
+  } else { // Baru
+    const newId = "SCH-" + Date.now();
+    sheet.appendRow([newId, ...rowData]);
+    return { status: 'success', message: 'Jadwal ditambahkan!' };
+  }
+  return { status: 'error', message: 'Error DB.' };
+}
+
+// 4. Update Dashboard Pengawas (FILTER JADWAL)
+// Menerima parameter usernamePengawas dari Frontend
+function getPengawasDashboard(usernamePengawas) {
+  const ss = SpreadsheetApp.openById(SS_ID);
+  const sheetJadwal = ss.getSheetByName("DB_Jadwal");
+  
+  // Handle jika sheet belum ada
+  if(!sheetJadwal) return { jadwal: [] };
+
+  const dataJadwal = sheetJadwal.getDataRange().getValues();
+  dataJadwal.shift();
+  
+  let jadwalAktif = [];
+  dataJadwal.forEach(r => {
+    // r[5] = Status, r[6] = Pengawas Assigned
+    const status = r[5];
+    const assignedTo = r[6] ? r[6].toString() : "";
+
+    // Logika Filter:
+    // 1. Status harus Aktif
+    // 2. Kolom Pengawas harus cocok dengan username yg login, ATAU kosong (Semua), ATAU 'semua'
+    if (status === 'Aktif') {
+       if (assignedTo === "" || assignedTo.toLowerCase() === 'semua' || assignedTo === usernamePengawas) {
+          jadwalAktif.push({ 
+            id: r[0], 
+            mapel: r[2], 
+            mulai: r[3], 
+            selesai: r[4] 
+          });
+       }
+    }
+  });
+
+  return { jadwal: jadwalAktif };
 }
