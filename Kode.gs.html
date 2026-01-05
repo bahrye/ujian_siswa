@@ -1073,3 +1073,252 @@ function getPengawasDashboard(usernamePengawas) {
 
   return { jadwal: jadwalAktif };
 }
+
+// ==========================================
+// API 8: IMPORT BANK SOAL (XLSX / EXCEL SUPPORT)
+// ==========================================
+
+function downloadTemplateImport() {
+  try {
+    // 1. Buat Spreadsheet Sementara
+    const tempSS = SpreadsheetApp.create("Template_Soal_CBT_Temp");
+    const sheet = tempSS.getActiveSheet();
+    
+    // 2. Isi Header & Contoh Data
+    const headers = [["Tipe", "Soal", "OpsiA", "OpsiB", "OpsiC", "OpsiD", "OpsiE", "Kunci", "Bobot"]];
+    const sampleData = [
+      ["PG", "Siapakah penemu lampu? [img:lampu.jpg]", "Thomas Edison", "Einstein", "Tesla", "Newton", "Habibie", "A", 2.5],
+      ["ISIAN", "Dengarkan suara ini [audio:kucing.mp3]. Hewan apakah itu?", "", "", "", "", "", "Kucing", 2],
+      ["BS", "Bumi itu datar. [img:bumi.png]", "", "", "", "", "", "SALAH", 2],
+      ["ESSAY", "Jelaskan proses terjadinya hujan! [video:hujan.mp4]", "", "", "", "", "", "MANUAL", 5]
+    ];
+    
+    // Set Style Header
+    const rangeHeader = sheet.getRange(1, 1, 1, 9);
+    rangeHeader.setValues(headers);
+    rangeHeader.setFontWeight("bold").setBackground("#f3f4f6");
+    
+    // Set Data
+    sheet.getRange(2, 1, sampleData.length, 9).setValues(sampleData);
+    
+    // Auto Resize Column agar rapi
+    sheet.autoResizeColumns(1, 9);
+    
+    // Simpan perubahan
+    SpreadsheetApp.flush();
+    
+    // 3. Export ke Blob XLSX (Menggunakan UrlFetchApp ke API Google)
+    const url = "https://docs.google.com/spreadsheets/d/" + tempSS.getId() + "/export?format=xlsx";
+    const token = ScriptApp.getOAuthToken();
+    const params = { headers: { Authorization: "Bearer " + token } };
+    const blobXlsx = UrlFetchApp.fetch(url, params).getBlob().setName("Template_Soal_CBT.xlsx");
+    
+    // 4. Hapus Spreadsheet Sementara (Agar sampah tidak menumpuk)
+    DriveApp.getFileById(tempSS.getId()).setTrashed(true);
+
+    // 5. Buat Petunjuk HTML
+    const htmlPetunjuk = `
+    <html>
+    <head><style>body{font-family:sans-serif;line-height:1.6} .tag{background:#eee;padding:2px 5px;font-family:monospace;font-weight:bold;color:#c02e2e}</style></head>
+    <body>
+      <h1>Panduan Import Soal (Excel & ZIP)</h1>
+      <p>Fitur ini memungkinkan Anda mengupload soal beserta media (Gambar/Audio/Video) sekaligus.</p>
+      
+      <h3>Langkah-langkah:</h3>
+      <ol>
+        <li>Isi file <b>Template_Soal_CBT.xlsx</b>.</li>
+        <li>Siapkan file gambar/audio/video yang diperlukan.</li>
+        <li>Seleksi file Excel dan semua file media, lalu klik kanan > <b>Send to Compressed (zipped) folder</b>.</li>
+        <li>Upload file ZIP tersebut ke aplikasi.</li>
+      </ol>
+
+      <h3>Format Tabel Excel</h3>
+      <ul>
+        <li><b>Tipe</b>: PG, ISIAN, ESSAY, BS.</li>
+        <li><b>Soal</b>: Tulis pertanyaan. Gunakan tag media jika perlu.</li>
+        <li><b>OpsiA - E</b>: Pilihan jawaban (Wajib untuk PG).</li>
+        <li><b>Kunci</b>: Kunci jawaban (A/B/C/D/E untuk PG).</li>
+      </ul>
+
+      <h3>Cara Menyisipkan Media</h3>
+      <p>Tulis tag ini di dalam sel Excel (Soal atau Opsi). Pastikan nama file sama persis dengan file di dalam ZIP.</p>
+      <ul>
+        <li>Gambar: <span class="tag">[img:namafile.jpg]</span></li>
+        <li>Audio: <span class="tag">[audio:suara.mp3]</span></li>
+        <li>Video: <span class="tag">[video:film.mp4]</span></li>
+      </ul>
+    </body>
+    </html>
+    `;
+    const blobHtml = Utilities.newBlob(htmlPetunjuk, 'text/html', 'Panduan_Import.html');
+
+    // 6. Zip Hasilnya
+    const zip = Utilities.zip([blobXlsx, blobHtml], 'Template_Soal_CBT.zip');
+    
+    return {
+      filename: 'Template_Soal_CBT.zip',
+      base64: Utilities.base64Encode(zip.getBytes())
+    };
+
+  } catch (e) {
+    // Error handling jika Drive API belum aktif
+    throw new Error("Gagal Download: " + e.toString() + ". Pastikan Service Drive API aktif.");
+  }
+}
+
+function processImportZip(base64Zip, mapel) {
+  try {
+    const ss = SpreadsheetApp.openById(SS_ID);
+    const sheetDb = ss.getSheetByName("DB_Soal");
+    
+    // 1. Unzip
+    const decoded = Utilities.base64Decode(base64Zip);
+    const blob = Utilities.newBlob(decoded, 'application/zip');
+    const files = Utilities.unzip(blob);
+    
+    let excelBlob = null;
+    let mediaFiles = {}; 
+    
+    // 2. Pilah File
+    files.forEach(f => {
+      const name = f.getName().toLowerCase();
+      if (name.endsWith('.xlsx') || name.endsWith('.xls')) {
+        excelBlob = f;
+      } else {
+        mediaFiles[name] = f; // Simpan blob media
+      }
+    });
+
+    if (!excelBlob) return { status: 'error', message: 'File Excel (.xlsx) tidak ditemukan dalam ZIP.' };
+
+    // 3. Konversi Excel ke Google Sheet (Perlu DRIVE API)
+    // Resource config untuk convert
+    const resource = {
+      title: "Temp_Import_" + Date.now(),
+      mimeType: MimeType.GOOGLE_SHEETS
+    };
+    
+    // Gunakan Drive.Files.insert (Advanced Service) untuk convert otomatis
+    // Jika error disini, berarti User belum enable Drive API di Services
+    let tempFile;
+    try {
+       tempFile = Drive.Files.insert(resource, excelBlob); 
+    } catch(err) {
+       return { status: 'error', message: 'Harap aktifkan "Drive API" di menu Services editor Apps Script.' };
+    }
+    
+    // 4. Baca Data dari Sheet Sementara
+    const tempSS = SpreadsheetApp.openById(tempFile.id);
+    const dataRows = tempSS.getSheets()[0].getDataRange().getValues();
+    
+    // Hapus file temp setelah dibaca
+    Drive.Files.remove(tempFile.id); 
+
+    // 5. Setup Folder Upload Media
+    const folderName = "CBT_Assets";
+    const folders = DriveApp.getFoldersByName(folderName);
+    let folder = folders.hasNext() ? folders.next() : DriveApp.createFolder(folderName);
+
+    // Helper Upload Media
+    const uploadAndGetUrl = (fileNameTag) => {
+      const cleanName = fileNameTag.trim().toLowerCase();
+      if (mediaFiles[cleanName]) {
+        const file = folder.createFile(mediaFiles[cleanName]);
+        file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+        
+        // URL Hack agar bisa diakses langsung sebagai image/audio
+        const id = file.getId();
+        const urlView = "https://lh3.googleusercontent.com/d/" + id; // URL Image hosting friendly
+        const urlDown = "https://docs.google.com/uc?export=download&id=" + id; // URL Download friendly
+
+        if (cleanName.match(/\.(mp3|wav|ogg|m4a)$/)) {
+            return `<br><audio controls controlsList="nodownload"><source src="${urlDown}" type="audio/mpeg">Browser tidak support audio.</audio><br>`;
+        } else if (cleanName.match(/\.(mp4|webm)$/)) {
+            return `<br><video width="320" height="240" controls controlsList="nodownload"><source src="${urlDown}" type="video/mp4">Browser tidak support video.</video><br>`;
+        } else {
+            // Gambar
+            return `<img src="${urlView}=s1000" style="max-width:100%; height:auto; border-radius:8px; margin: 10px 0;">`;
+        }
+      }
+      return ` <span style="color:red; font-weight:bold;">[FILE NOT FOUND: ${fileNameTag}]</span> `;
+    };
+
+    // Helper Replace Tag
+    const processText = (text) => {
+      if (!text) return "";
+      const str = text.toString();
+      // Regex cari [tipe:namafile.ext]
+      return str.replace(/\[(img|audio|video):([^\]]+)\]/gi, (match, type, filename) => {
+         return uploadAndGetUrl(filename);
+      });
+    };
+
+    // 6. Loop Simpan ke Database
+    // Data Row 0 adalah Header, mulai dari Row 1
+    let countSuccess = 0;
+    
+    // Mapping Index Kolom Excel (Sesuaikan dengan template download)
+    // 0:Tipe, 1:Soal, 2:A, 3:B, 4:C, 5:D, 6:E, 7:Kunci, 8:Bobot
+    
+    for (let i = 1; i < dataRows.length; i++) {
+      const row = dataRows[i];
+      // Skip jika Soal kosong
+      if (!row[1]) continue; 
+
+      const idSoal = "Q-" + Date.now() + "-" + i;
+      const tipe = row[0] ? row[0].toString().toUpperCase().trim() : "PG";
+      
+      const soalHtml = processText(row[1]);
+      
+      // Proses Opsi
+      let opsiObj = {};
+      if (tipe === 'PG') {
+        opsiObj = {
+          A: processText(row[2]),
+          B: processText(row[3]),
+          C: processText(row[4]),
+          D: processText(row[5]),
+          E: processText(row[6])
+        };
+      } else if (tipe === 'BS') {
+        opsiObj = { A: 'BENAR', B: 'SALAH' };
+      }
+      
+      const kunci = row[7] ? row[7].toString().trim() : "";
+      const bobot = row[8] ? row[8] : "";
+
+      sheetDb.appendRow([
+        idSoal,
+        mapel,
+        tipe,
+        soalHtml,
+        "", // Kolom Img (Legacy)
+        JSON.stringify(opsiObj),
+        kunci,
+        bobot
+      ]);
+      countSuccess++;
+    }
+
+    return { status: 'success', message: `Berhasil import ${countSuccess} soal dari Excel.` };
+
+  } catch (e) {
+    return { status: 'error', message: 'Import Gagal: ' + e.toString() };
+  }
+}
+
+// ==========================================
+// FUNGSI PANCINGAN IZIN (Jalankan Manual Sekali)
+// ==========================================
+function pancingIzin() {
+  // Memancing izin External Request (UrlFetchApp)
+  UrlFetchApp.fetch("https://www.google.com");
+  
+  // Memancing izin Drive (DriveApp & Drive Advanced Service)
+  DriveApp.getFiles();
+  
+  // Memancing izin Spreadsheet
+  SpreadsheetApp.getActiveSpreadsheet();
+  
+  console.log("Izin berhasil dipancing. Silakan deploy ulang.");
+}
