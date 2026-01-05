@@ -807,13 +807,43 @@ function generateTokenForExam(idJadwal) {
 
 // 2. Update Verifikasi Token (Terima parameter idJadwal)
 function verifikasiTokenUjian(inputToken, idJadwal) {
-  // Generate token yang seharusnya untuk jadwal tersebut
-  const validToken = generateTokenForExam(idJadwal);
+  const ss = SpreadsheetApp.openById(SS_ID);
+  const sheetJadwal = ss.getSheetByName("DB_Jadwal");
+  const dataJadwal = sheetJadwal.getDataRange().getValues();
   
+  let jadwalData = null;
+  for(let i=1; i<dataJadwal.length; i++) {
+     if(dataJadwal[i][0].toString() === idJadwal.toString()) {
+        jadwalData = { 
+           mulai: new Date(dataJadwal[i][3]), 
+           selesai: new Date(dataJadwal[i][4]),
+           status: dataJadwal[i][5]
+        };
+        break;
+     }
+  }
+
+  if (!jadwalData) return { status: 'error', message: 'Jadwal tidak ditemukan.' };
+  
+  // 1. Cek Status Manual
+  if (jadwalData.status !== 'Aktif') return { status: 'error', message: 'Ujian sedang dinonaktifkan oleh Admin.' };
+
+  // 2. Cek Waktu Realtime
+  const now = new Date();
+  if (now < jadwalData.mulai) {
+     const jamMulai = Utilities.formatDate(jadwalData.mulai, "Asia/Jakarta", "HH:mm");
+     return { status: 'error', message: `Ujian belum dimulai. Harap tunggu hingga pukul ${jamMulai}.` };
+  }
+  if (now > jadwalData.selesai) {
+     return { status: 'error', message: 'Waktu ujian telah berakhir.' };
+  }
+
+  // 3. Cek Token
+  const validToken = generateTokenForExam(idJadwal);
   if (inputToken === validToken) {
     return { status: 'success' };
   } else {
-    return { status: 'error', message: 'Token Salah atau Kadaluarsa!' };
+    return { status: 'error', message: 'Token Salah!' };
   }
 }
 
@@ -821,14 +851,42 @@ function verifikasiTokenUjian(inputToken, idJadwal) {
 function getMonitoringSiswa(idJadwal) {
   const ss = SpreadsheetApp.openById(SS_ID);
   
-  // Generate Token untuk ujian ini saat ini juga
-  const currentToken = generateTokenForExam(idJadwal);
+  // A. Ambil Data Jadwal untuk Cek Waktu
+  const sheetJadwal = ss.getSheetByName("DB_Jadwal");
+  const dataJadwal = sheetJadwal.getDataRange().getValues();
+  let jadwalData = null;
   
-  // Ambil User Siswa
+  // Cari baris jadwal (Mulai baris 1)
+  for(let i=1; i<dataJadwal.length; i++) {
+     if(dataJadwal[i][0].toString() === idJadwal.toString()) {
+        // Index 3 = Mulai, Index 4 = Selesai
+        jadwalData = { 
+           mulai: new Date(dataJadwal[i][3]), 
+           selesai: new Date(dataJadwal[i][4]) 
+        };
+        break;
+     }
+  }
+
+  // B. Logika Token Berdasarkan Waktu
+  let currentToken = "ERROR";
+  const now = new Date();
+
+  if (jadwalData) {
+     if (now < jadwalData.mulai) {
+        currentToken = "BELUM MULAI"; // Belum waktunya
+     } else if (now > jadwalData.selesai) {
+        currentToken = "SELESAI";     // Sudah lewat
+     } else {
+        // WAKTUNYA UJIAN -> Generate Token
+        currentToken = generateTokenForExam(idJadwal);
+     }
+  }
+
+  // C. Ambil Data Siswa (Sama seperti sebelumnya)
   const sheetUser = ss.getSheetByName("Users");
   const users = sheetUser.getDataRange().getValues().filter(r => r[3].toLowerCase() === 'siswa');
   
-  // Ambil Data Nilai (Selesai)
   const sheetNilai = ss.getSheetByName("DB_Nilai");
   const dataNilai = sheetNilai ? sheetNilai.getDataRange().getValues() : [];
   
@@ -844,13 +902,8 @@ function getMonitoringSiswa(idJadwal) {
     let nilai = "-";
     let isLocked = false;
 
-    // Cek Selesai (Berdasarkan ID Jadwal di kolom mapel/refensi nilai jika ada, 
-    // atau sementara berdasarkan kode mapel jika DB Nilai belum simpan ID Jadwal)
-    // Note: Agar akurat, pastikan DB_Nilai menyimpan ID Jadwal. 
-    // Untuk kode ini kita asumsikan check sederhana dulu:
+    // Cek Selesai 
     const selesai = dataNilai.find(n => n[2] === nama && n[3].toString().includes(idJadwal)); 
-    // *Tips: Sebaiknya saat submit ujian, simpan ID Jadwal juga.
-
     const stateKey = `STATUS_${username}_${idJadwal}`;
     const stateVal = props.getProperty(stateKey);
 
@@ -867,7 +920,6 @@ function getMonitoringSiswa(idJadwal) {
     result.push({ nama, kelas, status, nilai, isLocked, username });
   });
   
-  // Return Object berisi Siswa dan Token
   return { 
     students: result, 
     token: currentToken 
@@ -875,14 +927,12 @@ function getMonitoringSiswa(idJadwal) {
 }
 
 // ==========================================
-// API 5: MONITORING ADMIN (DIPERBAIKI)
+// UPDATE: ADMIN MONITORING SUMMARY
 // ==========================================
 function getAdminMonitoringSummary() {
   try {
     const ss = SpreadsheetApp.openById(SS_ID);
     const sheetJadwal = ss.getSheetByName("DB_Jadwal");
-    
-    // Validasi Sheet
     if (!sheetJadwal) return { exams: [] };
     
     const dataJadwal = sheetJadwal.getDataRange().getValues();
@@ -890,64 +940,60 @@ function getAdminMonitoringSummary() {
 
     dataJadwal.shift(); // Hapus Header
     
-    // 1. Ambil Jenis Ujian (Langsung dari sheet agar lebih aman & cepat)
+    // Ambil Jenis Ujian
     let listJenis = [];
     try {
       const sheetJenis = ss.getSheetByName("DB_JenisUjian");
       if (sheetJenis) {
         const dataJenis = sheetJenis.getDataRange().getValues();
         dataJenis.shift();
-        // Simpan sebagai string untuk perbandingan aman
         listJenis = dataJenis.map(r => ({ id: r[0].toString(), nama: r[1] }));
       }
-    } catch (err) {
-      console.log("Warning: Gagal ambil Jenis Ujian. " + err.toString());
-    }
+    } catch (err) {}
   
-    // 2. Helper Format Tanggal (PENTING: Agar tidak error saat dikirim ke frontend)
     const formatTime = (dateObj) => {
       if (!dateObj) return "";
-      try {
-        // Ubah ke String ISO agar aman diterima Frontend
-        return Utilities.formatDate(new Date(dateObj), "Asia/Jakarta", "yyyy-MM-dd'T'HH:mm");
-      } catch (e) {
-        return "";
-      }
+      try { return Utilities.formatDate(new Date(dateObj), "Asia/Jakarta", "yyyy-MM-dd'T'HH:mm"); } catch (e) { return ""; }
     };
 
     let activeExams = [];
-    
-    // 3. Loop Data
+    const now = new Date(); // Waktu Server Saat Ini
+
     dataJadwal.forEach((r) => {
-      // Pastikan kolom Status (Index 5) ada dan dibersihkan
       const rawStatus = r[5] ? r[5].toString() : "";
-      const status = rawStatus.trim().toLowerCase();
       
-      // Filter hanya yang statusnya 'aktif'
-      if (status === 'aktif') {
+      // Hanya ambil yang statusnya AKTIF
+      if (rawStatus.trim().toLowerCase() === 'aktif') {
         const idJadwal = r[0];
-        
-        // Cari Nama Jenis Ujian (Index 1) dengan perbandingan String
         const idJenis = r[1] ? r[1].toString() : "";
         const objJenis = listJenis.find(j => j.id === idJenis);
-        const namaJenis = objJenis ? objJenis.nama : idJenis;
+        
+        const tMulai = new Date(r[3]);
+        const tSelesai = new Date(r[4]);
 
-        // Generate Token
-        let thisToken = "ERROR";
-        try {
-          thisToken = generateTokenForExam(idJadwal);
-        } catch (errToken) {
-          console.log("Error Token: " + errToken.toString());
+        // LOGIKA TOKEN ADMIN (SAMA DENGAN PENGAWAS)
+        let thisToken = "";
+        let statusWaktu = ""; // Helper untuk frontend
+
+        if (now < tMulai) {
+           thisToken = "BELUM MULAI";
+           statusWaktu = "waiting";
+        } else if (now > tSelesai) {
+           thisToken = "SELESAI";
+           statusWaktu = "done";
+        } else {
+           thisToken = generateTokenForExam(idJadwal);
+           statusWaktu = "active";
         }
         
-        // Push data yang sudah bersih
         activeExams.push({
           id: idJadwal,
-          jenis: namaJenis,
-          mapel: r[2],               // Nama/Kode Mapel
-          mulai: formatTime(r[3]),   // Convert Date ke String
-          selesai: formatTime(r[4]), // Convert Date ke String
-          token: thisToken
+          jenis: objJenis ? objJenis.nama : idJenis,
+          mapel: r[2],               
+          mulai: formatTime(r[3]),   
+          selesai: formatTime(r[4]), 
+          token: thisToken,
+          statusWaktu: statusWaktu // Kirim status waktu untuk pewarnaan di frontend
         });
       }
     });
