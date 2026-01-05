@@ -1161,34 +1161,53 @@
              });
           }).getPengawasDashboard(currentUser); // KIRIM USERNAME DISINI
        },
+
+       // Di dalam App.Pengawas
        loadMonitoring: function() {
           const idJadwal = document.getElementById('mon-pilih-jadwal').value;
           const tbody = document.getElementById('tbody-monitoring');
           const tokenDisp = document.getElementById('token-display');
           const labelDisp = document.getElementById('label-token-pengawas');
+          const boxToken = document.getElementById('box-token-pengawas'); // Ambil Box Token
           
           if(!idJadwal) {
              tokenDisp.innerText = "-- -- --"; 
              labelDisp.innerText = "Pilih Ujian";
+             // Reset Warna Box ke Default (Indigo-Purple)
+             boxToken.className = "bg-gradient-to-r from-indigo-600 to-purple-600 rounded-xl p-6 text-white shadow-lg flex flex-col items-center justify-center relative overflow-hidden transition-all duration-300";
              return;
           }
           
           tbody.innerHTML = '<tr><td colspan="4" class="p-4 text-center">Loading...</td></tr>';
           
-          // Panggil Backend: getMonitoringSiswa sekarang return {students, token}
           google.script.run.withSuccessHandler(res => {
-             // 1. Update Token di UI Pengawas
-             tokenDisp.innerText = res.token;
-             labelDisp.innerText = "TOKEN UJIAN INI";
+             // LOGIKA TAMPILAN TOKEN BERDASARKAN STATUS
+             if (res.token === "BELUM MULAI") {
+                tokenDisp.innerText = "BELUM MULAI";
+                labelDisp.innerText = "STATUS UJIAN";
+                // Warna Kuning/Orange
+                boxToken.className = "bg-gradient-to-r from-yellow-500 to-orange-500 rounded-xl p-6 text-white shadow-lg flex flex-col items-center justify-center relative overflow-hidden transition-all duration-300";
+             } 
+             else if (res.token === "SELESAI") {
+                tokenDisp.innerText = "SELESAI";
+                labelDisp.innerText = "STATUS UJIAN";
+                // Warna Abu-abu
+                boxToken.className = "bg-gray-600 rounded-xl p-6 text-white shadow-lg flex flex-col items-center justify-center relative overflow-hidden transition-all duration-300";
+             } 
+             else {
+                // TOKEN AKTIF
+                tokenDisp.innerText = res.token;
+                labelDisp.innerText = "TOKEN UJIAN INI";
+                // Warna Hijau (Token Aktif) atau Default
+                boxToken.className = "bg-gradient-to-r from-emerald-500 to-teal-600 rounded-xl p-6 text-white shadow-lg flex flex-col items-center justify-center relative overflow-hidden transition-all duration-300";
+             }
 
-             // 2. Render Tabel Siswa
+             // Render Tabel Siswa (Tetap Sama)
              tbody.innerHTML = '';
              const data = res.students;
              if(data.length === 0) tbody.innerHTML = '<tr><td colspan="4" class="p-4 text-center">Tidak ada siswa.</td></tr>';
              
              data.forEach(s => {
-                // Gunakan kode render baris tabel siswa yang lama di sini
-                // Atau copy paste dari blok Admin di bawah karena isinya sama
                 let badge = "bg-gray-100 text-gray-500";
                 if(s.status === 'SEDANG MENGERJAKAN') badge = "bg-blue-100 text-blue-700 animate-pulse";
                 if(s.status === 'SELESAI') badge = "bg-green-100 text-green-700";
@@ -1210,6 +1229,7 @@
              });
           }).getMonitoringSiswa(idJadwal);
        },
+
        bukaKunci: function(username, nama) {
           Swal.fire({title: 'Buka Kunci?', text: `Dapatkan token untuk ${nama}`, showCancelButton:true, confirmButtonText:'Dapatkan Token'})
           .then(r => {
@@ -1309,30 +1329,27 @@
        }
     },
 
-    // --- MODULE MONITORING ADMIN (OPTIMIZED) ---
+    // --- MODULE MONITORING ADMIN (UPDATED) ---
     AdminMonitor: {
        currentExamId: null,
-       listCache: [], // Cache untuk menyimpan data agar tidak reload terus
+       listCache: [],
 
-       // 1. Fetch Data dari Server (Hanya dipanggil saat awal buka menu)
        loadSummary: function() {
           const listDiv = document.getElementById('adm-list-exams');
           listDiv.innerHTML = '<div class="text-center mt-10 text-gray-400"><i class="fas fa-circle-notch fa-spin text-2xl"></i><p class="text-xs mt-2">Memuat Data...</p></div>';
           
           google.script.run.withSuccessHandler(res => {
-             // Simpan data ke cache browser
              App.AdminMonitor.listCache = res.exams || []; 
-             // Panggil fungsi render dari cache
              App.AdminMonitor.renderList(); 
           }).getAdminMonitoringSummary();
        },
 
-       // 2. Render List dari Cache (Instan, Tanpa Loading Server)
+       // 1. UPDATE: RENDER LIST (SIDEBAR KIRI)
        renderList: function() {
           const listDiv = document.getElementById('adm-list-exams');
           listDiv.innerHTML = '';
           
-          const exams = App.AdminMonitor.listCache; // Ambil data dari cache
+          const exams = App.AdminMonitor.listCache; 
 
           if (exams.length === 0) {
              listDiv.innerHTML = '<div class="text-center p-6 bg-white rounded-lg border border-gray-200"><i class="fas fa-coffee text-gray-300 text-3xl mb-2"></i><p class="text-gray-500 text-sm font-bold">Tidak ada ujian aktif.</p></div>';
@@ -1340,32 +1357,41 @@
           }
 
           exams.forEach(ex => {
-              // Format Tanggal
               const dMulai = new Date(ex.mulai);
               const dSelesai = new Date(ex.selesai);
-              
               const optsDate = { weekday: 'long', day: 'numeric', month: 'short' }; 
               const optsTime = { hour: '2-digit', minute: '2-digit' };
-              
               const tanggalStr = dMulai.toLocaleDateString('id-ID', optsDate);
               const jamStr = dMulai.toLocaleTimeString('id-ID', optsTime) + ' - ' + dSelesai.toLocaleTimeString('id-ID', optsTime);
 
-              // Cek Active State (Highlight)
               const isActive = (App.AdminMonitor.currentExamId === ex.id) ? 'border-indigo-500 ring-1 ring-indigo-500 bg-indigo-50' : 'border-gray-200 bg-white hover:border-indigo-400';
               
+              // LOGIKA WARNA BADGE TOKEN DI LIST
+              let badgeClass = "bg-indigo-100 text-indigo-700";
+              let icon = "fa-key";
+              
+              if(ex.statusWaktu === 'waiting') {
+                  badgeClass = "bg-yellow-100 text-yellow-700"; // Kuning untuk Belum Mulai
+                  icon = "fa-clock";
+              } else if (ex.statusWaktu === 'done') {
+                  badgeClass = "bg-gray-200 text-gray-600"; // Abu untuk Selesai
+                  icon = "fa-check-circle";
+              } else {
+                  badgeClass = "bg-green-100 text-green-700 animate-pulse"; // Hijau untuk Aktif
+              }
+
               const item = document.createElement('div');
               item.className = `cursor-pointer p-4 rounded-xl border transition group relative overflow-hidden ${isActive}`;
-              
-              // KLIK: Panggil loadDetail
-              item.onclick = () => App.AdminMonitor.loadDetail(ex.id, ex.mapel, ex.jenis, ex.token);
+              item.onclick = () => App.AdminMonitor.loadDetail(ex.id, ex.mapel, ex.jenis, ex.token, ex.statusWaktu); // Pass statusWaktu
               
               item.innerHTML = `
                  <div class="flex justify-between items-start mb-2 relative z-10">
                     <span class="text-[10px] font-bold uppercase tracking-wider text-gray-500 bg-gray-100 px-2 py-0.5 rounded">${ex.jenis}</span>
-                    <span class="text-[10px] text-indigo-600 font-bold bg-indigo-100 px-2 py-0.5 rounded flex items-center gap-1"><i class="fas fa-key"></i> ${ex.token}</span>
+                    <span class="text-[10px] font-bold px-2 py-0.5 rounded flex items-center gap-1 ${badgeClass}">
+                        <i class="fas ${icon}"></i> ${ex.token}
+                    </span>
                  </div>
                  <h4 class="font-bold text-gray-800 text-base mb-1 leading-tight group-hover:text-indigo-700">${ex.mapel}</h4>
-                 
                  <div class="mt-3 pt-3 border-t border-dashed border-gray-200 text-xs text-gray-600 space-y-1">
                     <div class="flex items-center gap-2"><i class="far fa-calendar-alt w-4 text-center text-gray-400"></i> <span>${tanggalStr}</span></div>
                     <div class="flex items-center gap-2"><i class="far fa-clock w-4 text-center text-gray-400"></i> <span class="font-mono font-bold">${jamStr}</span></div>
@@ -1375,17 +1401,37 @@
           });
        },
 
-       // 3. Load Detail (Kanan) & Update Highlight (Kiri)
-       loadDetail: function(idJadwal, mapelName, jenisName, token) {
+       // 2. UPDATE: LOAD DETAIL (HEADER KANAN)
+       loadDetail: function(idJadwal, mapelName, jenisName, initialToken, statusWaktu) {
           App.AdminMonitor.currentExamId = idJadwal;
-          
-          // REVISI PENTING: Render ulang list kiri dari CACHE (Cepat), jangan fetch server!
-          App.AdminMonitor.renderList(); 
+          App.AdminMonitor.renderList(); // Refresh highlight kiri
 
-          // Update Tampilan Kanan (Detail)
           document.getElementById('adm-mon-title').innerText = mapelName;
           document.getElementById('adm-mon-subtitle').innerText = jenisName;
-          document.getElementById('adm-mon-token').innerText = token;
+          
+          // Update Header Token
+          const elToken = document.getElementById('adm-mon-token');
+          const elHeader = document.querySelector('#adm-mon-title').parentElement.parentElement; // Header Container (bg-indigo-600)
+          
+          elToken.innerText = initialToken;
+          
+          // LOGIKA WARNA HEADER DETAIL
+          // Default Class Header: p-4 border-b bg-indigo-600 text-white ...
+          
+          if(statusWaktu === 'waiting' || initialToken === 'BELUM MULAI') {
+             elHeader.className = "p-4 border-b bg-yellow-500 text-white flex justify-between items-center z-10 shrink-0 transition-colors";
+             elToken.className = "block text-xl font-bold tracking-tight text-white";
+          } 
+          else if (statusWaktu === 'done' || initialToken === 'SELESAI') {
+             elHeader.className = "p-4 border-b bg-gray-600 text-white flex justify-between items-center z-10 shrink-0 transition-colors";
+             elToken.className = "block text-xl font-bold tracking-tight text-gray-300";
+          } 
+          else {
+             // AKTIF
+             elHeader.className = "p-4 border-b bg-indigo-600 text-white flex justify-between items-center z-10 shrink-0 transition-colors";
+             elToken.className = "block text-2xl font-mono font-black tracking-widest text-yellow-300";
+          }
+
           document.getElementById('adm-header-stats').classList.remove('hidden');
           
           const tbody = document.getElementById('tbody-adm-monitoring');
@@ -1394,14 +1440,14 @@
           
           tbody.innerHTML = '<tr><td colspan="4" class="p-10 text-center"><i class="fas fa-spinner fa-spin text-indigo-500 text-2xl"></i><p class="mt-2 text-gray-500">Mengambil data realtime...</p></td></tr>';
           
-          // Panggil data siswa realtime (hanya refresh bagian kanan)
+          // Panggil Data Realtime
           google.script.run.withSuccessHandler(res => {
-             document.getElementById('adm-mon-token').innerText = res.token;
-             
+             // Update Token (Siapa tau berubah realtime)
+             elToken.innerText = res.token;
+
              const data = res.students;
              tbody.innerHTML = '';
              listLocked.innerHTML = '';
-             
              let lockedCount = 0;
 
              if(data.length === 0) {
@@ -1414,63 +1460,21 @@
              data.forEach(s => {
                 let badge = "bg-gray-100 text-gray-500";
                 let statusText = s.status;
-                
-                if(s.status === 'SEDANG MENGERJAKAN') {
-                   badge = "bg-blue-100 text-blue-700 border border-blue-200 animate-pulse";
-                   statusText = "MENGERJAKAN";
-                }
-                if(s.status === 'SELESAI') {
-                   badge = "bg-emerald-100 text-emerald-700 border border-emerald-200";
-                }
+                if(s.status === 'SEDANG MENGERJAKAN') { badge = "bg-blue-100 text-blue-700 border border-blue-200 animate-pulse"; statusText = "MENGERJAKAN"; }
+                if(s.status === 'SELESAI') { badge = "bg-emerald-100 text-emerald-700 border border-emerald-200"; }
                 
                 let actionBtn = '<span class="text-gray-300">-</span>';
-
                 if(s.status === 'TERKUNCI' || s.isLocked) {
-                    badge = "bg-red-600 text-white font-bold shadow-sm animate-bounce";
-                    statusText = "TERKUNCI";
-                    lockedCount++;
-                    
+                    badge = "bg-red-600 text-white font-bold shadow-sm animate-bounce"; statusText = "TERKUNCI"; lockedCount++;
                     actionBtn = `<button onclick="App.Pengawas.bukaKunci('${s.username}', '${s.nama}')" class="px-3 py-1 bg-white border border-red-200 text-red-600 rounded text-xs font-bold hover:bg-red-50 shadow-sm transition"><i class="fas fa-unlock"></i> Buka</button>`;
-                    
-                    listLocked.insertAdjacentHTML('beforeend', `
-                       <div class="flex justify-between items-center bg-white p-3 rounded-lg border-l-4 border-red-500 shadow-sm hover:shadow-md transition">
-                          <div class="overflow-hidden mr-2">
-                             <p class="text-sm font-bold text-gray-800 truncate">${s.nama}</p>
-                             <p class="text-[10px] text-gray-500 font-mono">${s.username}</p>
-                             <p class="text-[10px] text-red-500 font-bold mt-1"><i class="fas fa-lock"></i> TERKUNCI</p>
-                          </div>
-                          <button onclick="App.Pengawas.bukaKunci('${s.username}', '${s.nama}')" class="shrink-0 px-4 py-2 bg-red-600 text-white text-xs font-bold rounded hover:bg-red-700 shadow flex items-center gap-2">
-                             <i class="fas fa-key"></i> Buka
-                          </button>
-                       </div>
-                    `);
+                    listLocked.insertAdjacentHTML('beforeend', `<div class="flex justify-between items-center bg-white p-3 rounded-lg border-l-4 border-red-500 shadow-sm hover:shadow-md transition"><div class="overflow-hidden mr-2"><p class="text-sm font-bold text-gray-800 truncate">${s.nama}</p><p class="text-[10px] text-gray-500 font-mono">${s.username}</p><p class="text-[10px] text-red-500 font-bold mt-1"><i class="fas fa-lock"></i> TERKUNCI</p></div><button onclick="App.Pengawas.bukaKunci('${s.username}', '${s.nama}')" class="shrink-0 px-4 py-2 bg-red-600 text-white text-xs font-bold rounded hover:bg-red-700 shadow flex items-center gap-2"><i class="fas fa-key"></i> Buka</button></div>`);
                 }
 
-                tbody.insertAdjacentHTML('beforeend', `
-                   <tr class="hover:bg-slate-50 border-b transition">
-                     <td class="p-3">
-                        <div class="font-bold text-gray-700 text-sm">${s.nama}</div>
-                        <div class="text-[10px] text-gray-400 font-mono">${s.username}</div>
-                     </td>
-                     <td class="p-3 text-center text-xs font-medium text-gray-600">${s.kelas}</td>
-                     <td class="p-3 text-center"><span class="px-2 py-1 rounded text-[10px] uppercase font-bold tracking-wide ${badge}">${statusText}</span></td>
-                     <td class="p-3 text-center">${actionBtn}</td>
-                   </tr>
-                `);
+                tbody.insertAdjacentHTML('beforeend', `<tr class="hover:bg-slate-50 border-b transition"><td class="p-3"><div class="font-bold text-gray-700 text-sm">${s.nama}</div><div class="text-[10px] text-gray-400 font-mono">${s.username}</div></td><td class="p-3 text-center text-xs font-medium text-gray-600">${s.kelas}</td><td class="p-3 text-center"><span class="px-2 py-1 rounded text-[10px] uppercase font-bold tracking-wide ${badge}">${statusText}</span></td><td class="p-3 text-center">${actionBtn}</td></tr>`);
              });
 
-             if(lockedCount === 0) {
-                listLocked.innerHTML = `
-                   <div class="col-span-full flex flex-col items-center justify-center text-gray-400 py-4 opacity-70">
-                      <i class="fas fa-check-circle text-4xl mb-2 text-green-200"></i>
-                      <p class="text-xs font-bold">Aman. Tidak ada pelanggaran.</p>
-                   </div>
-                `;
-                badgeLocked.classList.add('hidden');
-             } else {
-                badgeLocked.innerText = lockedCount;
-                badgeLocked.classList.remove('hidden');
-             }
+             if(lockedCount === 0) { listLocked.innerHTML = `<div class="col-span-full flex flex-col items-center justify-center text-gray-400 py-4 opacity-70"><i class="fas fa-check-circle text-4xl mb-2 text-green-200"></i><p class="text-xs font-bold">Aman. Tidak ada pelanggaran.</p></div>`; badgeLocked.classList.add('hidden'); } 
+             else { badgeLocked.innerText = lockedCount; badgeLocked.classList.remove('hidden'); }
 
           }).getMonitoringSiswa(idJadwal);
        }
