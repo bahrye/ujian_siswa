@@ -253,12 +253,23 @@
              if(snippet.length > 50) snippet = snippet.substring(0, 50) + "...";
              if(s.soal.includes('<img')) snippet = "📷 " + snippet;
              
+             // Tampilan Bobot (Badge Kecil)
+             let badgeBobot = "";
+             if(s.bobot) {
+                badgeBobot = `<span class="ml-2 bg-yellow-100 text-yellow-700 text-[10px] px-1.5 py-0.5 rounded border border-yellow-200" title="Bobot Nilai"><i class="fas fa-weight-hanging"></i> ${s.bobot}</span>`;
+             }
+
              const dataStr = encodeURIComponent(JSON.stringify(s));
              const row = `
                <tr class="hover:bg-slate-50 border-b border-gray-100">
                  <td class="p-4 text-center font-bold text-gray-500">${idx+1}</td>
-                 <td class="p-4"><span class="bg-indigo-100 text-indigo-800 text-xs px-2 py-1 rounded font-bold">${s.tipe}</span><br><span class="text-xs text-gray-400">${s.mapel}</span></td>
-                 <td class="p-4 text-gray-700 font-medium">${snippet}</td>
+                 <td class="p-4">
+                    <span class="bg-indigo-100 text-indigo-800 text-xs px-2 py-1 rounded font-bold">${s.tipe}</span>
+                    <br><span class="text-xs text-gray-400">${s.mapel}</span>
+                 </td>
+                 <td class="p-4 text-gray-700 font-medium">
+                    ${snippet} ${badgeBobot}
+                 </td>
                  <td class="p-4 font-mono text-sm text-emerald-600 font-bold">${s.kunci || '-'}</td>
                  <td class="p-4 text-right">
                    <button onclick="App.BankSoal.edit('${dataStr}')" class="text-blue-600 mr-3"><i class="fas fa-edit"></i></button>
@@ -274,6 +285,7 @@
         const idSoal = document.getElementById('soal-id').value;
         const mapel = document.getElementById('soal-mapel-select').value;
         const tipe = document.getElementById('tipe-soal').value;
+        const bobot = document.getElementById('soal-bobot').value;
         const htmlSoal = App.data.quill.root.innerHTML;
 
         if (App.data.quill.getText().trim().length === 0 && !htmlSoal.includes('<img')) return Swal.fire('Error', 'Pertanyaan kosong!', 'warning');
@@ -296,7 +308,7 @@
 
         const btn = document.getElementById('btnSave');
         App.UI.setLoading(btn, true, 'MENYIMPAN...');
-        const payload = { id: idSoal, mapel: mapel, tipe: tipe, soal: htmlSoal, opsiJson: JSON.stringify(opsiData), kunci: kunciJawaban };
+        const payload = { id: idSoal, mapel: mapel, tipe: tipe, bobot: bobot, soal: htmlSoal, opsiJson: JSON.stringify(opsiData), kunci: kunciJawaban };
         
         google.script.run.withSuccessHandler((res) => {
            App.UI.setLoading(btn, false, 'SIMPAN SOAL');
@@ -311,28 +323,110 @@
 
       edit: function(str) {
         const s = JSON.parse(decodeURIComponent(str));
+        
+        // 1. Set ID & Judul dulu
         document.getElementById('soal-id').value = s.id;
         document.getElementById('form-soal-title').innerText = "Edit Soal";
         document.getElementById('btnSave').innerText = "UPDATE SOAL";
+        
+        // 2. Buka Form
+        // Fungsi ini akan memicu pembuatan Quill dengan delay internal 100ms
         App.BankSoal.toggleForm(true);
-        document.getElementById('soal-mapel-select').value = s.mapel;
-        document.getElementById('tipe-soal').value = s.tipe;
-        App.data.quill.clipboard.dangerouslyPasteHTML(s.soal);
-        App.BankSoal.changeType();
-        let opsi = {}; try { opsi = JSON.parse(s.opsi); } catch(e){}
-        if (s.tipe === 'PG') {
-           ['A','B','C','D','E'].forEach(h => {
-             document.getElementById('pg-'+h.toLowerCase()).value = opsi[h] || "";
-             if(opsi['img_'+h]) { App.data.opsiImages[h] = opsi['img_'+h]; document.getElementById('prev-box-'+h).classList.remove('hidden'); document.getElementById('img-prev-'+h).src = opsi['img_'+h]; }
-           });
-           document.getElementById('kunci-pg').value = s.kunci;
-        } 
-        else if (s.tipe === 'ISIAN') document.getElementById('kunci-isian').value = s.kunci;
-        else if (s.tipe === 'BS') { const radios = document.getElementsByName('kunci_bs'); for(let r of radios) { if(r.value === s.kunci) r.checked = true; } }
-        else if (s.tipe === 'COCOK') {
-           const container = document.getElementById('container-cocok'); container.innerHTML = "";
-           if(Array.isArray(opsi)) opsi.forEach(p => App.BankSoal.addRowCocok(p.k, p.v));
-        }
+
+        // 3. GUNAKAN SETTIMEOUT (PENTING!)
+        // Kita tunggu 300ms agar Quill & DOM benar-benar siap sebelum mengisi data
+        setTimeout(() => {
+            
+            // --- A. ISI EDITOR QUILL (PERTANYAAN) ---
+            if (App.data.quill) {
+                // Bersihkan dulu isinya agar bersih
+                App.data.quill.setContents([]); 
+                // Paste HTML Pertanyaan
+                App.data.quill.clipboard.dangerouslyPasteHTML(0, s.soal);
+            }
+
+            // --- B. LOGIKA MAPEL (SMART SELECT) ---
+            const selMapel = document.getElementById('soal-mapel-select');
+            
+            // Defensif: Load ulang opsi jika kosong
+            if (selMapel.options.length <= 1 && App.Cache.get('mapel_opts')) {
+                 App.BankSoal.renderOptionsMapel(App.Cache.get('mapel_opts'));
+            }
+
+            // Strategi 1: Exact Match
+            selMapel.value = s.mapel;
+            
+            // Strategi 2: Trim Spasi
+            if (!selMapel.value && s.mapel) {
+                selMapel.value = s.mapel.trim();
+            }
+
+            // Strategi 3: Case Insensitive Loop
+            if (!selMapel.value && s.mapel) {
+                const target = s.mapel.trim().toUpperCase();
+                for (let i = 0; i < selMapel.options.length; i++) {
+                    if (selMapel.options[i].value.toUpperCase() === target) {
+                        selMapel.selectedIndex = i;
+                        break;
+                    }
+                }
+            }
+
+            // --- C. ISI TIPE & BOBOT ---
+            document.getElementById('tipe-soal').value = s.tipe;
+            
+            // Isi Bobot (Jika elemen ada)
+            if(document.getElementById('soal-bobot')) {
+                document.getElementById('soal-bobot').value = s.bobot || ""; 
+            }
+
+            // PENTING: Panggil ini agar area opsi yang sesuai (PG/Essay/dll) dimunculkan
+            App.BankSoal.changeType();
+
+            // --- D. ISI OPSI JAWABAN ---
+            let opsi = {}; 
+            try { opsi = JSON.parse(s.opsi); } catch(e){}
+            
+            if (s.tipe === 'PG') {
+               ['A','B','C','D','E'].forEach(h => {
+                 // Isi Text Input
+                 const inputEl = document.getElementById('pg-'+h.toLowerCase());
+                 if(inputEl) inputEl.value = opsi[h] || "";
+                 
+                 // Isi Gambar Preview (Reset dulu biar gak nyangkut gambar soal lain)
+                 App.BankSoal.removeImage(h); 
+
+                 if(opsi['img_'+h]) { 
+                   App.data.opsiImages[h] = opsi['img_'+h]; 
+                   const box = document.getElementById('prev-box-'+h);
+                   const img = document.getElementById('img-prev-'+h);
+                   if(box && img) {
+                      box.classList.remove('hidden'); 
+                      img.src = opsi['img_'+h]; 
+                   }
+                 }
+               });
+               // Set Kunci PG
+               document.getElementById('kunci-pg').value = s.kunci;
+            } 
+            else if (s.tipe === 'ISIAN') {
+                document.getElementById('kunci-isian').value = s.kunci;
+            }
+            else if (s.tipe === 'BS') { 
+                const radios = document.getElementsByName('kunci_bs'); 
+                for(let r of radios) { 
+                    r.checked = (r.value === s.kunci);
+                } 
+            }
+            else if (s.tipe === 'COCOK') {
+               const container = document.getElementById('container-cocok'); 
+               container.innerHTML = "";
+               if(Array.isArray(opsi)) {
+                   opsi.forEach(p => App.BankSoal.addRowCocok(p.k, p.v));
+               }
+            }
+
+        }, 300); // <-- Delay 300 milidetik (0.3 detik)
       },
 
       hapus: function(id) {
@@ -351,6 +445,7 @@
       resetForm: function() {
         document.getElementById('formSoal').reset();
         document.getElementById('soal-id').value = "";
+        document.getElementById('soal-bobot').value = "";
         document.getElementById('form-soal-title').innerText = "Input Soal Baru";
         document.getElementById('btnSave').innerText = "SIMPAN SOAL";
         if(App.data.quill) App.data.quill.setContents([]);
