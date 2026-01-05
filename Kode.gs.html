@@ -1425,3 +1425,132 @@ function pancingIzin() {
   
   console.log("Izin berhasil dipancing. Silakan deploy ulang.");
 }
+
+// ==========================================
+// API KHUSUS SISWA (DASHBOARD & HASIL)
+// ==========================================
+
+// 1. Ambil Data Dashboard Siswa (Jadwal + Status Personal)
+function getStudentDashboardData(username, kelasSiswa) {
+  try {
+    const ss = SpreadsheetApp.openById(SS_ID);
+    const sheetJadwal = ss.getSheetByName("DB_Jadwal");
+    const sheetNilai = ss.getSheetByName("DB_Nilai");
+    
+    // Default result kosong
+    let jadwalList = [];
+    
+    if (sheetJadwal && sheetJadwal.getLastRow() > 1) {
+      const data = sheetJadwal.getDataRange().getValues();
+      data.shift(); // Skip Header
+      
+      const mapelList = getAllMapel(); 
+      const jenisList = getJenisUjian();
+  
+      data.forEach(row => {
+        // row[5]:Status, row[7]:TargetKelas
+        const statusJadwal = row[5];
+        const targetKelas = row[7] ? row[7].toString().trim() : "Semua";
+        
+        // Filter: Status Aktif DAN (Kelas Sesuai ATAU Semua)
+        if (statusJadwal === 'Aktif') {
+          if (targetKelas.toLowerCase() === 'semua' || (kelasSiswa && targetKelas === kelasSiswa)) {
+             
+             const m = mapelList.find(x => x.kode === row[2]);
+             const j = jenisList.find(x => x.id === row[1]);
+             
+             // Convert Date to String (ISO) agar aman dikirim ke client
+             const tMulai = row[3] instanceof Date ? row[3].toISOString() : row[3];
+             const tSelesai = row[4] instanceof Date ? row[4].toISOString() : row[4];
+  
+             jadwalList.push({
+               id: row[0],
+               jenis: j ? j.nama : row[1],
+               kode_mapel: row[2],
+               nama_mapel: m ? m.nama : row[2],
+               mulai: tMulai,
+               selesai: tSelesai,
+               pengawas: row[6] || '-',
+               durasi: row[8] || 60,
+               acak_soal: row[9],
+               acak_opsi: row[10]
+             });
+          }
+        }
+      });
+    }
+  
+    // B. Cek Status Personal Siswa
+    const dataNilai = sheetNilai ? sheetNilai.getDataRange().getValues() : [];
+    const props = PropertiesService.getScriptProperties();
+  
+    // Cari Nama Siswa berdasarkan Username (untuk cek di DB_Nilai karena DB_Nilai pakai Nama)
+    let namaSiswa = "";
+    const sheetUser = ss.getSheetByName("Users");
+    if(sheetUser) {
+       const dataUser = sheetUser.getDataRange().getValues();
+       for(let u of dataUser) { 
+         if(u[1] == username) { namaSiswa = u[4]; break; } 
+       }
+    }
+  
+    const finalResult = jadwalList.map(j => {
+        // 1. Cek Selesai (Ada di DB_Nilai)
+        // Cek Nama dan ID Jadwal (jika DB_Nilai kolom Mapel menyimpan ID Jadwal) atau Nama dan Mapel
+        // Asumsi DB_Nilai kolom [3] menyimpan ID Jadwal atau Mapel yang unik
+        const isFinished = dataNilai.some(n => n[2] === namaSiswa && n[3].toString().includes(j.id));
+        
+        // 2. Cek Status Sedang Mengerjakan / Terkunci via Properties
+        const stateKey = `STATUS_${username}_${j.id}`;
+        const stateVal = props.getProperty(stateKey);
+  
+        let personalStatus = 'BELUM';
+        
+        if (isFinished) {
+           personalStatus = 'SELESAI';
+        } else if (stateVal === 'LOCKED') {
+           personalStatus = 'TERKUNCI';
+        } else if (stateVal === 'STARTED') {
+           personalStatus = 'SEDANG';
+        }
+  
+        return {
+           ...j,
+           status_personal: personalStatus
+        };
+    });
+  
+    return finalResult;
+    
+  } catch (e) {
+    Logger.log("ERROR getStudentDashboardData: " + e.toString());
+    return []; // Return array kosong jika error, supaya client tidak crash
+  }
+}
+
+// 2. Ambil Hasil Ujian Siswa (History)
+function getRiwayatNilaiSiswa(namaSiswa) {
+  const ss = SpreadsheetApp.openById(SS_ID);
+  const sheet = ss.getSheetByName("DB_Nilai");
+  if (!sheet) return [];
+  
+  const data = sheet.getDataRange().getValues();
+  data.shift(); // Skip Header
+  
+  // [0:Waktu, 1:IDUjian, 2:Nama, 3:Mapel, 4:Nilai, 5:Benar]
+  let result = [];
+  
+  // Loop dari bawah (terbaru)
+  for (let i = data.length - 1; i >= 0; i--) {
+    let row = data[i];
+    if (row[2] === namaSiswa) {
+      result.push({
+        waktu: row[0],
+        mapel: row[3], // Berisi ID Jadwal biasanya, atau Mapel
+        nilai: row[4],
+        benar: row[5]
+      });
+    }
+  }
+  return result;
+}
