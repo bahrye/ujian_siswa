@@ -98,62 +98,61 @@ function getDashboardStats() {
 }
 
 // ==========================================
-// API 2: ADMIN - SIMPAN SOAL (AUTO UPLOAD IMAGE)
+// API 2: ADMIN - SIMPAN SOAL (UPDATE: BOBOT)
 // ==========================================
-
 function simpanSoal(data) {
   try {
     const ss = SpreadsheetApp.openById(SS_ID);
     const sheet = ss.getSheetByName("DB_Soal");
     
-    // 1. PROSES GAMBAR DALAM EDITOR SOAL (HTML)
-    // Cari tag <img src="data:image..."> dan upload ke Drive otomatis
+    // Proses Gambar HTML & Opsi (Sama seperti sebelumnya)
     let processedSoal = processHtmlImages(data.soal);
-
-    // 2. PROSES GAMBAR DALAM OPSI JAWABAN (JSON)
     let opsis = {};
     try { opsis = JSON.parse(data.opsiJson); } catch(e) {}
-    
-    // Loop keys (img_A, img_B, dst)
     for (let key in opsis) {
       if (key.startsWith('img_') && opsis[key] && opsis[key].toString().startsWith('data:image/')) {
-        // Upload Base64 Opsi ke Drive, ganti value dengan URL
         opsis[key] = saveBase64ToDrive(opsis[key], "OPSI-" + key);
       }
     }
     const processedOpsi = JSON.stringify(opsis);
 
-    // 3. SIMPAN DATA KE SPREADSHEET
+    // Default Bobot jika kosong = 1 (atau biarkan kosong jika murni opsional visual)
+    // Disini kita simpan apa adanya, tapi pastikan numerik jika diisi
+    const bobot = data.bobot ? data.bobot : ""; 
+
     const idSoal = data.id ? data.id : "Q-" + Date.now();
     
-    // Cek Mode Edit
+    // Mode EDIT
     if (data.id) {
        const allData = sheet.getDataRange().getValues();
        for (let i = 1; i < allData.length; i++) {
          if (allData[i][0].toString() === data.id.toString()) {
-            // Update Row [ID, Mapel, Tipe, Soal, Img(Legacy), Opsi, Kunci]
-            sheet.getRange(i + 1, 1, 1, 7).setValues([[
+            // Update Row [ID, Mapel, Tipe, Soal, Img(Legacy), Opsi, Kunci, Bobot]
+            // Perhatikan: getRange kolomnya sekarang 8
+            sheet.getRange(i + 1, 1, 1, 8).setValues([[
                data.id, data.mapel, data.tipe, 
-               processedSoal, // HTML yang src-nya sudah jadi Link Drive
-               "", // Kolom Image Legacy dikosongkan saja (karena gambar sudah masuk HTML/Opsi)
-               processedOpsi, // JSON yang img-nya sudah jadi Link Drive
-               data.kunci
+               processedSoal, 
+               "", 
+               processedOpsi, 
+               data.kunci,
+               bobot // <--- KOLOM BARU (Index 7)
             ]]);
-            return { status: 'success', message: 'Soal Berhasil Diupdate!' };
+            return { status: 'success', message: 'Soal & Bobot Diupdate!' };
          }
        }
        return { status: 'error', message: 'ID Soal tidak ditemukan saat update.' };
     } 
 
-    // Mode Tambah Baru
+    // Mode TAMBAH BARU
     sheet.appendRow([
       idSoal, 
       data.mapel, 
       data.tipe, 
       processedSoal, 
-      "", // Legacy Image Column (Empty)
+      "", 
       processedOpsi, 
-      data.kunci
+      data.kunci,
+      bobot // <--- KOLOM BARU
     ]);
 
     return { status: 'success', message: 'Soal Tersimpan!' };
@@ -212,7 +211,7 @@ function processHtmlImages(htmlContent) {
 // API 2: ADMIN - UPDATE BANK SOAL
 // ==========================================
 
-// A. AMBIL DATA SOAL (Bisa Filter Mapel)
+// A. AMBIL DATA SOAL (UPDATE: AMBIL BOBOT)
 function getSoalAdmin(filterMapel) {
   const ss = SpreadsheetApp.openById(SS_ID);
   const sheet = ss.getSheetByName("DB_Soal");
@@ -221,21 +220,20 @@ function getSoalAdmin(filterMapel) {
   const data = sheet.getDataRange().getValues();
   data.shift(); // Skip Header
   
-  // [0:id, 1:mapel, 2:tipe, 3:soal, 4:img, 5:opsi_json, 6:kunci]
+  // [0:id, 1:mapel, 2:tipe, 3:soal, 4:img, 5:opsi, 6:kunci, 7:bobot]
   let result = [];
   
-  // Balik urutan agar yang terbaru di atas (loop dari bawah)
   for (let i = data.length - 1; i >= 0; i--) {
     let row = data[i];
-    // Jika filterMapel kosong, ambil semua. Jika ada, cocokan.
     if (!filterMapel || (row[1] && row[1].toString() === filterMapel)) {
       result.push({
         id: row[0],
         mapel: row[1],
         tipe: row[2],
-        soal: row[3], // HTML Soal
-        opsi: row[5], // JSON String
-        kunci: row[6]
+        soal: row[3],
+        opsi: row[5],
+        kunci: row[6],
+        bobot: row[7] || "" // <--- AMBIL BOBOT
       });
     }
   }
