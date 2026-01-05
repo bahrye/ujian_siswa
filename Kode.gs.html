@@ -723,3 +723,124 @@ function hapusDataUmum(id, sheetName) {
   }
   return { status: 'error', message: 'Data tidak ditemukan.' };
 }
+
+// ==========================================
+// API BARU: PENGAWAS
+// ==========================================
+
+// 1. Ambil Data Monitoring & Token
+function getPengawasDashboard() {
+  const token = generateTimeBasedToken();
+  const ss = SpreadsheetApp.openById(SS_ID);
+  
+  // Ambil Jadwal Aktif
+  const sheetJadwal = ss.getSheetByName("DB_Jadwal");
+  const now = new Date();
+  const dataJadwal = sheetJadwal.getDataRange().getValues();
+  dataJadwal.shift();
+  
+  let jadwalAktif = [];
+  dataJadwal.forEach(r => {
+    // [0:id, 1:jenis, 2:mapel, 3:mulai, 4:selesai, 5:status]
+    if (r[5] === 'Aktif') {
+      jadwalAktif.push({ id: r[0], mapel: r[2], mulai: r[3], selesai: r[4] });
+    }
+  });
+
+  return { 
+    token: token, 
+    jadwal: jadwalAktif 
+  };
+}
+
+// 2. Monitoring Status Siswa
+function getMonitoringSiswa(idJadwal) {
+  const ss = SpreadsheetApp.openById(SS_ID);
+  
+  // Ambil Semua User Siswa
+  const sheetUser = ss.getSheetByName("Users");
+  const users = sheetUser.getDataRange().getValues().filter(r => r[3].toLowerCase() === 'siswa');
+  
+  // Ambil Nilai (Yang sudah selesai)
+  const sheetNilai = ss.getSheetByName("DB_Nilai");
+  const dataNilai = sheetNilai ? sheetNilai.getDataRange().getValues() : [];
+  
+  // Cek Log Login/Sedang Mengerjakan (Kita pakai PropertiesService untuk simpan state sementara)
+  const props = PropertiesService.getScriptProperties();
+  
+  let result = [];
+  
+  users.forEach(u => {
+    const username = u[1];
+    const nama = u[4];
+    const kelas = u[5];
+    
+    // Status Logic
+    let status = "BELUM";
+    let nilai = "-";
+    let isLocked = false;
+
+    // Cek Selesai
+    const selesai = dataNilai.find(n => n[2] === nama && n[3] === idJadwal); // Asumsi kolom mapel di Nilai match dengan Jadwal
+    // Note: Logika mapel di DB_Nilai perlu disesuaikan agar nyimpan ID Jadwal, tapi untuk skrg kita cek mapel string dulu
+    
+    // Cek Sedang Mengerjakan (State disimpan saat start ujian)
+    const stateKey = `STATUS_${username}_${idJadwal}`;
+    const stateVal = props.getProperty(stateKey); // Values: 'STARTED', 'LOCKED'
+
+    if (selesai) {
+      status = "SELESAI";
+      nilai = selesai[4];
+    } else if (stateVal === 'STARTED') {
+      status = "SEDANG MENGERJAKAN";
+    } else if (stateVal === 'LOCKED') {
+      status = "TERKUNCI";
+      isLocked = true;
+    }
+
+    result.push({ nama, kelas, status, nilai, isLocked, username });
+  });
+  
+  return result;
+}
+
+// 3. Generate Token Buka Kunci (Perorangan)
+function generateUnlockToken(username) {
+  // Token random 4 digit
+  const token = Math.floor(1000 + Math.random() * 9000).toString();
+  // Simpan di properties sementara (valid 5 menit idealnya, tapi disini kita simpan static)
+  const props = PropertiesService.getScriptProperties();
+  props.setProperty(`UNLOCK_${username}`, token);
+  return token;
+}
+
+// 4. Verifikasi Token Ujian (Oleh Siswa)
+function verifikasiTokenUjian(inputToken) {
+  const validToken = generateTimeBasedToken();
+  if (inputToken === validToken) return { status: 'success' };
+  return { status: 'error', message: 'Token Salah / Kadaluarsa' };
+}
+
+// Helper: Token Berubah tiap 15 Menit
+function generateTimeBasedToken() {
+  const secret = "RAHASIA_SEKOLAH"; // Ganti string ini
+  const epoch = Math.floor(Date.now() / (15 * 60 * 1000)); // Berubah tiap 15 menit
+  const hash = Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, secret + epoch);
+  // Ambil 6 karakter hex dari hash, uppercase
+  let token = "";
+  for (let i = 0; i < hash.length; i++) {
+    let byte = hash[i];
+    if (byte < 0) byte += 256;
+    let byteStr = byte.toString(16);
+    if (byteStr.length == 1) byteStr = "0" + byteStr;
+    token += byteStr;
+    if (token.length >= 6) break;
+  }
+  return token.toUpperCase();
+}
+
+// Update Start Exam untuk set status
+function startExamSession(username, idJadwal) {
+   const props = PropertiesService.getScriptProperties();
+   props.setProperty(`STATUS_${username}_${idJadwal}`, 'STARTED');
+}
