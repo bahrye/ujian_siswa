@@ -100,20 +100,16 @@
         document.getElementById('dash-nama').innerText = user.nama;
         document.getElementById('dash-initial').innerText = user.nama.charAt(0);
         document.getElementById('dash-role').innerText = user.role;
-        
         App.Dashboard.renderMenu(user.role);
         
-        // === PERBAIKAN LOGIKA DISINI ===
-        // Cari tombol menu pertama (biasanya Dashboard)
+        // LOGIKA REDIRECT
         const firstMenuBtn = document.querySelector('#sidebar-menu .nav-item');
-
-        if (user.role === 'siswa') {
-            // Jika SISWA: Langsung buka view 'dashboard' (yang akan diredirect ke Jadwal oleh switchView)
-            // JANGAN panggil App.Dashboard.loadStats()
+        
+        if (user.role === 'admin' || user.role === 'guru') {
+            App.Dashboard.loadStats();
             App.UI.switchView('dashboard', firstMenuBtn);
         } else {
-            // Jika ADMIN/GURU: Load statistik dan buka dashboard admin
-            App.Dashboard.loadStats();
+            // SISWA & PENGAWAS tidak butuh loadStats (Statistik Sistem)
             App.UI.switchView('dashboard', firstMenuBtn);
         }
       },
@@ -142,8 +138,10 @@
            ];
         } else if (role === 'pengawas') {
            menus = [
-             { id: 'dashboard', icon: 'fa-home', label: 'Dashboard' },
-             { id: 'pengawas-area', icon: 'fa-eye', label: 'Monitoring & Token' },
+             { id: 'dashboard', icon: 'fa-calendar-alt', label: 'Jadwal Ujian' }, // Dashboard isinya Jadwal Semua
+             { id: 'pengawas-token', icon: 'fa-key', label: 'Token Ujian' },      // Menu Token
+             { id: 'pengawas-monitor', icon: 'fa-desktop', label: 'Monitoring Live' }, // Menu Monitoring
+             { id: 'pengawas-pelanggaran', icon: 'fa-exclamation-triangle', label: 'Pelanggaran Siswa' },
            ];
         } else if (role === 'siswa') {
            menus = [
@@ -1001,15 +999,10 @@
       }
     },
 
-    // --- Module 6: Siswa / Exam Logic ---
+    // --- Module 6: Exam Logic ---
     Exam: {
-      initSiswa: function(user) {
-        document.getElementById('login-container').classList.add('hidden');
-        document.getElementById('header-nama').innerText = user.nama;
-        Swal.fire({ title: 'Kode Mapel', input: 'text', allowOutsideClick: false, confirmButtonText: 'Mulai' }).then((r) => { if (r.value) App.Exam.start(r.value); else App.Auth.logout(); });
-      },
+      initSiswa: function(user) { /* Deprecated by Dashboard logic but kept for safety */ },
 
-      // Helper: Fisher-Yates Shuffle
       shuffleArray: function(array) {
           for (let i = array.length - 1; i > 0; i--) {
               const j = Math.floor(Math.random() * (i + 1));
@@ -1018,35 +1011,46 @@
           return array;
       },
 
-      // 1. Terima parameter config
       start: function(kode, config) {
           App.data.examRunning = true; 
-          App.Security.enterFullscreen();
-          document.getElementById('page-siswa').classList.remove('hidden'); 
+          
+          // 1. Sembunyikan Dashboard & Login SECARA EKSPLISIT
+          document.getElementById('dashboard-container').classList.add('hidden');
+          document.getElementById('login-container').classList.add('hidden');
+          
+          // 2. Tampilkan Halaman Ujian (Overlay)
+          const pageSiswa = document.getElementById('page-siswa');
+          pageSiswa.classList.remove('hidden'); 
+          
+          // Set Header
           document.getElementById('header-mapel').innerText = kode;
           
-          // GUNAKAN DURASI DARI JADWAL
+          // Reset Tampilan Loading
+          document.getElementById('exam-loading').classList.remove('hidden');
+          document.getElementById('soal-container').classList.add('hidden');
+          document.getElementById('nav-buttons').classList.add('hidden');
+
+          // Fullscreen (Coba, jika gagal biarkan)
+          try { App.Security.enterFullscreen(); } catch(e){}
+          
+          // Setup Timer
           const durasiMenit = config ? parseInt(config.durasi) : 60;
           App.Exam.timerStart(durasiMenit); 
           
+          // Fetch Soal dari Server
           google.script.run.withSuccessHandler(res => {
             if(res.status === 'success') {
               let rawSoal = res.data;
 
-              // LOGIKA 1: ACAK SOAL
+              // Acak Soal
               if(config && config.acakSoal) {
                   rawSoal = App.Exam.shuffleArray(rawSoal);
               }
 
-              // LOGIKA 2: PREPARE ACAK OPSI (PER SOAL)
-              // Kita buat property 'shuffledKeys' di setiap objek soal agar konsisten saat next/prev
+              // Setup Acak Opsi (Per Soal)
               rawSoal.forEach(s => {
-                  // Array kunci standar
                   let keys = ['A','B','C','D','E'];
-                  
                   if(config && config.acakOpsi && s.tipe === 'PG') {
-                      // Kita acak urutan kunci yang akan DIRENDER
-                      // Misal: ['C', 'A', 'E', 'B', 'D']
                       s.shuffledKeys = App.Exam.shuffleArray([...keys]);
                   } else {
                       s.shuffledKeys = keys;
@@ -1054,24 +1058,38 @@
               });
 
               App.data.soalList = rawSoal; 
+              
+              // Tampilkan Soal
               document.getElementById('exam-loading').classList.add('hidden'); 
               document.getElementById('soal-container').classList.remove('hidden'); 
               document.getElementById('nav-buttons').classList.remove('hidden'); 
               document.getElementById('nav-buttons').classList.add('flex'); 
+              
               App.Exam.render(0);
 
             } else { 
-              Swal.fire('Gagal', res.message, 'warning').then(() => App.Auth.logout()); 
+              // Jika gagal load soal
+              Swal.fire('Gagal Memuat', res.message, 'warning').then(() => {
+                  // Kembalikan ke dashboard
+                  App.data.examRunning = false;
+                  document.getElementById('page-siswa').classList.add('hidden');
+                  document.getElementById('dashboard-container').classList.remove('hidden');
+              }); 
             }
+          }).withFailureHandler(err => {
+              Swal.fire('Error Server', err.message, 'error');
+              App.data.examRunning = false;
+              document.getElementById('page-siswa').classList.add('hidden');
+              document.getElementById('dashboard-container').classList.remove('hidden');
           }).getSoalUjian(kode);
       },
 
       render: function(idx) {
           App.data.currentSoalIdx = idx; 
           const s = App.data.soalList[idx];
+          
           document.getElementById('disp-no').innerText = idx + 1;
-          document.getElementById('disp-pertanyaan').innerText = s.pertanyaan; // Render HTML Aman
-          document.getElementById('disp-pertanyaan').innerHTML = s.pertanyaan; // Pakai innerHTML biar format teks muncul
+          document.getElementById('disp-pertanyaan').innerHTML = s.pertanyaan; 
 
           const imgCont = document.getElementById('disp-gambar-container'); 
           const img = document.getElementById('disp-gambar');
@@ -1080,23 +1098,15 @@
           const ops = document.getElementById('disp-opsi'); 
           ops.innerHTML = '';
 
-          // LOOP MENGGUNAKAN SHUFFLED KEYS
-          // Agar urutan visual teracak, tapi Value tetap sesuai.
-          // Trik Visual: Label (A, B, C...) tetap urut, tapi isinya mengambil dari kunci acak.
+          // RENDER OPSI (PG / BS / ESSAY)
           const labelUrut = ['A','B','C','D','E'];
 
           if(s.tipe === 'PG') {
               s.shuffledKeys.forEach((realKey, i) => {
                 if(s.opsi[realKey]) {
-                  // visualLabel: A, B, C... (Urut)
-                  // realKey: Kunci asli di database (Misal 'C')
-                  // s.opsi[realKey]: Isi teks jawaban C
-                  
                   const visualLabel = labelUrut[i]; 
-                  
                   const active = App.data.jawabanSiswa[s.id] === realKey ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white hover:bg-gray-50';
                   
-                  // Saat diklik, kita kirim realKey ('C') agar penilaian valid
                   ops.insertAdjacentHTML('beforeend', `
                       <div onclick="App.Exam.pilih('${s.id}','${realKey}')" class="cursor-pointer border rounded p-3 flex gap-3 items-center transition ${active}">
                           <span class="font-bold w-6 text-center shrink-0 border-r pr-2">${visualLabel}</span> 
@@ -1106,19 +1116,21 @@
                 }
               });
           } 
-          // Handle Tipe Lain (Essay/BS) sederhana
           else if (s.tipe === 'BS') {
               ['A','B'].forEach(h => {
-                  const txt = h==='A'?'BENAR':'SALAH';
                   const val = h==='A'?'BENAR':'SALAH';
                   const active = App.data.jawabanSiswa[s.id] === val ? 'bg-indigo-600 text-white' : 'bg-white';
-                  ops.insertAdjacentHTML('beforeend', `<div onclick="App.Exam.pilih('${s.id}','${val}')" class="cursor-pointer border rounded p-3 font-bold ${active}">${txt}</div>`);
+                  ops.insertAdjacentHTML('beforeend', `<div onclick="App.Exam.pilih('${s.id}','${val}')" class="cursor-pointer border rounded p-3 font-bold ${active}">${val}</div>`);
               });
+          }
+          else if (s.tipe === 'COCOK') {
+               // Render Pencocokan sederhana (Placeholder)
+               ops.innerHTML = '<p class="text-sm italic text-gray-500">Fitur pencocokan drag-drop dalam pengembangan.</p>';
           }
           else {
               // Essay / Isian
               const val = App.data.jawabanSiswa[s.id] || '';
-              ops.innerHTML = `<textarea onkeyup="App.Exam.pilih('${s.id}', this.value)" class="w-full border rounded p-2 h-32" placeholder="Tulis jawaban...">${val}</textarea>`;
+              ops.innerHTML = `<textarea onkeyup="App.Exam.pilih('${s.id}', this.value)" class="w-full border rounded p-2 h-32 focus:ring-2 ring-indigo-500 outline-none" placeholder="Tulis jawaban Anda di sini...">${val}</textarea>`;
           }
 
           App.Exam.renderGrid();
@@ -1128,132 +1140,352 @@
       next: function() { if(App.data.currentSoalIdx < App.data.soalList.length-1) App.Exam.render(App.data.currentSoalIdx+1); },
       prev: function() { if(App.data.currentSoalIdx > 0) App.Exam.render(App.data.currentSoalIdx-1); },
       toggleRagu: function() { const id = App.data.soalList[App.data.currentSoalIdx].id; if(App.data.raguSiswa[id]) delete App.data.raguSiswa[id]; else App.data.raguSiswa[id] = true; App.Exam.render(App.data.currentSoalIdx); },
+      
       renderGrid: function() {
         const g = document.getElementById('grid-nomor'); g.innerHTML='';
         App.data.soalList.forEach((s,i) => {
-           let c = 'bg-white border text-gray-600'; if(App.data.jawabanSiswa[s.id]) c = 'bg-indigo-600 text-white border-indigo-600'; if(App.data.raguSiswa[s.id]) c = 'bg-yellow-400 text-white border-yellow-400'; if(i===App.data.currentSoalIdx) c += ' ring-2 ring-indigo-300';
-           g.insertAdjacentHTML('beforeend', `<button onclick="App.Exam.render(${i})" class="h-8 w-full rounded font-bold text-xs ${c}">${i+1}</button>`);
+           let c = 'bg-white border text-gray-600'; 
+           if(App.data.jawabanSiswa[s.id]) c = 'bg-indigo-600 text-white border-indigo-600'; 
+           if(App.data.raguSiswa[s.id]) c = 'bg-yellow-400 text-white border-yellow-400'; 
+           if(i===App.data.currentSoalIdx) c += ' ring-2 ring-indigo-300 transform scale-105 shadow';
+           
+           g.insertAdjacentHTML('beforeend', `<button onclick="App.Exam.render(${i})" class="h-8 w-full rounded font-bold text-xs ${c} transition-all">${i+1}</button>`);
         });
       },
-      finish: function() { Swal.fire({ title:'Kirim?', icon:'question', showCancelButton:true, confirmButtonText:'Ya' }).then(r=>{ if(r.isConfirmed) App.Exam.submit(false); }); },
+
+      finish: function() { Swal.fire({ title:'Selesai Ujian?', text:'Pastikan semua jawaban terisi.', icon:'question', showCancelButton:true, confirmButtonText:'Ya, Kumpulkan', confirmButtonColor:'#059669' }).then(r=>{ if(r.isConfirmed) App.Exam.submit(false); }); },
+      
       submit: function(auto) {
-         App.data.examRunning = false; clearInterval(App.data.timer); Swal.showLoading();
+         App.data.examRunning = false; 
+         clearInterval(App.data.timer); 
+         Swal.fire({ title: 'Menyimpan...', allowOutsideClick: false, didOpen: () => { Swal.showLoading(); } });
+         
          const p = { nama: document.getElementById('header-nama').innerText, mapel: document.getElementById('header-mapel').innerText, jawaban: App.data.jawabanSiswa };
-         google.script.run.withSuccessHandler(res => { if(res.status==='success') Swal.fire('Selesai', `Nilai: ${res.nilai}`, 'success').then(()=>App.Auth.logout()); else Swal.fire('Gagal', res.message, 'error'); }).submitUjian(p);
+         
+         google.script.run.withSuccessHandler(res => { 
+             if(res.status==='success') {
+                 Swal.fire({
+                     title: 'Ujian Selesai!', 
+                     text: `Nilai Anda: ${res.nilai}`, 
+                     icon: 'success',
+                     confirmButtonText: 'Keluar'
+                 }).then(() => {
+                     // Reload halaman penuh untuk reset semua state
+                     google.script.run.withSuccessHandler(url => window.top.location.href = url).getScriptUrl();
+                 });
+             } else { 
+                 Swal.fire('Gagal Menyimpan', res.message + '. Silakan lapor pengawas.', 'error'); 
+             }
+         }).submitUjian(p);
       },
+
       timerStart: function(m) {
+         if(App.data.timer) clearInterval(App.data.timer);
          App.data.timeLeft = m * 60;
          App.data.timer = setInterval(() => {
             App.data.timeLeft--;
             const min = Math.floor(App.data.timeLeft/60).toString().padStart(2,'0');
             const sec = (App.data.timeLeft%60).toString().padStart(2,'0');
-            document.getElementById('timer-display').innerText = `${min}:${sec}`;
-            if(App.data.timeLeft<=0) { clearInterval(App.data.timer); App.Exam.submit(true); }
+            const timerEl = document.getElementById('timer-display');
+            if(timerEl) timerEl.innerText = `${min}:${sec}`;
+            
+            // Warning sisa 5 menit
+            if(App.data.timeLeft === 300) Swal.fire({ toast: true, position: 'top-end', icon: 'warning', title: 'Waktu tinggal 5 menit!', timer: 3000, showConfirmButton: false });
+
+            if(App.data.timeLeft<=0) { 
+                clearInterval(App.data.timer); 
+                Swal.fire('Waktu Habis!', 'Jawaban akan dikirim otomatis.', 'info').then(() => App.Exam.submit(true));
+            }
          }, 1000);
       }
     },
 
-    // --- Module Pengawas ---
+    // --- Module Pengawas (REVISED) ---
     Pengawas: {
-       loadToken: function() {
-          // Reset UI
-          document.getElementById('token-display').innerText = "-- -- --";
-          document.getElementById('label-token-pengawas').innerText = "Pilih Ujian";
+       // A. DASHBOARD: JADWAL SEMUA KELAS (Read Only)
+       loadJadwalGlobal: function() {
+          // Sembunyikan elemen admin di view-ujian
+          document.querySelectorAll('#view-ujian button').forEach(b => b.classList.add('hidden')); // Sembunyikan tombol tambah
+          document.querySelectorAll('#view-ujian h3').forEach(h => {
+              if(h.innerText.includes('1. Nama Ujian')) h.parentElement.parentElement.classList.add('hidden'); // Sembunyikan tabel master jenis
+          });
           
-          // Ambil Username Pengawas yang sedang login
-          const currentUser = App.data.user ? App.data.user.username : '';
-
-          google.script.run.withSuccessHandler(res => {
-             const sel = document.getElementById('mon-pilih-jadwal');
-             sel.innerHTML = '<option value="">- Pilih Ujian -</option>';
-             
-             if(res.jadwal.length === 0) {
-                 sel.innerHTML = '<option value="">(Tidak ada jadwal ujian aktif untuk Anda)</option>';
-             }
-
-             res.jadwal.forEach(j => {
-                sel.insertAdjacentHTML('beforeend', `<option value="${j.id}">${j.mapel} (${new Date(j.mulai).toLocaleTimeString()})</option>`);
-             });
-          }).getPengawasDashboard(currentUser); // KIRIM USERNAME DISINI
+          document.getElementById('page-title').innerText = "Jadwal Ujian Sekolah";
+          const tbody = document.getElementById('tbody-jadwal');
+          tbody.innerHTML = '<tr><td colspan="6" class="p-8 text-center"><i class="fas fa-spinner fa-spin"></i> Memuat Jadwal...</td></tr>';
+          
+          google.script.run.withSuccessHandler(data => {
+             App.Ujian.renderJadwal(data); // Reuse render admin
+             // Hapus kolom aksi (Edit/Delete) setelah render
+             setTimeout(() => {
+                 const rows = tbody.querySelectorAll('tr');
+                 rows.forEach(r => { 
+                     if(r.lastElementChild) r.lastElementChild.innerHTML = '<span class="text-gray-400 text-xs italic">Read Only</span>'; 
+                 });
+             }, 100);
+          }).getJadwalUjian();
        },
 
-       // Di dalam App.Pengawas
-       loadMonitoring: function() {
-          const idJadwal = document.getElementById('mon-pilih-jadwal').value;
-          const tbody = document.getElementById('tbody-monitoring');
-          const tokenDisp = document.getElementById('token-display');
-          const labelDisp = document.getElementById('label-token-pengawas');
-          const boxToken = document.getElementById('box-token-pengawas'); // Ambil Box Token
-          
-          if(!idJadwal) {
-             tokenDisp.innerText = "-- -- --"; 
-             labelDisp.innerText = "Pilih Ujian";
-             // Reset Warna Box ke Default (Indigo-Purple)
-             boxToken.className = "bg-gradient-to-r from-indigo-600 to-purple-600 rounded-xl p-6 text-white shadow-lg flex flex-col items-center justify-center relative overflow-hidden transition-all duration-300";
-             return;
-          }
-          
-          tbody.innerHTML = '<tr><td colspan="4" class="p-4 text-center">Loading...</td></tr>';
+       // B. HALAMAN TOKEN
+       loadPageToken: function() {
+          document.getElementById('page-title').innerText = "Manajemen Token";
+          const container = document.getElementById('list-token-pengawas');
+          container.innerHTML = '<div class="text-center p-10"><i class="fas fa-circle-notch fa-spin text-indigo-500 text-2xl"></i><p class="mt-2 text-gray-500">Mengambil Jadwal Anda...</p></div>';
+
+          const user = JSON.parse(sessionStorage.getItem('cbt_session')).data;
           
           google.script.run.withSuccessHandler(res => {
-             // LOGIKA TAMPILAN TOKEN BERDASARKAN STATUS
-             if (res.token === "BELUM MULAI") {
-                tokenDisp.innerText = "BELUM MULAI";
-                labelDisp.innerText = "STATUS UJIAN";
-                // Warna Kuning/Orange
-                boxToken.className = "bg-gradient-to-r from-yellow-500 to-orange-500 rounded-xl p-6 text-white shadow-lg flex flex-col items-center justify-center relative overflow-hidden transition-all duration-300";
-             } 
-             else if (res.token === "SELESAI") {
-                tokenDisp.innerText = "SELESAI";
-                labelDisp.innerText = "STATUS UJIAN";
-                // Warna Abu-abu
-                boxToken.className = "bg-gray-600 rounded-xl p-6 text-white shadow-lg flex flex-col items-center justify-center relative overflow-hidden transition-all duration-300";
-             } 
-             else {
-                // TOKEN AKTIF
-                tokenDisp.innerText = res.token;
-                labelDisp.innerText = "TOKEN UJIAN INI";
-                // Warna Hijau (Token Aktif) atau Default
-                boxToken.className = "bg-gradient-to-r from-emerald-500 to-teal-600 rounded-xl p-6 text-white shadow-lg flex flex-col items-center justify-center relative overflow-hidden transition-all duration-300";
+             container.innerHTML = '';
+             const jadwal = res.jadwal; // List jadwal yang ditugaskan ke pengawas ini
+             
+             if(jadwal.length === 0) {
+                 container.innerHTML = '<div class="p-8 text-center border-2 border-dashed border-gray-300 rounded-xl"><i class="fas fa-coffee text-gray-300 text-4xl mb-3"></i><p class="text-gray-500 font-bold">Tidak ada jadwal ujian aktif untuk Anda saat ini.</p></div>';
+                 return;
              }
 
-             // Render Tabel Siswa (Tetap Sama)
-             tbody.innerHTML = '';
-             const data = res.students;
-             if(data.length === 0) tbody.innerHTML = '<tr><td colspan="4" class="p-4 text-center">Tidak ada siswa.</td></tr>';
-             
-             data.forEach(s => {
-                let badge = "bg-gray-100 text-gray-500";
-                if(s.status === 'SEDANG MENGERJAKAN') badge = "bg-blue-100 text-blue-700 animate-pulse";
-                if(s.status === 'SELESAI') badge = "bg-green-100 text-green-700";
-                if(s.status === 'TERKUNCI') badge = "bg-red-100 text-red-700 font-bold";
-                
-                let btnUnlock = '';
-                if(s.isLocked || s.status === 'TERKUNCI') {
-                   btnUnlock = `<button onclick="App.Pengawas.bukaKunci('${s.username}', '${s.nama}')" class="px-3 py-1 bg-red-600 text-white rounded text-xs hover:bg-red-700">Buka Kunci</button>`;
-                }
-                
-                tbody.insertAdjacentHTML('beforeend', `
-                   <tr class="border-b">
-                     <td class="p-3 font-semibold">${s.nama}</td>
-                     <td class="p-3 text-gray-500">${s.kelas}</td>
-                     <td class="p-3 text-center"><span class="px-2 py-1 rounded text-[10px] uppercase font-bold ${badge}">${s.status}</span></td>
-                     <td class="p-3 text-center">${btnUnlock}</td>
-                   </tr>
-                `);
+             const now = new Date();
+
+             jadwal.forEach(j => {
+                 const start = new Date(j.mulai);
+                 const end = new Date(j.selesai);
+                 
+                 // Logika Tombol Aktif/Tidak
+                 let btnState = 'disabled class="w-full py-3 bg-gray-200 text-gray-400 rounded-lg font-bold cursor-not-allowed"';
+                 let btnText = 'BELUM MULAI';
+                 let cardBorder = 'border-l-4 border-gray-300';
+                 let statusText = `<span class="text-xs font-bold text-gray-500 bg-gray-100 px-2 py-1 rounded">MENUNGGU</span>`;
+
+                 if (now >= start && now <= end) {
+                     // AKTIF
+                     btnState = `onclick="App.Pengawas.lihatToken('${j.id}', '${j.mapel}')" class="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold shadow-lg transform active:scale-95 transition"`;
+                     btnText = '<i class="fas fa-eye"></i> LIHAT TOKEN';
+                     cardBorder = 'border-l-4 border-indigo-500 shadow-md ring-1 ring-indigo-50';
+                     statusText = `<span class="text-xs font-bold text-green-700 bg-green-100 px-2 py-1 rounded animate-pulse">BERLANGSUNG</span>`;
+                 } else if (now > end) {
+                     // SELESAI
+                     btnState = 'disabled class="w-full py-3 bg-red-50 text-red-300 rounded-lg font-bold cursor-not-allowed"';
+                     btnText = 'UJIAN DITUTUP';
+                     cardBorder = 'border-l-4 border-red-200 opacity-70';
+                     statusText = `<span class="text-xs font-bold text-red-500 bg-red-50 px-2 py-1 rounded">SELESAI</span>`;
+                 }
+
+                 const tgl = start.toLocaleDateString('id-ID', { weekday:'long', day:'numeric', month:'short' });
+                 const jam = start.toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'}) + ' - ' + end.toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'});
+
+                 container.insertAdjacentHTML('beforeend', `
+                    <div class="bg-white p-5 rounded-xl border border-gray-100 ${cardBorder} flex flex-col justify-between">
+                       <div class="mb-4">
+                          <div class="flex justify-between items-start mb-2">
+                             <h4 class="font-bold text-lg text-gray-800 leading-tight">${j.mapel}</h4>
+                             ${statusText}
+                          </div>
+                          <div class="text-sm text-gray-500 space-y-1">
+                             <div class="flex items-center gap-2"><i class="far fa-calendar text-indigo-400 w-5"></i> ${tgl}</div>
+                             <div class="flex items-center gap-2"><i class="far fa-clock text-indigo-400 w-5"></i> ${jam}</div>
+                          </div>
+                       </div>
+                       <button ${btnState}>${btnText}</button>
+                    </div>
+                 `);
              });
-          }).getMonitoringSiswa(idJadwal);
+
+          }).getPengawasDashboard(user.username);
+       },
+
+       lihatToken: function(idJadwal, mapelName) {
+           Swal.fire({
+               title: 'Mengambil Token...',
+               allowOutsideClick: false,
+               didOpen: () => { Swal.showLoading(); }
+           });
+           
+           google.script.run.withSuccessHandler(res => {
+               Swal.close();
+               if(res.token && res.token !== 'ERROR') {
+                   Swal.fire({
+                       title: mapelName,
+                       html: `<div class="bg-indigo-50 p-4 rounded-lg border border-indigo-100 mb-2">
+                                <p class="text-xs text-gray-500 uppercase font-bold mb-1">Token Ujian</p>
+                                <h1 class="text-5xl font-mono font-black text-indigo-700 tracking-widest">${res.token}</h1>
+                              </div>
+                              <p class="text-sm text-gray-400">Berikan token ini kepada siswa.</p>`,
+                       showConfirmButton: true,
+                       confirmButtonText: 'Tutup'
+                   });
+               } else {
+                   Swal.fire('Gagal', 'Token tidak tersedia atau waktu ujian habis.', 'error');
+               }
+           }).getMonitoringSiswa(idJadwal); // Kita reuse fungsi ini karena dia return {token, students}
+       },
+
+       // C. HALAMAN MONITORING
+       loadPageMonitoring: function() {
+          document.getElementById('page-title').innerText = "Monitoring Ujian";
+          const sel = document.getElementById('mon-list-ujian');
+          const tbody = document.getElementById('tbody-mon-pgw');
+          const panelInfo = document.getElementById('mon-info-panel');
+          
+          // Reset UI
+          sel.innerHTML = '<option value="">Loading...</option>';
+          tbody.innerHTML = '<tr><td colspan="4" class="p-8 text-center text-gray-400">Silakan pilih ujian di atas.</td></tr>';
+          panelInfo.classList.add('hidden');
+
+          const user = JSON.parse(sessionStorage.getItem('cbt_session')).data;
+
+          // 1. Load Dropdown Jadwal (Khusus Pengawas Ini)
+          google.script.run.withSuccessHandler(res => {
+              sel.innerHTML = '<option value="">- Pilih Ujian untuk Dimonitor -</option>';
+              if(res.jadwal.length === 0) {
+                  sel.innerHTML = '<option value="">(Tidak ada ujian aktif)</option>';
+                  return;
+              }
+              res.jadwal.forEach(j => {
+                  sel.insertAdjacentHTML('beforeend', `<option value="${j.id}">${j.mapel} (${new Date(j.mulai).toLocaleTimeString()})</option>`);
+              });
+          }).getPengawasDashboard(user.username);
+       },
+
+       refreshMonitoring: function() {
+           const idJadwal = document.getElementById('mon-list-ujian').value;
+           const tbody = document.getElementById('tbody-mon-pgw');
+           const panelInfo = document.getElementById('mon-info-panel');
+           
+           if(!idJadwal) {
+               tbody.innerHTML = '<tr><td colspan="4" class="p-8 text-center text-gray-400">Silakan pilih ujian.</td></tr>';
+               panelInfo.classList.add('hidden');
+               return;
+           }
+
+           tbody.innerHTML = '<tr><td colspan="4" class="p-8 text-center"><i class="fas fa-spinner fa-spin"></i> Loading data siswa...</td></tr>';
+           
+           google.script.run.withSuccessHandler(res => {
+               // Update Info Panel (Token Kecil)
+               panelInfo.classList.remove('hidden');
+               document.getElementById('mon-token-small').innerText = res.token;
+               
+               tbody.innerHTML = '';
+               if(res.students.length === 0) {
+                   tbody.innerHTML = '<tr><td colspan="4" class="p-8 text-center text-gray-400 italic">Belum ada siswa login.</td></tr>';
+                   return;
+               }
+
+               res.students.forEach(s => {
+                   let badge = "bg-gray-100 text-gray-500";
+                   let statusTxt = s.status;
+                   let aksi = "-";
+
+                   if(s.status === 'SEDANG MENGERJAKAN') {
+                       badge = "bg-blue-100 text-blue-700 animate-pulse border-blue-200";
+                       statusTxt = "MENGERJAKAN";
+                   } else if(s.status === 'SELESAI') {
+                       badge = "bg-green-100 text-green-700 border-green-200";
+                       // Tampilkan nilai jika perlu, atau sembunyikan
+                   } else if(s.status === 'TERKUNCI' || s.isLocked) {
+                       badge = "bg-red-600 text-white font-bold animate-bounce";
+                       statusTxt = "TERKUNCI";
+                       aksi = `<button onclick="App.Pengawas.bukaKunci('${s.username}', '${s.nama}')" class="px-3 py-1 bg-red-100 text-red-700 border border-red-200 rounded text-xs font-bold hover:bg-red-200 shadow-sm"><i class="fas fa-key"></i> Buka</button>`;
+                   }
+
+                   tbody.insertAdjacentHTML('beforeend', `
+                       <tr class="border-b hover:bg-slate-50 transition">
+                           <td class="p-3">
+                               <div class="font-bold text-gray-700 text-sm">${s.nama}</div>
+                               <div class="text-[10px] text-gray-400 font-mono">${s.username}</div>
+                           </td>
+                           <td class="p-3 text-center text-xs text-gray-600">${s.kelas}</td>
+                           <td class="p-3 text-center"><span class="px-2 py-1 rounded text-[10px] uppercase font-bold tracking-wide border ${badge}">${statusTxt}</span></td>
+                           <td class="p-3 text-center">${aksi}</td>
+                       </tr>
+                   `);
+               });
+
+           }).getMonitoringSiswa(idJadwal);
+       },
+
+       // D. HALAMAN PELANGGARAN SISWA
+       loadPagePelanggaran: function() {
+          document.getElementById('page-title').innerText = "Daftar Pelanggaran Siswa";
+          const sel = document.getElementById('pel-list-ujian');
+          const tbody = document.getElementById('tbody-pel-pgw');
+          
+          // Reset UI
+          sel.innerHTML = '<option value="">Loading...</option>';
+          tbody.innerHTML = '<tr><td colspan="5" class="p-8 text-center text-gray-400">Silakan pilih ujian di atas.</td></tr>';
+
+          const user = JSON.parse(sessionStorage.getItem('cbt_session')).data;
+
+          // Load Dropdown Jadwal (Sama seperti monitoring)
+          google.script.run.withSuccessHandler(res => {
+              sel.innerHTML = '<option value="">- Pilih Ujian -</option>';
+              if(res.jadwal.length === 0) {
+                  sel.innerHTML = '<option value="">(Tidak ada ujian aktif)</option>';
+                  return;
+              }
+              res.jadwal.forEach(j => {
+                  sel.insertAdjacentHTML('beforeend', `<option value="${j.id}">${j.mapel} (${new Date(j.mulai).toLocaleTimeString()})</option>`);
+              });
+          }).getPengawasDashboard(user.username);
+       },
+
+       refreshPelanggaran: function() {
+           const idJadwal = document.getElementById('pel-list-ujian').value;
+           const tbody = document.getElementById('tbody-pel-pgw');
+           
+           if(!idJadwal) {
+               tbody.innerHTML = '<tr><td colspan="5" class="p-8 text-center text-gray-400">Silakan pilih ujian.</td></tr>';
+               return;
+           }
+
+           tbody.innerHTML = '<tr><td colspan="5" class="p-8 text-center"><i class="fas fa-spinner fa-spin"></i> Memeriksa pelanggaran...</td></tr>';
+           
+           google.script.run.withSuccessHandler(res => {
+               tbody.innerHTML = '';
+               
+               // Filter hanya yang TERKUNCI
+               const violators = res.students.filter(s => s.status === 'TERKUNCI' || s.isLocked);
+
+               if(violators.length === 0) {
+                   tbody.innerHTML = '<tr><td colspan="5" class="p-10 text-center"><div class="text-green-500 text-4xl mb-2"><i class="fas fa-check-circle"></i></div><p class="text-gray-500 font-bold">Aman. Tidak ada pelanggaran saat ini.</p></td></tr>';
+                   return;
+               }
+
+               violators.forEach(s => {
+                   // Simulasi keterangan pelanggaran (karena backend saat ini hanya mengirim status LOCKED)
+                   // Kita asumsikan default violation adalah "Keluar Aplikasi" sesuai triggerLock di client
+                   const violationDetail = "Terdeteksi keluar dari aplikasi ujian / Pindah Tab.";
+
+                   tbody.insertAdjacentHTML('beforeend', `
+                       <tr class="border-b bg-red-50 hover:bg-red-100 transition">
+                           <td class="p-4 font-bold text-gray-700">${s.nama} <br> <span class="text-xs font-normal text-gray-500 font-mono">${s.username}</span></td>
+                           <td class="p-4 text-center text-sm">${s.kelas}</td>
+                           <td class="p-4 text-center"><span class="bg-red-600 text-white px-3 py-1 rounded-full text-xs font-bold animate-pulse">TERKUNCI</span></td>
+                           <td class="p-4 text-sm text-red-700 font-medium"><i class="fas fa-exclamation-circle"></i> ${violationDetail}</td>
+                           <td class="p-4 text-center">
+                               <button onclick="App.Pengawas.bukaKunci('${s.username}', '${s.nama}')" class="px-4 py-2 bg-white border border-red-300 text-red-600 rounded-lg text-sm font-bold hover:bg-red-600 hover:text-white shadow-sm transition">
+                                 <i class="fas fa-key"></i> Buka Kunci
+                               </button>
+                           </td>
+                       </tr>
+                   `);
+               });
+
+           }).getMonitoringSiswa(idJadwal);
        },
 
        bukaKunci: function(username, nama) {
-          Swal.fire({title: 'Buka Kunci?', text: `Dapatkan token untuk ${nama}`, showCancelButton:true, confirmButtonText:'Dapatkan Token'})
-          .then(r => {
+          Swal.fire({
+             title: 'Buka Kunci Siswa?', 
+             text: `Siswa: ${nama}. Pastikan siswa melapor kepada Anda.`, 
+             icon: 'warning',
+             showCancelButton:true, 
+             confirmButtonText:'Generate Token',
+             confirmButtonColor: '#d33'
+          }).then(r => {
              if(r.isConfirmed) {
                 google.script.run.withSuccessHandler(token => {
                    Swal.fire({
                      title: 'TOKEN BUKA KUNCI',
-                     html: `<h1 class="text-4xl font-bold text-red-600 mt-2">${token}</h1><p class="text-sm text-gray-500 mt-2">Berikan token ini ke siswa.</p>`,
-                     icon: 'info'
+                     html: `<h1 class="text-4xl font-bold text-red-600 mt-2 tracking-widest bg-red-50 p-4 rounded border border-red-100">${token}</h1><p class="text-sm text-gray-500 mt-3">Berikan token ini ke siswa untuk membuka kunci layar.</p>`,
                    });
                 }).generateUnlockToken(username);
              }
@@ -1268,7 +1500,6 @@
           const div = document.getElementById('list-ujian-siswa');
           div.innerHTML = '<div class="text-center py-10"><i class="fas fa-spinner fa-spin text-3xl text-indigo-500"></i><p class="mt-2 text-gray-400">Memuat Jadwal & Status...</p></div>';
           
-          // Ambil data user dari session
           const session = JSON.parse(sessionStorage.getItem('cbt_session'));
           const user = session ? session.data : null;
 
@@ -1280,25 +1511,22 @@
           google.script.run.withSuccessHandler(data => {
              div.innerHTML = '';
              
-             // PERBAIKAN DISINI: Cek jika data null/undefined atau array kosong
              if(!data || data.length === 0) { 
                  div.innerHTML = '<div class="text-center p-8 bg-white rounded-xl shadow-sm border border-gray-100"><img src="https://img.icons8.com/fluency/96/null/nothing-found.png" class="mx-auto mb-3 h-16"><h3 class="font-bold text-gray-700">Tidak ada jadwal ujian.</h3><p class="text-xs text-gray-400">Jadwal untuk kelas Anda belum tersedia saat ini.</p></div>'; 
                  return; 
              }
              
              data.forEach(j => {
-                // Formatting Tanggal (Handle jika string ISO dari server)
                 const dMulai = new Date(j.mulai);
                 const dSelesai = new Date(j.selesai);
                 const tanggal = dMulai.toLocaleDateString('id-ID', {day: 'numeric', month: 'short'});
                 const jam = dMulai.toLocaleTimeString('id-ID', {hour: '2-digit', minute:'2-digit'}) + ' - ' + dSelesai.toLocaleTimeString('id-ID', {hour: '2-digit', minute:'2-digit'});
 
-                // Logic Tampilan Berdasarkan Status
                 let cardColor = "border-l-4 border-gray-400";
                 let statusBadge = '<span class="bg-gray-100 text-gray-500 px-2 py-1 rounded text-xs font-bold">BELUM MENGERJAKAN</span>';
                 let btnAction = '';
 
-                // Config Ujian (untuk tombol)
+                // Encode config dengan aman
                 const configStr = encodeURIComponent(JSON.stringify({ durasi: j.durasi, acakSoal: j.acak_soal, acakOpsi: j.acak_opsi }));
 
                 if (j.status_personal === 'SELESAI') {
@@ -1309,19 +1537,15 @@
                 else if (j.status_personal === 'SEDANG') {
                     cardColor = "border-l-4 border-yellow-500 ring-1 ring-yellow-200";
                     statusBadge = '<span class="bg-yellow-100 text-yellow-800 px-2 py-1 rounded text-xs font-bold animate-pulse"><i class="fas fa-pen"></i> SEDANG MENGERJAKAN</span>';
-                    // Tombol Lanjut
                     btnAction = `<button onclick="App.Siswa.actionMulai('${j.kode_mapel}', '${j.id}', '${configStr}', false)" class="px-5 py-2 bg-yellow-500 hover:bg-yellow-600 text-white rounded-lg font-bold shadow text-sm transition">LANJUT MENGERJAKAN <i class="fas fa-arrow-right"></i></button>`;
                 }
                 else if (j.status_personal === 'TERKUNCI') {
                     cardColor = "border-l-4 border-red-600 bg-red-50";
                     statusBadge = '<span class="bg-red-600 text-white px-2 py-1 rounded text-xs font-bold"><i class="fas fa-lock"></i> TERKUNCI</span>';
-                    // Tombol Buka Kunci
                     btnAction = `<button onclick="App.Siswa.actionUnlock('${j.kode_mapel}', '${j.id}', '${configStr}')" class="px-5 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-bold shadow text-sm transition"><i class="fas fa-key"></i> MASUKKAN TOKEN BUKA KUNCI</button>`;
                 }
                 else {
-                    // BELUM MENGERJAKAN
                     cardColor = "border-l-4 border-indigo-500 hover:shadow-md transition";
-                    // Cek Waktu
                     const now = new Date();
                     if (now < dMulai) {
                         btnAction = `<button disabled class="px-4 py-2 bg-gray-200 text-gray-400 rounded-lg font-bold cursor-not-allowed text-sm">Belum Dimulai</button>`;
@@ -1340,7 +1564,6 @@
                            ${statusBadge}
                         </div>
                         <h4 class="font-bold text-xl text-gray-800">${j.nama_mapel} <span class="text-sm font-normal text-gray-500">(${j.kode_mapel})</span></h4>
-                        
                         <div class="grid grid-cols-2 md:flex md:gap-6 text-sm text-gray-600 mt-2">
                             <div class="flex items-center gap-2"><i class="far fa-calendar-alt text-indigo-400"></i> ${tanggal}</div>
                             <div class="flex items-center gap-2"><i class="far fa-clock text-indigo-400"></i> ${jam}</div>
@@ -1348,22 +1571,34 @@
                             <div class="flex items-center gap-2"><i class="fas fa-user-tie text-indigo-400"></i> ${j.pengawas}</div>
                         </div>
                      </div>
-                     <div class="w-full md:w-auto flex justify-end">
-                        ${btnAction}
-                     </div>
+                     <div class="w-full md:w-auto flex justify-end">${btnAction}</div>
                   </div>
                 `);
              });
           }).getStudentDashboardData(user.username, user.kelas); 
        },
 
-       // Action: Mulai (Butuh Token Ujian)
+       // Action: Mulai (Updated Logic)
        actionMulai: function(kodeMapel, idJadwal, configStr, needToken) {
-           if(!needToken) {
-               // Jika status SEDANG, langsung resume
+           // Fungsi Internal untuk start
+           const executeStart = () => {
                const config = JSON.parse(decodeURIComponent(configStr));
-               google.script.run.startExamSession(App.data.user.username, idJadwal);
+               
+               // Ambil username dengan aman (cegah error null)
+               let username = '';
+               if (App.data.user) username = App.data.user.username;
+               else {
+                   // Fallback jika global null (misal setelah refresh)
+                   const s = JSON.parse(sessionStorage.getItem('cbt_session'));
+                   if(s) username = s.data.username;
+               }
+
+               google.script.run.startExamSession(username, idJadwal);
                App.Exam.start(kodeMapel, config);
+           };
+
+           if(!needToken) {
+               executeStart();
                return;
            }
 
@@ -1371,29 +1606,37 @@
             title: 'Token Ujian',
             text: 'Minta token kepada Pengawas',
             input: 'text',
-            inputAttributes: { autocapitalize: 'off' },
+            inputAttributes: { autocapitalize: 'off', autocomplete: 'off' },
             showCancelButton: true,
             confirmButtonText: 'Mulai',
             confirmButtonColor: '#4f46e5',
             showLoaderOnConfirm: true,
             preConfirm: (token) => {
+               // Gunakan Promise wrapper agar Swal menunggu respon server
                return new Promise((resolve) => {
                   google.script.run.withSuccessHandler(res => {
-                     if(res.status === 'success') resolve();
-                     else Swal.showValidationMessage(res.message);
+                     if(res.status === 'success') {
+                         resolve(true); // Berhasil
+                     } else {
+                         Swal.showValidationMessage(res.message);
+                         resolve(false); // Gagal, tampilkan pesan di modal
+                     }
+                  }).withFailureHandler(err => {
+                      Swal.showValidationMessage("Error: " + err.message);
+                      resolve(false);
                   }).verifikasiTokenUjian(token.toUpperCase(), idJadwal);
                });
-            }
+            },
+            allowOutsideClick: () => !Swal.isLoading()
           }).then((result) => {
-             if (result.isConfirmed) {
-                const config = JSON.parse(decodeURIComponent(configStr));
-                google.script.run.startExamSession(App.data.user.username, idJadwal);
-                App.Exam.start(kodeMapel, config);
+             // Pastikan isConfirmed true DAN value true (hasil resolve)
+             if (result.isConfirmed && result.value === true) {
+                executeStart();
              }
           });
        },
 
-       // Action: Unlock (Butuh Token Buka Kunci)
+       // Action: Unlock
        actionUnlock: function(kodeMapel, idJadwal, configStr) {
            Swal.fire({
             title: 'TERKUNCI',
@@ -1407,25 +1650,31 @@
             preConfirm: (token) => {
                return new Promise((resolve) => {
                   google.script.run.withSuccessHandler(res => {
-                     if(res.status === 'success') resolve();
-                     else Swal.showValidationMessage(res.message);
+                     if(res.status === 'success') resolve(true);
+                     else { Swal.showValidationMessage(res.message); resolve(false); }
                   }).verifikasiTokenUnlock(token);
                });
             }
           }).then((result) => {
-             if (result.isConfirmed) {
+             if (result.isConfirmed && result.value === true) {
                 const config = JSON.parse(decodeURIComponent(configStr));
-                google.script.run.startExamSession(App.data.user.username, idJadwal);
+                
+                // Ambil username aman
+                let username = '';
+                const s = JSON.parse(sessionStorage.getItem('cbt_session'));
+                if(s) username = s.data.username;
+
+                google.script.run.startExamSession(username, idJadwal);
                 App.Exam.start(kodeMapel, config);
              }
           });
        },
 
-       // Load Hasil
        loadHasil: function() {
            const tbody = document.getElementById('tbody-hasil-siswa');
            tbody.innerHTML = '<tr><td colspan="4" class="p-6 text-center"><i class="fas fa-spinner fa-spin"></i> Memuat...</td></tr>';
-           const user = JSON.parse(sessionStorage.getItem('cbt_session')).data;
+           const sess = JSON.parse(sessionStorage.getItem('cbt_session'));
+           if(!sess) return;
 
            google.script.run.withSuccessHandler(data => {
                tbody.innerHTML = '';
@@ -1446,7 +1695,7 @@
                      </tr>
                    `);
                });
-           }).getRiwayatNilaiSiswa(user.nama);
+           }).getRiwayatNilaiSiswa(sess.data.nama);
        }
     },
 
@@ -1656,10 +1905,32 @@
         document.querySelectorAll('.nav-item').forEach(el => el.className = 'nav-item w-full flex items-center gap-3 px-6 py-3 transition text-left hover:bg-slate-800 text-gray-400 hover:text-white');
         if(btn) btn.className = 'nav-item w-full flex items-center gap-3 px-6 py-3 transition text-left bg-slate-800 border-l-4 border-indigo-500 text-white';
         
-        // 3. Sembunyikan Semua View (Termasuk view baru 'view-hasil-siswa')
-        ['view-dashboard','view-bank-soal','view-akun','view-mapel','view-ujian','view-jadwal-siswa','view-hasil-ujian','view-pengawas','view-admin-monitoring','view-admin-hasil','view-hasil-siswa','view-placeholder'].forEach(id => { 
-            const el = document.getElementById(id); if(el) el.classList.add('hidden'); 
+        // 3. Sembunyikan Semua View
+        const allViews = [
+            'view-dashboard', 'view-bank-soal', 'view-akun', 'view-mapel', 'view-ujian',
+            'view-jadwal-siswa', 'view-hasil-ujian', 'view-pengawas', // view-pengawas (legacy)
+            'view-admin-monitoring', 'view-admin-hasil', 'view-hasil-siswa',
+            'view-pengawas-token', 'view-pengawas-monitor', // View Baru Pengawas
+            'view-pengawas-pelanggaran',
+            'view-placeholder'
+        ];
+
+        allViews.forEach(id => { 
+            const el = document.getElementById(id); 
+            if(el) el.classList.add('hidden'); 
         });
+
+        // --- RESET UI STATES ---
+        // Kembalikan view-ujian ke kondisi normal (Admin Mode) jika sebelumnya diubah oleh Pengawas
+        const viewUjian = document.getElementById('view-ujian');
+        if (viewUjian) {
+            viewUjian.querySelectorAll('button').forEach(b => b.classList.remove('hidden'));
+            viewUjian.querySelectorAll('h3').forEach(h => {
+                if(h.innerText.includes('1. Nama Ujian')) h.parentElement.parentElement.classList.remove('hidden');
+            });
+            // Hapus label Read Only jika ada
+            viewUjian.querySelectorAll('.read-only-label').forEach(el => el.remove());
+        }
 
         // 4. Set Judul Halaman
         const map = { 
@@ -1668,37 +1939,63 @@
             'mapel':'Mapel', 
             'bank-soal':'Bank Soal', 
             'ujian':'Kelola Ujian',
-            'hasil-siswa': 'Riwayat Nilai' // Judul untuk menu hasil siswa
+            'hasil-siswa': 'Riwayat Nilai',
+            'pengawas-token': 'Token Ujian',
+            'pengawas-monitor': 'Monitoring Ujian'
         };
-        document.getElementById('page-title').innerText = map[viewId] || viewId.toUpperCase();
+        const pageTitle = document.getElementById('page-title');
+        if(pageTitle) pageTitle.innerText = map[viewId] || viewId.toUpperCase();
 
         // 5. Logika Percabangan View
-        
-        // --- LOGIC SISWA: DASHBOARD (JADWAL) ---
-        // Jika user klik Dashboard dan role-nya Siswa, arahkan ke container jadwal
-        if (viewId === 'dashboard' && App.data.role === 'siswa') {
-            document.getElementById('view-jadwal-siswa').classList.remove('hidden');
-            App.Siswa.loadDashboard(); // Memanggil fungsi dashboard siswa yang baru
-            document.getElementById('page-title').innerText = "Jadwal Ujian Kelas Anda";
-            return; 
+
+        // --- LOGIC SISWA ---
+        if (App.data.role === 'siswa') {
+            if (viewId === 'dashboard') {
+                document.getElementById('view-jadwal-siswa').classList.remove('hidden');
+                App.Siswa.loadDashboard();
+                if(pageTitle) pageTitle.innerText = "Jadwal Ujian Kelas Anda";
+                return; 
+            }
+            if (viewId === 'hasil-siswa') {
+                document.getElementById('view-hasil-siswa').classList.remove('hidden');
+                App.Siswa.loadHasil();
+                return;
+            }
         }
 
-        // --- LOGIC SISWA: HASIL UJIAN ---
-        if (viewId === 'hasil-siswa') {
-            document.getElementById('view-hasil-siswa').classList.remove('hidden');
-            App.Siswa.loadHasil();
-            return;
+        // --- LOGIC PENGAWAS (BARU) ---
+        if (App.data.role === 'pengawas') {
+            // A. Dashboard Pengawas -> Jadwal Global (Read Only)
+            if (viewId === 'dashboard') {
+                document.getElementById('view-ujian').classList.remove('hidden'); 
+                App.Pengawas.loadJadwalGlobal(); // Memuat tabel jadwal ujian (read-only)
+                return;
+            }
+            // B. Halaman Token
+            if (viewId === 'pengawas-token') {
+                document.getElementById('view-pengawas-token').classList.remove('hidden');
+                App.Pengawas.loadPageToken();
+                return;
+            }
+            // C. Halaman Monitoring
+            if (viewId === 'pengawas-monitor') {
+                document.getElementById('view-pengawas-monitor').classList.remove('hidden');
+                App.Pengawas.loadPageMonitoring();
+                return;
+            }
+            // D. HALAMAN BARU: PELANGGARAN SISWA
+            if (viewId === 'pengawas-pelanggaran') {
+                document.getElementById('view-pengawas-pelanggaran').classList.remove('hidden');
+                App.Pengawas.loadPagePelanggaran();
+                return;
+            }
         }
 
-        // --- LOGIC UMUM / ADMIN / GURU / PENGAWAS ---
+        // --- LOGIC UMUM / ADMIN / GURU ---
 
-        if (viewId === 'pengawas-area') {
-            document.getElementById('view-pengawas').classList.remove('hidden');
-            App.Pengawas.loadToken();
-        }
-        else if (viewId === 'hasil') {
+        if (viewId === 'hasil') {
             document.getElementById('view-hasil-ujian').classList.remove('hidden');
-            // Logic load hasil ujian guru (jika ada)
+            // Logic load hasil ujian guru (jika ada) bisa ditambahkan di sini
         }
         else if (viewId === 'bank-soal') {
             document.getElementById('view-bank-soal').classList.remove('hidden');
@@ -1713,7 +2010,8 @@
              App.AdminHasil.load();
         }
         else if (viewId === 'dashboard') { 
-            // Dashboard Admin/Guru/Pengawas (Statistik Sistem)
+            // Dashboard Admin/Guru (Statistik Sistem)
+            // Siswa & Pengawas sudah direturn di atas, jadi ini aman untuk Admin/Guru
             document.getElementById('view-dashboard').classList.remove('hidden'); 
             App.Dashboard.loadStats(); 
         }
@@ -1732,7 +2030,8 @@
         }
         else {
             // Fallback jika view tidak ditemukan
-            document.getElementById('view-placeholder').classList.remove('hidden');
+            const ph = document.getElementById('view-placeholder');
+            if(ph) ph.classList.remove('hidden');
         }
       },
 
