@@ -761,20 +761,47 @@
 
       // B. Render Tables
       renderJenis: function(data) {
-        const tb = document.getElementById('tbody-jenis-ujian'); tb.innerHTML = '';
-        if(data.length===0) { tb.innerHTML='<tr><td colspan="4" class="p-4 text-center text-gray-400">Belum ada Nama Ujian.</td></tr>'; return; }
+        const tb = document.getElementById('tbody-jenis-ujian'); 
+        tb.innerHTML = '';
+        
+        if(data.length === 0) { 
+            tb.innerHTML = '<tr><td colspan="4" class="p-4 text-center text-gray-400">Belum ada Nama Ujian.</td></tr>'; 
+            return; 
+        }
         
         data.forEach((item, i) => {
            const badge = item.status === 'Aktif' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700';
+           // encodeURIComponent agar aman saat dipassing ke fungsi edit
            const json = encodeURIComponent(JSON.stringify(item));
+           
+           // LOGIKA DISABLE TOMBOL HAPUS
+           let btnHapus = '';
+           if (item.isUsed) {
+              // Jika sedang dipakai: Tampilkan ikon gembok/sampah abu-abu, cursor not-allowed, dan tooltip
+              btnHapus = `
+                <button class="text-gray-300 cursor-not-allowed" title="Sedang digunakan di Jadwal. Tidak bisa dihapus." disabled>
+                    <i class="fas fa-trash"></i>
+                </button>
+              `;
+           } else {
+              // Jika aman: Tombol merah normal
+              btnHapus = `
+                <button onclick="App.Ujian.hapusJenis('${item.id}')" class="text-red-500 hover:text-red-700 transition" title="Hapus">
+                    <i class="fas fa-trash"></i>
+                </button>
+              `;
+           }
+
            tb.insertAdjacentHTML('beforeend', `
-             <tr class="border-b hover:bg-slate-50">
+             <tr class="border-b hover:bg-slate-50 transition">
                <td class="p-3 font-semibold text-gray-700">${item.nama}</td>
                <td class="p-3 text-sm text-gray-500">${item.ket || '-'}</td>
                <td class="p-3"><span class="px-2 py-1 rounded text-xs font-bold ${badge}">${item.status}</span></td>
                <td class="p-3 text-right">
-                 <button onclick="App.Ujian.editJenis('${json}')" class="text-indigo-600 mr-2"><i class="fas fa-edit"></i></button>
-                 <button onclick="App.Ujian.hapusJenis('${item.id}')" class="text-red-500"><i class="fas fa-trash"></i></button>
+                 <button onclick="App.Ujian.editJenis('${json}')" class="text-indigo-600 mr-3 hover:text-indigo-800 transition" title="Edit">
+                    <i class="fas fa-edit"></i>
+                 </button>
+                 ${btnHapus}
                </td>
              </tr>
            `);
