@@ -398,16 +398,35 @@ function verifikasiTokenUnlock(tokenInput) {
 // API 6: KELOLA AKUN (CRUD USERS)
 // ==========================================
 
-// A. AMBIL SEMUA DATA USER
+// A. AMBIL SEMUA DATA USER (UPDATE: Cek Status Pengawas di Jadwal)
 function getAllUsers() {
   const ss = SpreadsheetApp.openById(SS_ID);
+  
+  // 1. Cek User yang sedang bertugas di Jadwal AKTIF
+  let activePengawas = new Set(); // Menggunakan Set agar pencarian cepat
+  
+  const sheetJadwal = ss.getSheetByName("DB_Jadwal");
+  if (sheetJadwal) {
+    const dataJadwal = sheetJadwal.getDataRange().getValues();
+    // Loop mulai baris 1 (skip header)
+    for (let i = 1; i < dataJadwal.length; i++) {
+       const row = dataJadwal[i];
+       // row[5] = Status, row[6] = Pengawas
+       // Jika Jadwal AKTIF dan Pengawas bukan "semua"
+       if (row[5] === 'Aktif' && row[6] && row[6].toString().toLowerCase() !== 'semua') {
+          activePengawas.add(row[6].toString());
+       }
+    }
+  }
+
+  // 2. Ambil Data User
   const sheet = ss.getSheetByName("Users");
   if (!sheet) return [];
   
   const data = sheet.getDataRange().getValues();
   data.shift(); // Hapus Header
   
-  // Mapping array ke object biar rapi di JS
+  // Mapping array ke object
   return data.map(row => ({
     id: row[0],
     username: row[1],
@@ -415,7 +434,9 @@ function getAllUsers() {
     role: row[3],
     nama: row[4],
     kelas: row[5],
-    status: row[6]
+    status: row[6],
+    // Tambahkan flag isUsed: true jika username ada di daftar activePengawas
+    isUsed: activePengawas.has(row[1].toString())
   }));
 }
 
