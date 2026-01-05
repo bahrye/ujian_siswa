@@ -66,7 +66,8 @@ function loginUser(username, password) {
           status: 'success', 
           role: role, 
           nama: row[4], 
-          kelas: row[5] 
+          kelas: row[5],
+          username: row[1] // <--- PENTING: TAMBAHKAN INI
         };
       }
     }
@@ -1147,28 +1148,35 @@ function getPengawasDashboard(usernamePengawas) {
   const ss = SpreadsheetApp.openById(SS_ID);
   const sheetJadwal = ss.getSheetByName("DB_Jadwal");
   
-  // Handle jika sheet belum ada
   if(!sheetJadwal) return { jadwal: [] };
 
   const dataJadwal = sheetJadwal.getDataRange().getValues();
   dataJadwal.shift();
   
+  // Pastikan input username aman
+  const myUser = usernamePengawas ? usernamePengawas.toString().trim().toLowerCase() : "";
+
   let jadwalAktif = [];
   dataJadwal.forEach(r => {
     // r[5] = Status, r[6] = Pengawas Assigned
     const status = r[5];
-    const assignedTo = r[6] ? r[6].toString() : "";
+    const assignedTo = r[6] ? r[6].toString().trim().toLowerCase() : "";
 
     // Logika Filter:
     // 1. Status harus Aktif
-    // 2. Kolom Pengawas harus cocok dengan username yg login, ATAU kosong (Semua), ATAU 'semua'
+    // 2. Kolom Pengawas cocok dengan username login, ATAU 'semua'
     if (status === 'Aktif') {
-       if (assignedTo === "" || assignedTo.toLowerCase() === 'semua' || assignedTo === usernamePengawas) {
+       if (assignedTo === "" || assignedTo === 'semua' || assignedTo === myUser) {
+          
+          // Konversi waktu agar aman dikirim ke client
+          const tMulai = r[3] instanceof Date ? r[3].toISOString() : r[3];
+          const tSelesai = r[4] instanceof Date ? r[4].toISOString() : r[4];
+
           jadwalAktif.push({ 
             id: r[0], 
-            mapel: r[2], 
-            mulai: r[3], 
-            selesai: r[4] 
+            mapel: r[2], // Kode mapel atau Nama Mapel (sesuai selera tampilan)
+            mulai: tMulai, 
+            selesai: tSelesai 
           });
        }
     }
