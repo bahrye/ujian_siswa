@@ -525,7 +525,11 @@
              <div><label class="text-xs font-bold text-gray-500">Nama Event</label><input type="text" id="j-nama" class="input-std" placeholder="Contoh: PAS Ganjil 2024" required></div>
              <div><label class="text-xs font-bold text-gray-500">Keterangan</label><input type="text" id="j-ket" class="input-std" placeholder="Opsional"></div>
              <div><label class="text-xs font-bold text-gray-500">Status</label><select id="j-status" class="input-std"><option value="Aktif">Aktif</option><option value="Nonaktif">Nonaktif</option></select></div>
-             <div class="pt-2 text-right"><button type="submit" id="btnSimpanJenis" class="px-4 py-2 bg-slate-700 text-white rounded font-bold">Simpan</button></div>
+             
+             <div class="pt-4 flex justify-end gap-2">
+                <button type="button" onclick="App.UI.closeModal('modal-jenis')" class="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded font-bold transition">Batal</button>
+                <button type="submit" id="btnSimpanJenis" class="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded font-bold shadow transition">Simpan</button>
+             </div>
           </form>
        </div>
     </div>
@@ -578,7 +582,7 @@
                 </select>
               </div>
 
-             <div class="pt-4 text-right"><button type="submit" id="btnSimpanJadwal" class="px-6 py-2 bg-indigo-600 text-white rounded font-bold shadow">Simpan Enrollment</button></div>
+             <div class="pt-4 text-right"><button type="button" onclick="App.UI.closeModal('modal-jadwal')" class="px-5 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-bold transition">Batal</button><button type="submit" id="btnSimpanJadwal" class="px-6 py-2 bg-indigo-600 text-white rounded font-bold shadow">Simpan</button></div>
           </form>
        </div>
     </div>
