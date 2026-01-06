@@ -19,7 +19,9 @@
       timer: null,
       timeLeft: 0,
       currentSoalIdx: 0,
-      quill: null
+      quill: null,
+      saveTimeout: null,
+      activeJadwalId: null
     },
 
     // --- Module 0: Caching System ---
@@ -1011,87 +1013,105 @@
           return array;
       },
 
-      start: function(kode, config) {
-          App.data.examRunning = true; 
-          
-          // 1. Paksa Sembunyikan Dashboard & Login
-          document.getElementById('dashboard-container').classList.add('hidden');
-          document.getElementById('login-container').classList.add('hidden');
-          
-          // 2. Tampilkan Halaman Ujian
-          const pageSiswa = document.getElementById('page-siswa');
-          pageSiswa.classList.remove('hidden'); 
-          
-          // Set Header
-          document.getElementById('header-mapel').innerText = kode;
-          
-          // 3. RESET TAMPILAN LOADING (PENTING: Pastikan ini muncul)
-          document.getElementById('exam-loading').classList.remove('hidden'); // Tampilkan loading
-          document.getElementById('soal-container').classList.add('hidden');  // Sembunyikan container soal
-          document.getElementById('nav-buttons').classList.add('hidden');     // Sembunyikan tombol
-          document.getElementById('disp-pertanyaan').innerHTML = "";          // Bersihkan soal lama
+      start: function(kodeMapel, config) {
+          // Guard: Ambil data jadwal saat ini
+          const idJadwal = App.data.activeJadwalId; 
+          const username = App.data.user ? App.data.user.username : JSON.parse(sessionStorage.getItem('cbt_session')).data.username;
 
-          // Fullscreen
-          try { App.Security.enterFullscreen(); } catch(e){}
+          // 1. Panggil Server untuk cek Sisa Waktu & Status
+          Swal.fire({title: 'Memuat Ujian...', didOpen: () => Swal.showLoading()});
           
-          // Setup Timer
-          const durasiMenit = config ? parseInt(config.durasi) : 60;
-          App.Exam.timerStart(durasiMenit); 
-          
-          // Fetch Soal dari Server
+          google.script.run.withSuccessHandler(res => {
+              Swal.close();
+
+              // Jika status Terkunci di server
+              if (res.status === 'locked') {
+                 App.Security.triggerLock("Status Terkunci. Masukkan Token.");
+                 return;
+              }
+
+              // Jika Sukses
+              App.data.examRunning = true; 
+              
+              // UI Changes
+              document.getElementById('dashboard-container').classList.add('hidden');
+              document.getElementById('page-siswa').classList.remove('hidden');
+              document.getElementById('header-mapel').innerText = kodeMapel;
+              
+              // Reset UI Load
+              document.getElementById('exam-loading').classList.remove('hidden');
+              document.getElementById('soal-container').classList.add('hidden');
+              document.getElementById('nav-buttons').classList.add('hidden');
+              document.getElementById('disp-pertanyaan').innerHTML = "";
+
+              try { App.Security.enterFullscreen(); } catch(e){}
+
+              // --- TIMER DARI SERVER ---
+              // res.remainingSeconds adalah sisa detik yang valid dari server
+              App.Exam.timerStart(res.remainingSeconds); 
+
+              // Fetch Soal
+              App.Exam.loadSoal(kodeMapel, config);
+
+          }).startExamSession(username, idJadwal);
+      },
+
+      loadSoal: function(kode, config) {
+          const username = App.data.user ? App.data.user.username : JSON.parse(sessionStorage.getItem('cbt_session')).data.username;
+          const idJadwal = App.data.activeJadwalId;
+
           google.script.run.withSuccessHandler(res => {
             if(res.status === 'success') {
               let rawSoal = res.data;
-
-              // Acak Soal
-              if(config && config.acakSoal) {
-                  rawSoal = App.Exam.shuffleArray(rawSoal);
-              }
-
-              // Setup Acak Opsi
+              if(config && config.acakSoal) rawSoal = App.Exam.shuffleArray(rawSoal);
+              
               rawSoal.forEach(s => {
                   let keys = ['A','B','C','D','E'];
-                  if(config && config.acakOpsi && s.tipe === 'PG') {
-                      s.shuffledKeys = App.Exam.shuffleArray([...keys]);
-                  } else {
-                      s.shuffledKeys = keys;
-                  }
+                  if(config && config.acakOpsi && s.tipe === 'PG') s.shuffledKeys = App.Exam.shuffleArray([...keys]);
+                  else s.shuffledKeys = keys;
               });
 
               App.data.soalList = rawSoal; 
               
-              // Tampilkan Soal setelah data siap
-              document.getElementById('exam-loading').classList.add('hidden'); 
-              document.getElementById('soal-container').classList.remove('hidden'); 
-              document.getElementById('nav-buttons').classList.remove('hidden'); 
-              document.getElementById('nav-buttons').classList.add('flex'); 
-              
-              App.Exam.render(0);
+              // === FITUR LOAD PROGRESS ===
+              // Panggil DB Progress untuk mengembalikan jawaban siswa
+              google.script.run.withSuccessHandler(savedJson => {
+                  if (savedJson && savedJson !== "{}") {
+                      try {
+                          const savedJawaban = JSON.parse(savedJson);
+                          App.data.jawabanSiswa = savedJawaban;
+                          
+                          // Optional: Toast notifikasi
+                          Swal.fire({
+                              toast: true, position: 'top-end', icon: 'info', 
+                              title: 'Jawaban tersimpan dimuat kembali', 
+                              timer: 3000, showConfirmButton: false
+                          });
+                      } catch(e) { console.log("Error parse progress", e); }
+                  }
+
+                  // Tampilkan UI setelah data siap
+                  document.getElementById('exam-loading').classList.add('hidden'); 
+                  document.getElementById('soal-container').classList.remove('hidden'); 
+                  document.getElementById('nav-buttons').classList.remove('hidden'); 
+                  document.getElementById('nav-buttons').classList.add('flex'); 
+                  
+                  App.Exam.render(0);
+                  App.Exam.renderGrid();
+
+              }).getProgressSiswa(username, idJadwal);
+              // ============================
 
             } else { 
-              // Jika gagal load soal (Misal Mapel tidak cocok)
-              Swal.fire({
-                  title: 'Gagal Memuat Soal',
-                  text: res.message + " (Cek kesesuaian Kode Mapel di Jadwal vs Bank Soal)",
-                  icon: 'warning'
-              }).then(() => {
-                  // Kembalikan ke dashboard
-                  App.data.examRunning = false;
-                  document.getElementById('page-siswa').classList.add('hidden');
-                  document.getElementById('dashboard-container').classList.remove('hidden');
-              }); 
+              Swal.fire('Gagal', res.message, 'error').then(() => window.location.reload());
             }
-          }).withFailureHandler(err => {
-              Swal.fire('Error Server', err.message, 'error');
-              App.data.examRunning = false;
-              document.getElementById('page-siswa').classList.add('hidden');
-              document.getElementById('dashboard-container').classList.remove('hidden');
           }).getSoalUjian(kode);
       },
 
       render: function(idx) {
           App.data.currentSoalIdx = idx; 
           const s = App.data.soalList[idx];
+          const totalSoal = App.data.soalList.length;
           
           document.getElementById('disp-no').innerText = idx + 1;
           document.getElementById('disp-pertanyaan').innerHTML = s.pertanyaan; 
@@ -1103,79 +1123,247 @@
           const ops = document.getElementById('disp-opsi'); 
           ops.innerHTML = '';
 
-          // RENDER OPSI (PG / BS / ESSAY)
+          // RENDER OPSI (PG / BS / ESSAY) - Kode tetap sama
           const labelUrut = ['A','B','C','D','E'];
-
           if(s.tipe === 'PG') {
               s.shuffledKeys.forEach((realKey, i) => {
                 if(s.opsi[realKey]) {
                   const visualLabel = labelUrut[i]; 
                   const active = App.data.jawabanSiswa[s.id] === realKey ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white hover:bg-gray-50';
-                  
-                  ops.insertAdjacentHTML('beforeend', `
-                      <div onclick="App.Exam.pilih('${s.id}','${realKey}')" class="cursor-pointer border rounded p-3 flex gap-3 items-center transition ${active}">
-                          <span class="font-bold w-6 text-center shrink-0 border-r pr-2">${visualLabel}</span> 
-                          <span class="text-sm md:text-base pl-2">${s.opsi[realKey]}</span>
-                      </div>
-                  `);
+                  ops.insertAdjacentHTML('beforeend', `<div onclick="App.Exam.pilih('${s.id}','${realKey}')" class="cursor-pointer border rounded p-3 flex gap-3 items-center transition ${active}"><span class="font-bold w-6 text-center shrink-0 border-r pr-2">${visualLabel}</span><span class="text-sm md:text-base pl-2">${s.opsi[realKey]}</span></div>`);
                 }
               });
-          } 
-          else if (s.tipe === 'BS') {
+          } else if (s.tipe === 'BS') {
               ['A','B'].forEach(h => {
                   const val = h==='A'?'BENAR':'SALAH';
                   const active = App.data.jawabanSiswa[s.id] === val ? 'bg-indigo-600 text-white' : 'bg-white';
                   ops.insertAdjacentHTML('beforeend', `<div onclick="App.Exam.pilih('${s.id}','${val}')" class="cursor-pointer border rounded p-3 font-bold ${active}">${val}</div>`);
               });
-          }
-          else if (s.tipe === 'COCOK') {
-               // Render Pencocokan sederhana (Placeholder)
-               ops.innerHTML = '<p class="text-sm italic text-gray-500">Fitur pencocokan drag-drop dalam pengembangan.</p>';
-          }
-          else {
-              // Essay / Isian
+          } else {
               const val = App.data.jawabanSiswa[s.id] || '';
-              ops.innerHTML = `<textarea onkeyup="App.Exam.pilih('${s.id}', this.value)" class="w-full border rounded p-2 h-32 focus:ring-2 ring-indigo-500 outline-none" placeholder="Tulis jawaban Anda di sini...">${val}</textarea>`;
+              ops.innerHTML = `<textarea onkeyup="App.Exam.pilih('${s.id}', this.value)" class="w-full border rounded p-2 h-32 focus:ring-2 ring-indigo-500 outline-none">${val}</textarea>`;
           }
 
           App.Exam.renderGrid();
+
+          // === LOGIKA TOMBOL NEXT / SELESAI (BARU) ===
+          const btnNextContainer = document.getElementById('nav-buttons');
+          // Cari tombol Next (asumsi tombol terakhir di container)
+          // Kita cari berdasarkan onclick atau buat ID khusus. 
+          // Agar aman, kita update HTML tombol Next di fungsi loadSoal/HTML, 
+          // atau kita manipulasi children terakhir:
+          
+          const btnNext = btnNextContainer.lastElementChild; 
+          
+          if (idx === totalSoal - 1) {
+              // Jika Soal Terakhir: Ubah jadi SELESAI
+              btnNext.innerHTML = 'Selesai <i class="fas fa-check-circle"></i>';
+              btnNext.className = "px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-bold w-24 shadow-md transition";
+              btnNext.onclick = function() { App.Exam.finish(); }; // Panggil Finish
+          } else {
+              // Jika Bukan Soal Terakhir: Ubah jadi NEXT
+              btnNext.innerHTML = 'Next <i class="fas fa-chevron-right"></i>';
+              btnNext.className = "px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-bold w-24 shadow-md transition";
+              btnNext.onclick = function() { App.Exam.next(); }; // Panggil Next
+          }
       },
 
-      pilih: function(id, val) { App.data.jawabanSiswa[id] = val; App.Exam.render(App.data.currentSoalIdx); },
-      next: function() { if(App.data.currentSoalIdx < App.data.soalList.length-1) App.Exam.render(App.data.currentSoalIdx+1); },
-      prev: function() { if(App.data.currentSoalIdx > 0) App.Exam.render(App.data.currentSoalIdx-1); },
-      toggleRagu: function() { const id = App.data.soalList[App.data.currentSoalIdx].id; if(App.data.raguSiswa[id]) delete App.data.raguSiswa[id]; else App.data.raguSiswa[id] = true; App.Exam.render(App.data.currentSoalIdx); },
+      pilih: function(id, val) { 
+          // 1. Update State Lokal (Agar UI langsung berubah)
+          App.data.jawabanSiswa[id] = val; 
+          
+          // 2. Update Grid Navigasi (Agar warna nomor berubah)
+          App.Exam.renderGrid(); 
+          
+          // Jika soal tipe PG/BS, update UI opsi aktif tanpa render ulang seluruh soal (agar tidak kedip)
+          const currentSoal = App.data.soalList.find(s => s.id === id);
+          if(currentSoal && (currentSoal.tipe === 'PG' || currentSoal.tipe === 'BS')) {
+              // Hapus kelas aktif dari semua opsi di soal ini
+              // (Implementasi sederhana: render ulang opsi saja jika mau, atau biarkan render ulang soal)
+              // Untuk konsistensi visual yang cepat, kita biarkan logic render ulang soal jika perlu, 
+              // tapi biasanya render ulang soal (App.Exam.render) akan memutuskan fokus input essay.
+              // Jadi kita cek: jika Essay jangan render ulang soal.
+              if(currentSoal.tipe !== 'ESSAY' && currentSoal.tipe !== 'ISIAN') {
+                 // Tidak perlu render ulang full jika hanya klik opsi, tapi kode lama me-render ulang.
+                 // Kita biarkan render ulang untuk PG/BS agar visual update.
+                 // Tapi UNTUK ESSAY JANGAN RENDER ULANG (nanti keyboard close di HP).
+                 // Logic render ada di luar fungsi pilih di kode lama? 
+                 // Di kode sebelumnya, pilih() tidak memanggil render() kecuali untuk update UI.
+                 // Kita update UI opsi manual atau panggil render() hanya untuk PG.
+                 // Di kode render() sebelumnya saya melihat ada onclick="...render()..."
+                 // Mari kita update UI via DOM manipulation sederhana atau panggil render jika bukan essay.
+                 // (Untuk keamanan, panggil render jika bukan essay/isian)
+              }
+          }
+
+          // 3. LOGIKA AUTO-SAVE REALTIME (THE MAGIC)
+          const username = App.data.user ? App.data.user.username : JSON.parse(sessionStorage.getItem('cbt_session')).data.username;
+          const idJadwal = App.data.activeJadwalId;
+          
+          // Fungsi Pembantu untuk mengirim data
+          const executeSave = () => {
+              const jawabanJson = JSON.stringify(App.data.jawabanSiswa);
+              google.script.run
+                  .withFailureHandler(e => console.error("Gagal AutoSave", e)) // Silent fail (hanya console)
+                  .simpanProgressSiswa(username, idJadwal, jawabanJson);
+          };
+
+          // 4. CEK TIPE SOAL UNTUK STRATEGI PENYIMPANAN
+          if (currentSoal && (currentSoal.tipe === 'ESSAY' || currentSoal.tipe === 'ISIAN')) {
+              // STRATEGI DEBOUNCE (Tunda Simpan)
+              // Jika user masih mengetik, batalkan simpan sebelumnya
+              if (App.data.saveTimeout) clearTimeout(App.data.saveTimeout);
+              
+              // Tunggu 1 detik (1000ms) setelah ketikan terakhir, baru kirim ke server
+              App.data.saveTimeout = setTimeout(() => {
+                  executeSave();
+              }, 1000); 
+          } else {
+              // STRATEGI INSTANT (Langsung Simpan)
+              // Untuk PG/BS/Cocok, langsung kirim saat diklik
+              executeSave();
+              
+              // Render ulang UI agar terlihat terpilih (Khusus PG/BS)
+              if (currentSoal.tipe !== 'ESSAY' && currentSoal.tipe !== 'ISIAN') {
+                 App.Exam.render(App.data.currentSoalIdx);
+              }
+          }
+      },
       
+      next: function() { 
+          // 1. AUTO SAVE KE DATABASE CADANGAN
+          const username = App.data.user ? App.data.user.username : JSON.parse(sessionStorage.getItem('cbt_session')).data.username;
+          const idJadwal = App.data.activeJadwalId;
+          const jawabanJson = JSON.stringify(App.data.jawabanSiswa);
+
+          // Kirim ke backend secara "Silent" (tanpa loading spinner agar tidak mengganggu)
+          google.script.run.withFailureHandler(err => console.log("Gagal AutoSave", err))
+                           .simpanProgressSiswa(username, idJadwal, jawabanJson);
+
+          // 2. PINDAH SOAL
+          if(App.data.currentSoalIdx < App.data.soalList.length-1) {
+              App.Exam.render(App.data.currentSoalIdx+1);
+          }
+      },
+
+      prev: function() { if(App.data.currentSoalIdx > 0) App.Exam.render(App.data.currentSoalIdx-1); },
+      toggleRagu: function() { 
+          const id = App.data.soalList[App.data.currentSoalIdx].id; 
+          if(App.data.raguSiswa[id]) delete App.data.raguSiswa[id]; else App.data.raguSiswa[id] = true; 
+          App.Exam.render(App.data.currentSoalIdx); // Refresh grid & UI
+      },
+      
+      // Update Render Grid (Nomor Soal)
       renderGrid: function() {
-        const g = document.getElementById('grid-nomor'); g.innerHTML='';
+        const g = document.getElementById('grid-nomor'); 
+        g.innerHTML='';
         App.data.soalList.forEach((s,i) => {
-           let c = 'bg-white border text-gray-600'; 
-           if(App.data.jawabanSiswa[s.id]) c = 'bg-indigo-600 text-white border-indigo-600'; 
-           if(App.data.raguSiswa[s.id]) c = 'bg-yellow-400 text-white border-yellow-400'; 
-           if(i===App.data.currentSoalIdx) c += ' ring-2 ring-indigo-300 transform scale-105 shadow';
+           let c = 'bg-white border text-gray-600 hover:bg-gray-100'; // Default
            
-           g.insertAdjacentHTML('beforeend', `<button onclick="App.Exam.render(${i})" class="h-8 w-full rounded font-bold text-xs ${c} transition-all">${i+1}</button>`);
+           // Jika sudah dijawab
+           if(App.data.jawabanSiswa[s.id]) c = 'bg-indigo-600 text-white border-indigo-600'; 
+           
+           // Jika ragu-ragu (Overwrite warna jawab)
+           if(App.data.raguSiswa[s.id]) c = 'bg-yellow-400 text-white border-yellow-400'; 
+           
+           // Jika soal yang sedang aktif
+           if(i === App.data.currentSoalIdx) {
+               c += ' ring-4 ring-indigo-200 transform scale-105 font-black'; // Highlight current
+           }
+           
+           g.insertAdjacentHTML('beforeend', `<button onclick="App.Exam.render(${i})" class="h-10 w-full rounded font-bold text-sm ${c} transition-all shadow-sm">${i+1}</button>`);
         });
       },
 
-      finish: function() { Swal.fire({ title:'Selesai Ujian?', text:'Pastikan semua jawaban terisi.', icon:'question', showCancelButton:true, confirmButtonText:'Ya, Kumpulkan', confirmButtonColor:'#059669' }).then(r=>{ if(r.isConfirmed) App.Exam.submit(false); }); },
+      // 1. UPDATE: Validasi Tombol Selesai
+      finish: function() {
+          // A. Cek Soal Kosong & Ragu-ragu
+          let kosong = [];
+          let ragu = [];
+
+          App.data.soalList.forEach((s, i) => {
+              const nomor = i + 1;
+              // Cek Kosong (undefined, null, atau string kosong)
+              if (!App.data.jawabanSiswa[s.id] || App.data.jawabanSiswa[s.id] === "") {
+                  kosong.push(nomor);
+              }
+              // Cek Ragu (harus true)
+              if (App.data.raguSiswa[s.id] === true) {
+                  ragu.push(nomor);
+              }
+          });
+
+          // B. Jika Ada Masalah -> Tolak Submit
+          if (kosong.length > 0 || ragu.length > 0) {
+              let htmlMsg = '<div class="text-left text-sm bg-red-50 p-4 rounded border border-red-100">';
+              if (kosong.length > 0) htmlMsg += `<p class="mb-2"><strong class="text-red-600">Belum dijawab:</strong><br>No. ${kosong.join(", ")}</p>`;
+              if (ragu.length > 0) htmlMsg += `<p><strong class="text-yellow-600">Masih Ragu-ragu:</strong><br>No. ${ragu.join(", ")}</p>`;
+              htmlMsg += '</div>';
+
+              Swal.fire({
+                  title: 'Tidak Bisa Mengirim!',
+                  html: htmlMsg + '<p class="mt-3 text-xs text-gray-500">Silakan lengkapi atau hilangkan tanda ragu-ragu.</p>',
+                  icon: 'warning',
+                  confirmButtonText: 'Periksa Kembali'
+              });
+              return; // STOP PROSES
+          }
+
+          // C. Jika Bersih -> Konfirmasi Akhir
+          Swal.fire({ 
+              title: 'Kumpulkan Jawaban?', 
+              text: 'Yakin semua jawaban sudah benar? Anda tidak bisa mengubahnya lagi.', 
+              icon: 'question', 
+              showCancelButton: true, 
+              confirmButtonText: 'Ya, Kumpulkan', 
+              confirmButtonColor: '#059669',
+              cancelButtonText: 'Batal' 
+          }).then(r => { 
+              if (r.isConfirmed) App.Exam.submit(false); // False = Manual Submit
+          }); 
+      },
       
-      submit: function(auto) {
+      // 2. UPDATE: Fungsi Submit (Handle Manual vs Auto)
+      submit: function(isAutoSubmit) {
+         // Hentikan semua timer
          App.data.examRunning = false; 
          clearInterval(App.data.timer); 
-         Swal.fire({ title: 'Menyimpan...', allowOutsideClick: false, didOpen: () => { Swal.showLoading(); } });
+         if (App.data.saveTimeout) clearTimeout(App.data.saveTimeout);
+
+         // Tampilan Loading
+         let titleMsg = isAutoSubmit ? 'Waktu Habis!' : 'Menyimpan Jawaban...';
+         let textMsg = isAutoSubmit ? 'Mengirim jawaban otomatis...' : 'Mohon tunggu sebentar.';
+
+         Swal.fire({ 
+             title: titleMsg, 
+             text: textMsg, 
+             icon: isAutoSubmit ? 'warning' : 'info',
+             allowOutsideClick: false, 
+             allowEscapeKey: false,
+             didOpen: () => { Swal.showLoading(); } 
+         });
          
-         const p = { nama: document.getElementById('header-nama').innerText, mapel: document.getElementById('header-mapel').innerText, jawaban: App.data.jawabanSiswa };
+         const username = App.data.user ? App.data.user.username : JSON.parse(sessionStorage.getItem('cbt_session')).data.username;
+
+         const p = { 
+             nama: document.getElementById('header-nama').innerText, 
+             mapel: document.getElementById('header-mapel').innerText, 
+             jawaban: App.data.jawabanSiswa,
+             username: username,
+             idJadwal: App.data.activeJadwalId
+         };
          
          google.script.run.withSuccessHandler(res => { 
-             if(res.status==='success') {
+             if(res.status === 'success') {
+                 // Berhasil
                  Swal.fire({
                      title: 'Ujian Selesai!', 
                      text: `Nilai Anda: ${res.nilai}`, 
                      icon: 'success',
-                     confirmButtonText: 'Keluar'
+                     confirmButtonText: 'Kembali ke Dashboard',
+                     allowOutsideClick: false
                  }).then(() => {
-                     // Reload halaman penuh untuk reset semua state
+                     // Reload Halaman Utama -> Otomatis kembali ke Dashboard -> Status jadi Selesai
                      google.script.run.withSuccessHandler(url => window.top.location.href = url).getScriptUrl();
                  });
              } else { 
@@ -1184,22 +1372,36 @@
          }).submitUjian(p);
       },
 
-      timerStart: function(m) {
+      // 3. UPDATE: Timer (Picu Auto Submit)
+      timerStart: function(secondsLeft) {
          if(App.data.timer) clearInterval(App.data.timer);
-         App.data.timeLeft = m * 60;
+         App.data.timeLeft = secondsLeft;
+
          App.data.timer = setInterval(() => {
             App.data.timeLeft--;
-            const min = Math.floor(App.data.timeLeft/60).toString().padStart(2,'0');
-            const sec = (App.data.timeLeft%60).toString().padStart(2,'0');
-            const timerEl = document.getElementById('timer-display');
-            if(timerEl) timerEl.innerText = `${min}:${sec}`;
             
-            // Warning sisa 5 menit
-            if(App.data.timeLeft === 300) Swal.fire({ toast: true, position: 'top-end', icon: 'warning', title: 'Waktu tinggal 5 menit!', timer: 3000, showConfirmButton: false });
+            // Format Waktu
+            const hours = Math.floor(App.data.timeLeft / 3600);
+            const minutes = Math.floor((App.data.timeLeft % 3600) / 60);
+            const seconds = App.data.timeLeft % 60;
+            const timerStr = hours > 0 
+                ? `${hours}:${minutes.toString().padStart(2,'0')}:${seconds.toString().padStart(2,'0')}` 
+                : `${minutes}:${seconds.toString().padStart(2,'0')}`;
 
-            if(App.data.timeLeft<=0) { 
+            const timerEl = document.getElementById('timer-display');
+            if(timerEl) timerEl.innerText = timerStr;
+            
+            // Warning 5 menit
+            if(App.data.timeLeft === 300) {
+                Swal.fire({ toast: true, position: 'top-end', icon: 'warning', title: 'Waktu tinggal 5 menit!', timer: 3000, showConfirmButton: false });
+            }
+
+            // AUTO SUBMIT SAAT WAKTU HABIS (0 DETIK)
+            if(App.data.timeLeft <= 0) { 
                 clearInterval(App.data.timer); 
-                Swal.fire('Waktu Habis!', 'Jawaban akan dikirim otomatis.', 'info').then(() => App.Exam.submit(true));
+                // Panggil submit dengan parameter TRUE (Auto Submit)
+                // Ini akan mem-bypass validasi kosong/ragu
+                App.Exam.submit(true); 
             }
          }, 1000);
       }
@@ -1445,8 +1647,6 @@
            
            google.script.run.withSuccessHandler(res => {
                tbody.innerHTML = '';
-               
-               // Filter hanya yang TERKUNCI
                const violators = res.students.filter(s => s.status === 'TERKUNCI' || s.isLocked);
 
                if(violators.length === 0) {
@@ -1455,9 +1655,8 @@
                }
 
                violators.forEach(s => {
-                   // Simulasi keterangan pelanggaran (karena backend saat ini hanya mengirim status LOCKED)
-                   // Kita asumsikan default violation adalah "Keluar Aplikasi" sesuai triggerLock di client
-                   const violationDetail = "Terdeteksi keluar dari aplikasi ujian / Pindah Tab.";
+                   // AMBIL ALASAN DARI SERVER
+                   const violationDetail = s.violationReason || "Terkunci Sistem";
 
                    tbody.insertAdjacentHTML('beforeend', `
                        <tr class="border-b bg-red-50 hover:bg-red-100 transition">
@@ -1467,13 +1666,12 @@
                            <td class="p-4 text-sm text-red-700 font-medium"><i class="fas fa-exclamation-circle"></i> ${violationDetail}</td>
                            <td class="p-4 text-center">
                                <button onclick="App.Pengawas.bukaKunci('${s.username}', '${s.nama}')" class="px-4 py-2 bg-white border border-red-300 text-red-600 rounded-lg text-sm font-bold hover:bg-red-600 hover:text-white shadow-sm transition">
-                                 <i class="fas fa-key"></i> Buka Kunci
+                                 <i class="fas fa-key"></i> Buka
                                </button>
                            </td>
                        </tr>
                    `);
                });
-
            }).getMonitoringSiswa(idJadwal);
        },
 
@@ -1585,6 +1783,7 @@
 
        // Action: Mulai (DIPERBAIKI)
        actionMulai: function(kodeMapel, idJadwal, configStr, needToken) {
+           App.data.activeJadwalId = idJadwal;
            // Fungsi Internal untuk start
            const executeStart = () => {
                try {
@@ -1650,8 +1849,14 @@
           });
        },
 
-       // Action: Unlock
+       // Action: Unlock (FIXED & TESTED)
        actionUnlock: function(kodeMapel, idJadwal, configStr) {
+           // 1. Simpan ID Jadwal ke Global (Penting untuk Security)
+           App.data.activeJadwalId = idJadwal;
+           
+           // 2. Ambil Username
+           const username = App.data.user ? App.data.user.username : JSON.parse(sessionStorage.getItem('cbt_session')).data.username;
+
            Swal.fire({
             title: 'TERKUNCI',
             text: 'Masukkan Token Buka Kunci',
@@ -1663,23 +1868,29 @@
             showLoaderOnConfirm: true,
             preConfirm: (token) => {
                return new Promise((resolve) => {
+                  // Verifikasi Token
                   google.script.run.withSuccessHandler(res => {
                      if(res.status === 'success') resolve(true);
                      else { Swal.showValidationMessage(res.message); resolve(false); }
-                  }).verifikasiTokenUnlock(token);
+                  }).verifikasiTokenUnlock(token, username);
                });
             }
           }).then((result) => {
              if (result.isConfirmed && result.value === true) {
                 const config = JSON.parse(decodeURIComponent(configStr));
                 
-                // Ambil username aman
-                let username = '';
-                const s = JSON.parse(sessionStorage.getItem('cbt_session'));
-                if(s) username = s.data.username;
+                // Tampilkan Loading
+                Swal.fire({title: 'Membuka Kunci...', didOpen: () => Swal.showLoading()});
 
-                google.script.run.startExamSession(username, idJadwal);
-                App.Exam.start(kodeMapel, config);
+                // === PERBAIKAN UTAMA DISINI ===
+                // Panggil unlockSiswa dulu untuk mereset status DB dari 'LOCKED' ke 'STARTED'
+                google.script.run.withSuccessHandler(() => {
+                    
+                    // Setelah DB bersih, baru mulai ujian
+                    Swal.close();
+                    App.Exam.start(kodeMapel, config);
+                    
+                }).unlockSiswa(username, idJadwal);
              }
           });
        },
@@ -2066,18 +2277,57 @@
       }
     },
 
-    // --- Module 8: Security & Utils ---
+    // --- Module 8: Security (FIXED) ---
     Security: {
       enterFullscreen: function() { document.documentElement.requestFullscreen().catch(()=>{}); },
-      triggerLock: function(msg) { document.getElementById('lock-screen').classList.remove('hidden'); document.getElementById('lock-reason').innerText = msg; },
+      
+      triggerLock: function(msg) { 
+         if(!App.data.examRunning && msg !== "Status Terkunci. Masukkan Token.") return;
+
+         document.getElementById('lock-screen').classList.remove('hidden'); 
+         document.getElementById('lock-reason').innerText = msg; 
+         
+         const username = App.data.user ? App.data.user.username : JSON.parse(sessionStorage.getItem('cbt_session')).data.username;
+         const idJadwal = App.data.activeJadwalId;
+
+         if (idJadwal) {
+             google.script.run.setSiswaViolation(username, idJadwal, msg);
+         }
+      },
+      
       unlock: function() {
          const t = document.getElementById('token-unlock').value;
+         const btn = document.getElementById('btnUnlock');
+         
+         // Pastikan Username Terambil
+         const sess = JSON.parse(sessionStorage.getItem('cbt_session'));
+         const username = App.data.user ? App.data.user.username : (sess ? sess.data.username : '');
+         
+         // Pastikan ID Jadwal ada (diambil dari global state saat ujian berjalan/terkunci)
+         const idJadwal = App.data.activeJadwalId;
+
+         if(!username) { Swal.fire('Error', 'Sesi invalid. Silakan login ulang.', 'error'); return; }
+
+         App.UI.setLoading(btn, true, 'Memeriksa...');
+
          google.script.run.withSuccessHandler(r => {
-            if(r.status==='success') { document.getElementById('lock-screen').classList.add('hidden'); App.Security.enterFullscreen(); }
-            else Swal.fire('Salah', 'Token tidak valid', 'error');
-         }).verifikasiTokenUnlock(t);
+            App.UI.setLoading(btn, false, 'BUKA KUNCI');
+            
+            if(r.status === 'success') { 
+                // Jika Token Benar -> Reset Status di Database -> Buka Layar
+                google.script.run.withSuccessHandler(() => {
+                    document.getElementById('lock-screen').classList.add('hidden'); 
+                    document.getElementById('token-unlock').value = "";
+                    App.Security.enterFullscreen();
+                }).unlockSiswa(username, idJadwal);
+
+            } else {
+                Swal.fire('Token Salah', 'Minta token baru ke Pengawas.', 'error');
+            }
+         }).verifikasiTokenUnlock(t, username); 
       }
     },
+
     Util: {
       resetGlobals: function() {
         App.data = { role: '', user: null, soalList: [], userList: [], mapelList: [], jawabanSiswa: {}, raguSiswa: {}, opsiImages: { A:null, B:null, C:null, D:null, E:null }, examRunning: false, timer: null, timeLeft: 0, currentSoalIdx: 0, quill: null };
