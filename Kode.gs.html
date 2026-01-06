@@ -326,13 +326,13 @@ function getScriptUrl() {
 }
 
 // ==========================================
-// UPDATE FUNGSI: API 4: SUBMIT & KOREKSI UJIAN
+// [UPDATE] API 4: SUBMIT UJIAN (Perbaikan Penyimpanan)
 // ==========================================
 function submitUjian(payload) {
   try {
     const ss = SpreadsheetApp.openById(SS_ID);
     
-    // 1. Ambil Kunci Jawaban (Logic sama, tidak diubah)
+    // 1. Ambil Kunci Jawaban
     const sheetSoal = ss.getSheetByName("DB_Soal");
     const dataSoal = sheetSoal.getDataRange().getValues();
     dataSoal.shift(); 
@@ -340,6 +340,7 @@ function submitUjian(payload) {
     let kunciJawaban = {}; 
     let totalSoalPG = 0;
     
+    // Cari soal berdasarkan Mapel (pastikan kode mapel sama persis)
     for (let i = 0; i < dataSoal.length; i++) {
       let row = dataSoal[i]; 
       if (row[1].toString().toLowerCase() === payload.mapel.toLowerCase()) {
@@ -350,7 +351,7 @@ function submitUjian(payload) {
       }
     }
 
-    // 2. Hitung Nilai (Logic sama)
+    // 2. Hitung Nilai
     let benar = 0;
     for (let idSoal in payload.jawaban) {
       const jwbSiswa = payload.jawaban[idSoal];
@@ -363,15 +364,16 @@ function submitUjian(payload) {
       nilaiAkhir = Math.round((benar / totalSoalPG) * 100);
     }
 
-    // 3. Simpan ke DB_Nilai (DIPERBAIKI)
+    // 3. Simpan ke DB_Nilai (STRUKTUR BARU dengan USERNAME)
     const sheetNilai = ss.getSheetByName("DB_Nilai");
     if (!sheetNilai) return { status: 'error', message: 'Sheet DB_Nilai belum dibuat!' };
 
-    // PERBAIKAN: Simpan payload.idJadwal di Kolom ke-2 (Index 1) menggantikan Dummy ID
-    // Struktur DB_Nilai: [Timestamp, ID_Jadwal, Nama, Mapel, Nilai, Benar, JSON]
+    // Format Baru: [Timestamp, ID_Jadwal, USERNAME, Nama, Mapel, Nilai, Benar, JSON]
+    // Kita tambahkan Username (index 2) untuk kunci pencarian yang akurat
     sheetNilai.appendRow([
       new Date(),           
-      payload.idJadwal,     // <-- UBAH INI: Simpan ID Jadwal asli agar bisa dilacak
+      payload.idJadwal,     
+      payload.username,     // <--- Penambahan Kolom Username
       payload.nama,         
       payload.mapel,        
       nilaiAkhir,           
@@ -379,11 +381,9 @@ function submitUjian(payload) {
       JSON.stringify(payload.jawaban) 
     ]);
 
-    // 4. Update Status Property menjadi SELESAI (Backup agar status dashboard valid instant)
+    // 4. Update Status Property & Hapus Progress
     if(payload.username && payload.idJadwal) {
         hapusProgressSiswa(payload.username, payload.idJadwal);
-        
-        // Tambahkan ini: Kunci status secara permanen di PropertiesService
         const props = PropertiesService.getScriptProperties();
         props.setProperty(`STATUS_${payload.username}_${payload.idJadwal}`, 'SELESAI');
     }
@@ -1666,31 +1666,149 @@ function getStudentDashboardData(username, kelasSiswa) {
   }
 }
 
-// 2. Ambil Hasil Ujian Siswa (History)
-function getRiwayatNilaiSiswa(namaSiswa) {
+// ==========================================
+// [UPDATE & FIX] API 9: RIWAYAT NILAI & DETAIL
+// ==========================================
+
+// 1. Ambil List Riwayat (Filter by Username)
+function getRiwayatNilaiSiswa(username) {
   const ss = SpreadsheetApp.openById(SS_ID);
-  const sheet = ss.getSheetByName("DB_Nilai");
-  if (!sheet) return [];
   
-  const data = sheet.getDataRange().getValues();
-  data.shift(); // Skip Header
+  // Ambil Data Nilai
+  const sheetNilai = ss.getSheetByName("DB_Nilai");
+  if (!sheetNilai) return [];
+  const dataNilai = sheetNilai.getDataRange().getValues();
+  dataNilai.shift(); // Skip Header
   
-  // [0:Waktu, 1:IDUjian, 2:Nama, 3:Mapel, 4:Nilai, 5:Benar]
+  // Ambil Data Jadwal (Untuk cek waktu selesai)
+  const sheetJadwal = ss.getSheetByName("DB_Jadwal");
+  let jadwalMap = {};
+  if (sheetJadwal) {
+     const dataJ = sheetJadwal.getDataRange().getValues();
+     dataJ.shift();
+     for(let j of dataJ) {
+        // ID Jadwal -> { Selesai (Date) }
+        jadwalMap[j[0]] = j[4] ? new Date(j[4]) : new Date(); 
+     }
+  }
+
   let result = [];
-  
+  const now = new Date();
+
   // Loop dari bawah (terbaru)
-  for (let i = data.length - 1; i >= 0; i--) {
-    let row = data[i];
-    if (row[2] === namaSiswa) {
+  // Struktur DataNilai Baru: [0:Waktu, 1:ID_Jadwal, 2:Username, 3:Nama, 4:Mapel, 5:Nilai, 6:Benar, 7:JSON]
+  for (let i = dataNilai.length - 1; i >= 0; i--) {
+    let row = dataNilai[i]; 
+    
+    // Filter berdasarkan USERNAME (Kolom 2) agar akurat
+    if (row[2] && row[2].toString() === username) {
+      const idJadwal = row[1];
+      const waktuSelesaiJadwal = jadwalMap[idJadwal];
+      
+      // Logika: Apakah Ujian Sudah Ditutup?
+      let isPublished = false;
+      if (waktuSelesaiJadwal && now > waktuSelesaiJadwal) {
+         isPublished = true;
+      }
+
+      // Format Waktu
+      let tglSubmit = "";
+      let jamSubmit = "";
+      try {
+         tglSubmit = Utilities.formatDate(new Date(row[0]), "Asia/Jakarta", "dd MMM yyyy");
+         jamSubmit = Utilities.formatDate(new Date(row[0]), "Asia/Jakarta", "HH:mm") + " WIB";
+      } catch(e) {}
+
       result.push({
-        waktu: row[0],
-        mapel: row[3], // Berisi ID Jadwal biasanya, atau Mapel
-        nilai: row[4],
-        benar: row[5]
+        idJadwal: idJadwal,
+        tgl: tglSubmit,
+        jam: jamSubmit, // Ini untuk kolom "Siswa Waktu"
+        mapel: row[4],
+        nilai: row[5],
+        benarStr: row[6],
+        isPublished: isPublished
       });
     }
   }
   return result;
+}
+
+// 2. [BARU] Ambil Detail Jawaban
+function getDetailJawabanSiswa(idJadwal, username) {
+  const ss = SpreadsheetApp.openById(SS_ID);
+  
+  // A. Validasi Waktu (Security Backend)
+  const sheetJadwal = ss.getSheetByName("DB_Jadwal");
+  let targetMapelKode = "";
+  let allowAccess = false;
+  
+  const dataJ = sheetJadwal.getDataRange().getValues();
+  for(let i=1; i<dataJ.length; i++) {
+     if(String(dataJ[i][0]) === String(idJadwal)) {
+        targetMapelKode = dataJ[i][2]; // Kode Mapel
+        const selesai = new Date(dataJ[i][4]);
+        if(new Date() > selesai) allowAccess = true;
+        break;
+     }
+  }
+
+  if (!allowAccess) {
+     return { status: 'error', message: 'Detail belum bisa dilihat. Tunggu jadwal ujian berakhir.' };
+  }
+
+  // B. Ambil Jawaban Siswa dari DB_Nilai
+  const sheetNilai = ss.getSheetByName("DB_Nilai");
+  const dataNilai = sheetNilai.getDataRange().getValues();
+  
+  let jawabanSiswa = {};
+  
+  // Cari data nilai berdasarkan ID Jadwal (col 1) dan Username (col 2)
+  for(let i=dataNilai.length-1; i>=1; i--) {
+     if(String(dataNilai[i][1]) === String(idJadwal) && String(dataNilai[i][2]) === String(username)) {
+        try { jawabanSiswa = JSON.parse(dataNilai[i][7]); } catch(e){} // JSON ada di col 7
+        break;
+     }
+  }
+
+  // C. Ambil Soal & Kunci
+  const sheetSoal = ss.getSheetByName("DB_Soal");
+  const dataSoal = sheetSoal.getDataRange().getValues();
+  dataSoal.shift();
+
+  let detail = [];
+  
+  for(let row of dataSoal) {
+     // Cocokkan Kode Mapel (row[1])
+     if(row[1].toString().toLowerCase() === targetMapelKode.toLowerCase()) {
+        const idSoal = row[0];
+        const tipe = row[2];
+        const pertanyaan = row[3];
+        const opsiRaw = row[5];
+        const kunci = row[6];
+        
+        let opsiObj = {};
+        try { opsiObj = JSON.parse(opsiRaw); } catch(e){}
+
+        const jawab = jawabanSiswa[idSoal] || "-";
+        
+        // Cek Benar/Salah (Khusus PG/BS)
+        let isCorrect = false;
+        if (tipe === 'PG' || tipe === 'BS') {
+           isCorrect = (jawab === kunci);
+        }
+
+        detail.push({
+           tipe: tipe,
+           pertanyaan: pertanyaan,
+           opsi: opsiObj,
+           kunci: kunci,
+           jawabanSiswa: jawab,
+           isCorrect: isCorrect
+        });
+     }
+  }
+
+  return { status: 'success', data: detail };
 }
 
 // ==========================================
