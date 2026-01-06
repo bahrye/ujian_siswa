@@ -319,25 +319,30 @@ function getSoalUjian(kodeMapel) {
 }
 
 // ==========================================
-// API 4: SUBMIT & KOREKSI UJIAN
+// TAMBAHKAN FUNGSI INI DI PALING BAWAH ATAU ATAS (Agar reload jalan)
+// ==========================================
+function getScriptUrl() {
+  return ScriptApp.getService().getUrl();
+}
+
+// ==========================================
+// UPDATE FUNGSI: API 4: SUBMIT & KOREKSI UJIAN
 // ==========================================
 function submitUjian(payload) {
   try {
     const ss = SpreadsheetApp.openById(SS_ID);
     
-    // 1. Ambil Kunci Jawaban dari DB_Soal
+    // 1. Ambil Kunci Jawaban (Logic sama, tidak diubah)
     const sheetSoal = ss.getSheetByName("DB_Soal");
     const dataSoal = sheetSoal.getDataRange().getValues();
-    dataSoal.shift(); // Hapus Header
+    dataSoal.shift(); 
     
-    let kunciJawaban = {}; // { "Q-123": "A", "Q-456": "C" }
+    let kunciJawaban = {}; 
     let totalSoalPG = 0;
     
-    // Filter soal sesuai Mapel
     for (let i = 0; i < dataSoal.length; i++) {
-      let row = dataSoal[i]; // [0:id, 1:mapel, ..., 6:kunci]
+      let row = dataSoal[i]; 
       if (row[1].toString().toLowerCase() === payload.mapel.toLowerCase()) {
-        // Hanya ambil kunci jika tipe PG
         if (row[2] === "PG") {
           kunciJawaban[row[0]] = row[6]; 
           totalSoalPG++;
@@ -345,57 +350,47 @@ function submitUjian(payload) {
       }
     }
 
-    // 2. Hitung Nilai
+    // 2. Hitung Nilai (Logic sama)
     let benar = 0;
-    let detailKoreksi = {}; // Untuk debug/riwayat
-    
-    // Loop jawaban siswa
     for (let idSoal in payload.jawaban) {
       const jwbSiswa = payload.jawaban[idSoal];
       const jwbKunci = kunciJawaban[idSoal];
-      
-      // Cek Benar/Salah
-      if (jwbKunci && jwbSiswa === jwbKunci) {
-        benar++;
-        detailKoreksi[idSoal] = "BENAR";
-      } else {
-        detailKoreksi[idSoal] = "SALAH";
-      }
+      if (jwbKunci && jwbSiswa === jwbKunci) benar++;
     }
 
-    // Rumus Nilai (Skala 100)
-    // Jika soal essay, nilai sementara hanya dari PG
     let nilaiAkhir = 0;
     if (totalSoalPG > 0) {
       nilaiAkhir = Math.round((benar / totalSoalPG) * 100);
     }
 
-    // 3. Simpan ke DB_Nilai
+    // 3. Simpan ke DB_Nilai (DIPERBAIKI)
     const sheetNilai = ss.getSheetByName("DB_Nilai");
     if (!sheetNilai) return { status: 'error', message: 'Sheet DB_Nilai belum dibuat!' };
 
+    // PERBAIKAN: Simpan payload.idJadwal di Kolom ke-2 (Index 1) menggantikan Dummy ID
+    // Struktur DB_Nilai: [Timestamp, ID_Jadwal, Nama, Mapel, Nilai, Benar, JSON]
     sheetNilai.appendRow([
-      new Date(),           // Timestamp
-      "UJIAN-" + Date.now(),// ID Ujian (Dummy)
-      payload.nama,         // Nama Siswa
-      payload.mapel,        // Mapel
-      nilaiAkhir,           // Nilai
-      benar + " / " + totalSoalPG, // Jumlah Benar
-      JSON.stringify(payload.jawaban) // Simpan JSON jawaban mentah
+      new Date(),           
+      payload.idJadwal,     // <-- UBAH INI: Simpan ID Jadwal asli agar bisa dilacak
+      payload.nama,         
+      payload.mapel,        
+      nilaiAkhir,           
+      benar + " / " + totalSoalPG, 
+      JSON.stringify(payload.jawaban) 
     ]);
 
-    // TAMBAHAN: Hapus data di DB_Progress karena sudah submit final
-    // Kita butuh username & idJadwal di payload submitUjian
-    // (Pastikan payload di frontend mengirim data ini)
+    // 4. Update Status Property menjadi SELESAI (Backup agar status dashboard valid instant)
     if(payload.username && payload.idJadwal) {
         hapusProgressSiswa(payload.username, payload.idJadwal);
+        
+        // Tambahkan ini: Kunci status secara permanen di PropertiesService
+        const props = PropertiesService.getScriptProperties();
+        props.setProperty(`STATUS_${payload.username}_${payload.idJadwal}`, 'SELESAI');
     }
 
     return { 
       status: 'success', 
       nilai: nilaiAkhir, 
-      benar: benar, 
-      total: totalSoalPG,
       message: 'Ujian Selesai! Nilai Anda: ' + nilaiAkhir 
     };
 
@@ -1531,39 +1526,31 @@ function pancingIzin() {
 }
 
 // ==========================================
-// API KHUSUS SISWA (DASHBOARD & HASIL)
+// UPDATE FUNGSI: getStudentDashboardData
 // ==========================================
-
-// 1. Ambil Data Dashboard Siswa (Jadwal + Status Personal)
 function getStudentDashboardData(username, kelasSiswa) {
   try {
     const ss = SpreadsheetApp.openById(SS_ID);
     const sheetJadwal = ss.getSheetByName("DB_Jadwal");
     const sheetNilai = ss.getSheetByName("DB_Nilai");
     
-    // Default result kosong
     let jadwalList = [];
     
     if (sheetJadwal && sheetJadwal.getLastRow() > 1) {
       const data = sheetJadwal.getDataRange().getValues();
-      data.shift(); // Skip Header
+      data.shift(); 
       
       const mapelList = getAllMapel(); 
       const jenisList = getJenisUjian();
   
       data.forEach(row => {
-        // row[5]:Status, row[7]:TargetKelas
         const statusJadwal = row[5];
         const targetKelas = row[7] ? row[7].toString().trim() : "Semua";
         
-        // Filter: Status Aktif DAN (Kelas Sesuai ATAU Semua)
         if (statusJadwal === 'Aktif') {
           if (targetKelas.toLowerCase() === 'semua' || (kelasSiswa && targetKelas === kelasSiswa)) {
-             
              const m = mapelList.find(x => x.kode === row[2]);
              const j = jenisList.find(x => x.id === row[1]);
-             
-             // Convert Date to String (ISO) agar aman dikirim ke client
              const tMulai = row[3] instanceof Date ? row[3].toISOString() : row[3];
              const tSelesai = row[4] instanceof Date ? row[4].toISOString() : row[4];
   
@@ -1584,11 +1571,11 @@ function getStudentDashboardData(username, kelasSiswa) {
       });
     }
   
-    // B. Cek Status Personal Siswa
+    // B. Cek Status Personal Siswa (DIPERBAIKI)
     const dataNilai = sheetNilai ? sheetNilai.getDataRange().getValues() : [];
     const props = PropertiesService.getScriptProperties();
   
-    // Cari Nama Siswa berdasarkan Username (untuk cek di DB_Nilai karena DB_Nilai pakai Nama)
+    // Cari Nama Siswa
     let namaSiswa = "";
     const sheetUser = ss.getSheetByName("Users");
     if(sheetUser) {
@@ -1599,18 +1586,19 @@ function getStudentDashboardData(username, kelasSiswa) {
     }
   
     const finalResult = jadwalList.map(j => {
-        // 1. Cek Selesai (Ada di DB_Nilai)
-        // Cek Nama dan ID Jadwal (jika DB_Nilai kolom Mapel menyimpan ID Jadwal) atau Nama dan Mapel
-        // Asumsi DB_Nilai kolom [3] menyimpan ID Jadwal atau Mapel yang unik
-        const isFinished = dataNilai.some(n => n[2] === namaSiswa && n[3].toString().includes(j.id));
+        // PERBAIKAN LOGIKA CEK SELESAI:
+        // Cek 1: Apakah ada di DB_Nilai (kolom 1 = ID Jadwal, kolom 2 = Nama)
+        // Perhatikan index array: row[1] adalah ID Jadwal (karena row[0] timestamp)
+        const isFinishedDB = dataNilai.some(n => n[2] === namaSiswa && n[1].toString() === j.id.toString());
         
-        // 2. Cek Status Sedang Mengerjakan / Terkunci via Properties
+        // Cek 2: Status di PropertiesService
         const stateKey = `STATUS_${username}_${j.id}`;
         const stateVal = props.getProperty(stateKey);
   
         let personalStatus = 'BELUM';
         
-        if (isFinished) {
+        // Prioritaskan status SELESAI jika ada di DB atau Properties
+        if (isFinishedDB || stateVal === 'SELESAI') {
            personalStatus = 'SELESAI';
         } else if (stateVal === 'LOCKED') {
            personalStatus = 'TERKUNCI';
@@ -1628,7 +1616,7 @@ function getStudentDashboardData(username, kelasSiswa) {
     
   } catch (e) {
     Logger.log("ERROR getStudentDashboardData: " + e.toString());
-    return []; // Return array kosong jika error, supaya client tidak crash
+    return []; 
   }
 }
 
