@@ -331,19 +331,19 @@
           <div id="view-hasil-siswa" class="hidden animate__animated animate__fadeIn">
             <h2 class="text-xl font-bold text-gray-800 mb-4">Riwayat Hasil Ujian</h2>
             <div class="bg-white rounded-xl shadow overflow-hidden border border-gray-200">
-               <div class="overflow-x-auto">
-                 <table class="w-full text-left border-collapse">
+              <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse min-w-[700px]">
                     <thead class="bg-slate-50 text-slate-600 uppercase text-xs font-bold">
-                       <tr>
-                          <th class="p-4 border-b">Tanggal</th>
-                          <th class="p-4 border-b">Mata Pelajaran / Ujian</th>
-                          <th class="p-4 border-b text-center">Jawaban Benar</th>
-                          <th class="p-4 border-b text-center">Nilai Akhir</th>
-                       </tr>
+                      <tr>
+                          <th class="p-4 border-b w-32">Tanggal Submit</th>
+                          <th class="p-4 border-b w-32">Siswa Waktu</th> <th class="p-4 border-b">Mata Pelajaran / Ujian</th>
+                          <th class="p-4 border-b text-center w-32">Jawaban Benar</th>
+                          <th class="p-4 border-b text-center w-32">Nilai Akhir</th>
+                      </tr>
                     </thead>
                     <tbody id="tbody-hasil-siswa" class="text-sm divide-y divide-gray-100"></tbody>
-                 </table>
-               </div>
+                </table>
+              </div>
             </div>
           </div>
 
@@ -774,6 +774,32 @@
             </form>
           </div>
        </div>
+    </div>
+
+    <div id="modal-detail-jawaban" class="hidden fixed inset-0 z-[60] flex items-center justify-center bg-black bg-opacity-75 backdrop-blur-sm p-4">
+        <div class="bg-white w-full max-w-4xl rounded-xl shadow-2xl flex flex-col max-h-[90vh] animate__animated animate__zoomIn">
+            
+            <div class="p-4 border-b flex justify-between items-center bg-white rounded-t-xl shrink-0 z-10 shadow-sm">
+                <div>
+                    <h3 class="font-bold text-xl text-gray-800 flex items-center gap-2">
+                        <i class="fas fa-file-signature text-indigo-600"></i> Detail Jawaban
+                    </h3>
+                    <p class="text-xs text-gray-500">Hasil koreksi sistem & kunci jawaban.</p>
+                </div>
+                <button onclick="App.UI.closeModal('modal-detail-jawaban')" class="w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-600 flex items-center justify-center transition">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+
+            <div class="flex-1 overflow-y-auto p-4 md:p-6 bg-slate-100" id="container-detail-soal">
+                </div>
+
+            <div class="p-4 border-t bg-white rounded-b-xl shrink-0 text-right flex justify-end gap-2">
+                <button onclick="App.UI.closeModal('modal-detail-jawaban')" class="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg shadow transition">
+                    Tutup
+                </button>
+            </div>
+        </div>
     </div>
 
     <div id="lock-screen" class="hidden fixed inset-0 z-[100] bg-red-900 flex items-center justify-center text-white text-center p-6">
