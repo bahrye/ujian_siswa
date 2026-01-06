@@ -1014,23 +1014,24 @@
       start: function(kode, config) {
           App.data.examRunning = true; 
           
-          // 1. Sembunyikan Dashboard & Login SECARA EKSPLISIT
+          // 1. Paksa Sembunyikan Dashboard & Login
           document.getElementById('dashboard-container').classList.add('hidden');
           document.getElementById('login-container').classList.add('hidden');
           
-          // 2. Tampilkan Halaman Ujian (Overlay)
+          // 2. Tampilkan Halaman Ujian
           const pageSiswa = document.getElementById('page-siswa');
           pageSiswa.classList.remove('hidden'); 
           
           // Set Header
           document.getElementById('header-mapel').innerText = kode;
           
-          // Reset Tampilan Loading
-          document.getElementById('exam-loading').classList.remove('hidden');
-          document.getElementById('soal-container').classList.add('hidden');
-          document.getElementById('nav-buttons').classList.add('hidden');
+          // 3. RESET TAMPILAN LOADING (PENTING: Pastikan ini muncul)
+          document.getElementById('exam-loading').classList.remove('hidden'); // Tampilkan loading
+          document.getElementById('soal-container').classList.add('hidden');  // Sembunyikan container soal
+          document.getElementById('nav-buttons').classList.add('hidden');     // Sembunyikan tombol
+          document.getElementById('disp-pertanyaan').innerHTML = "";          // Bersihkan soal lama
 
-          // Fullscreen (Coba, jika gagal biarkan)
+          // Fullscreen
           try { App.Security.enterFullscreen(); } catch(e){}
           
           // Setup Timer
@@ -1047,7 +1048,7 @@
                   rawSoal = App.Exam.shuffleArray(rawSoal);
               }
 
-              // Setup Acak Opsi (Per Soal)
+              // Setup Acak Opsi
               rawSoal.forEach(s => {
                   let keys = ['A','B','C','D','E'];
                   if(config && config.acakOpsi && s.tipe === 'PG') {
@@ -1059,7 +1060,7 @@
 
               App.data.soalList = rawSoal; 
               
-              // Tampilkan Soal
+              // Tampilkan Soal setelah data siap
               document.getElementById('exam-loading').classList.add('hidden'); 
               document.getElementById('soal-container').classList.remove('hidden'); 
               document.getElementById('nav-buttons').classList.remove('hidden'); 
@@ -1068,8 +1069,12 @@
               App.Exam.render(0);
 
             } else { 
-              // Jika gagal load soal
-              Swal.fire('Gagal Memuat', res.message, 'warning').then(() => {
+              // Jika gagal load soal (Misal Mapel tidak cocok)
+              Swal.fire({
+                  title: 'Gagal Memuat Soal',
+                  text: res.message + " (Cek kesesuaian Kode Mapel di Jadwal vs Bank Soal)",
+                  icon: 'warning'
+              }).then(() => {
                   // Kembalikan ke dashboard
                   App.data.examRunning = false;
                   document.getElementById('page-siswa').classList.add('hidden');
@@ -1578,23 +1583,30 @@
           }).getStudentDashboardData(user.username, user.kelas); 
        },
 
-       // Action: Mulai (Updated Logic)
+       // Action: Mulai (DIPERBAIKI)
        actionMulai: function(kodeMapel, idJadwal, configStr, needToken) {
            // Fungsi Internal untuk start
            const executeStart = () => {
-               const config = JSON.parse(decodeURIComponent(configStr));
-               
-               // Ambil username dengan aman (cegah error null)
-               let username = '';
-               if (App.data.user) username = App.data.user.username;
-               else {
-                   // Fallback jika global null (misal setelah refresh)
-                   const s = JSON.parse(sessionStorage.getItem('cbt_session'));
-                   if(s) username = s.data.username;
-               }
+               try {
+                   const config = JSON.parse(decodeURIComponent(configStr));
+                   
+                   // Ambil username dengan aman
+                   let username = '';
+                   if (App.data.user) username = App.data.user.username;
+                   else {
+                       const s = JSON.parse(sessionStorage.getItem('cbt_session'));
+                       if(s) username = s.data.username;
+                   }
 
-               google.script.run.startExamSession(username, idJadwal);
-               App.Exam.start(kodeMapel, config);
+                   // Panggil server untuk set status
+                   google.script.run.startExamSession(username, idJadwal);
+                   // Panggil frontend untuk ganti tampilan
+                   App.Exam.start(kodeMapel, config);
+
+               } catch (e) {
+                   console.error(e);
+                   Swal.fire('Error Sistem', 'Gagal memproses konfigurasi ujian: ' + e.message, 'error');
+               }
            };
 
            if(!needToken) {
@@ -1612,24 +1624,26 @@
             confirmButtonColor: '#4f46e5',
             showLoaderOnConfirm: true,
             preConfirm: (token) => {
-               // Gunakan Promise wrapper agar Swal menunggu respon server
                return new Promise((resolve) => {
                   google.script.run.withSuccessHandler(res => {
                      if(res.status === 'success') {
-                         resolve(true); // Berhasil
+                         resolve(true); // Berhasil, tutup modal dan lanjut
                      } else {
+                         // JANGAN resolve(false), cukup showValidationMessage
+                         // Agar modal tetap terbuka dan siswa bisa input ulang
                          Swal.showValidationMessage(res.message);
-                         resolve(false); // Gagal, tampilkan pesan di modal
+                         resolve(); // Resolve kosong agar loading berhenti tapi modal tidak close (tergantung versi Swal)
+                         // Jika modal tetap tertutup, hapus baris resolve() ini.
                      }
                   }).withFailureHandler(err => {
-                      Swal.showValidationMessage("Error: " + err.message);
-                      resolve(false);
+                      Swal.showValidationMessage("Error Koneksi: " + err.message);
+                      resolve(); 
                   }).verifikasiTokenUjian(token.toUpperCase(), idJadwal);
                });
             },
             allowOutsideClick: () => !Swal.isLoading()
           }).then((result) => {
-             // Pastikan isConfirmed true DAN value true (hasil resolve)
+             // Pastikan isConfirmed true DAN value true
              if (result.isConfirmed && result.value === true) {
                 executeStart();
              }
