@@ -945,15 +945,22 @@ function verifikasiTokenUjian(inputToken, idJadwal) {
   }
 }
 
+// ==========================================
+// FIX: MONITORING SISWA (UPDATE LOGIKA STATUS)
+// ==========================================
 function getMonitoringSiswa(idJadwal) {
   const ss = SpreadsheetApp.openById(SS_ID);
 
-  // 1. Cek Jadwal
+  // 1. Cek Jadwal & Token (Bagian ini tidak berubah, hanya persiapan data)
   const sheetJadwal = ss.getSheetByName("DB_Jadwal");
   const dataJadwal = sheetJadwal.getDataRange().getValues();
   let jadwalData = null;
+  
+  // Konversi idJadwal ke String agar aman saat compare
+  const targetId = String(idJadwal).trim();
+
   for(let i=1; i<dataJadwal.length; i++) {
-     if(dataJadwal[i][0].toString() === idJadwal.toString()) {
+     if(String(dataJadwal[i][0]).trim() === targetId) {
         jadwalData = { mulai: new Date(dataJadwal[i][3]), selesai: new Date(dataJadwal[i][4]) };
         break;
      }
@@ -964,49 +971,67 @@ function getMonitoringSiswa(idJadwal) {
   if (jadwalData) {
      if (now < jadwalData.mulai) currentToken = "BELUM MULAI";
      else if (now > jadwalData.selesai) currentToken = "SELESAI";
-     else currentToken = generateTokenForExam(idJadwal);
+     else currentToken = generateTokenForExam(targetId);
   }
 
-  // 2. Ambil Siswa
+  // 2. Ambil Semua Siswa
   const sheetUser = ss.getSheetByName("Users");
   const users = sheetUser.getDataRange().getValues().filter(r => r[3].toString().toLowerCase() === 'siswa');
   
-  // 3. Ambil DB Nilai
+  // 3. Ambil DB Nilai (Untuk cek siapa yang sudah submit dan punya nilai)
   const sheetNilai = ss.getSheetByName("DB_Nilai");
   const dataNilai = sheetNilai ? sheetNilai.getDataRange().getValues() : [];
   
-  // 4. Cek Status Realtime (Properties)
+  // 4. Properties Service (Untuk cek status Realtime: STARTED, LOCKED, SELESAI)
   const props = PropertiesService.getScriptProperties();
   
   let result = [];
+  
   users.forEach(u => {
-    const username = u[1];
-    const nama = u[4];
-    const kelas = u[5];
+    const username = u[1]; // Username Siswa
+    const nama = u[4];     // Nama Siswa
+    const kelas = u[5];    // Kelas
     
-    // --- LOGIKA STATUS DIPERBAIKI ---
+    // Default Status
     let status = "BELUM MENGERJAKAN"; 
     let nilai = "-";
     let isLocked = false;
     let violationReason = "";
 
-    // PERBAIKAN DISINI:
-    // Cek Kolom Index 1 (ID Jadwal) dan Index 2 (Nama)
-    // Sebelumnya n[3] (Mapel) -> Salah sasaran
-    const selesai = dataNilai.find(n => n[2] === nama && n[1].toString() === idJadwal.toString()); 
+    // --- LOGIKA PERBAIKAN DI SINI ---
+    
+    // A. Ambil Status Realtime dari Properties
+    const stateKey = `STATUS_${username}_${targetId}`;
+    const reasonKey = `REASON_${username}_${targetId}`;
+    const stateVal = props.getProperty(stateKey); // Bisa: 'STARTED', 'LOCKED', 'SELESAI', atau null
 
-    const stateKey = `STATUS_${username}_${idJadwal}`;
-    const reasonKey = `REASON_${username}_${idJadwal}`;
-    const stateVal = props.getProperty(stateKey);
+    // B. Cek Apakah Ada di DB_Nilai (Pencocokan Kuat)
+    // Mencocokkan ID Jadwal (Col 1) dan Nama (Col 2)
+    const entryNilai = dataNilai.find(n => 
+       String(n[1]).trim() === targetId &&  // Match ID Jadwal
+       String(n[2]).trim() === String(nama).trim() // Match Nama
+    );
 
-    if (selesai) {
+    // C. Penentuan Prioritas Status
+    
+    // 1. Jika Data ditemukan di DB Nilai -> Sudah Pasti SELESAI (Hijau)
+    if (entryNilai) {
       status = "SELESAI";
-      nilai = selesai[4]; // Ambil nilai
-    } else if (stateVal === 'LOCKED') {
+      nilai = entryNilai[4]; // Ambil nilai
+    } 
+    // 2. Jika di DB belum masuk, tapi status realtime 'SELESAI' -> Tetap anggap SELESAI (Hijau)
+    else if (stateVal === 'SELESAI') {
+      status = "SELESAI";
+      nilai = "Proses"; // Nilai sedang diproses/disimpan
+    }
+    // 3. Jika status realtime 'LOCKED' -> TERKUNCI (Merah)
+    else if (stateVal === 'LOCKED') {
       status = "TERKUNCI";
       isLocked = true;
-      violationReason = props.getProperty(reasonKey) || "Pelanggaran Sistem";
-    } else if (stateVal === 'STARTED') {
+      violationReason = props.getProperty(reasonKey) || "Terkunci Sistem";
+    }
+    // 4. Jika status realtime 'STARTED' -> SEDANG MENGERJAKAN (Kuning)
+    else if (stateVal === 'STARTED') {
       status = "SEDANG MENGERJAKAN";
     }
 
