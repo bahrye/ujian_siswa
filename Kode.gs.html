@@ -945,10 +945,10 @@ function verifikasiTokenUjian(inputToken, idJadwal) {
   }
 }
 
-// 3. Update Monitoring Siswa (Menampilkan Alasan Pelanggaran)
 function getMonitoringSiswa(idJadwal) {
   const ss = SpreadsheetApp.openById(SS_ID);
 
+  // 1. Cek Jadwal
   const sheetJadwal = ss.getSheetByName("DB_Jadwal");
   const dataJadwal = sheetJadwal.getDataRange().getValues();
   let jadwalData = null;
@@ -959,7 +959,6 @@ function getMonitoringSiswa(idJadwal) {
      }
   }
   
-  // Logika Token (Copy dari kode lama Anda)
   let currentToken = "ERROR";
   const now = new Date();
   if (jadwalData) {
@@ -968,10 +967,15 @@ function getMonitoringSiswa(idJadwal) {
      else currentToken = generateTokenForExam(idJadwal);
   }
 
+  // 2. Ambil Siswa
   const sheetUser = ss.getSheetByName("Users");
-  const users = sheetUser.getDataRange().getValues().filter(r => r[3].toLowerCase() === 'siswa');
+  const users = sheetUser.getDataRange().getValues().filter(r => r[3].toString().toLowerCase() === 'siswa');
+  
+  // 3. Ambil DB Nilai
   const sheetNilai = ss.getSheetByName("DB_Nilai");
   const dataNilai = sheetNilai ? sheetNilai.getDataRange().getValues() : [];
+  
+  // 4. Cek Status Realtime (Properties)
   const props = PropertiesService.getScriptProperties();
   
   let result = [];
@@ -980,25 +984,30 @@ function getMonitoringSiswa(idJadwal) {
     const nama = u[4];
     const kelas = u[5];
     
-    let status = "BELUM";
+    // --- LOGIKA STATUS DIPERBAIKI ---
+    let status = "BELUM MENGERJAKAN"; 
     let nilai = "-";
     let isLocked = false;
     let violationReason = "";
 
-    const selesai = dataNilai.find(n => n[2] === nama && n[3].toString().includes(idJadwal)); 
+    // PERBAIKAN DISINI:
+    // Cek Kolom Index 1 (ID Jadwal) dan Index 2 (Nama)
+    // Sebelumnya n[3] (Mapel) -> Salah sasaran
+    const selesai = dataNilai.find(n => n[2] === nama && n[1].toString() === idJadwal.toString()); 
+
     const stateKey = `STATUS_${username}_${idJadwal}`;
     const reasonKey = `REASON_${username}_${idJadwal}`;
     const stateVal = props.getProperty(stateKey);
 
     if (selesai) {
       status = "SELESAI";
-      nilai = selesai[4];
-    } else if (stateVal === 'STARTED') {
-      status = "SEDANG MENGERJAKAN";
+      nilai = selesai[4]; // Ambil nilai
     } else if (stateVal === 'LOCKED') {
       status = "TERKUNCI";
       isLocked = true;
-      violationReason = props.getProperty(reasonKey) || "Pelanggaran Sistem"; // Ambil alasan
+      violationReason = props.getProperty(reasonKey) || "Pelanggaran Sistem";
+    } else if (stateVal === 'STARTED') {
+      status = "SEDANG MENGERJAKAN";
     }
 
     result.push({ nama, kelas, status, nilai, isLocked, violationReason, username });
