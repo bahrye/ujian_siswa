@@ -1560,7 +1560,7 @@ function pancingIzin() {
 }
 
 // ==========================================
-// UPDATE FUNGSI: getStudentDashboardData
+// UPDATE FUNGSI: getStudentDashboardData (Sisa Waktu untuk STARTED & LOCKED)
 // ==========================================
 function getStudentDashboardData(username, kelasSiswa) {
   try {
@@ -1585,6 +1585,7 @@ function getStudentDashboardData(username, kelasSiswa) {
           if (targetKelas.toLowerCase() === 'semua' || (kelasSiswa && targetKelas === kelasSiswa)) {
              const m = mapelList.find(x => x.kode === row[2]);
              const j = jenisList.find(x => x.id === row[1]);
+             // Konversi tanggal aman
              const tMulai = row[3] instanceof Date ? row[3].toISOString() : row[3];
              const tSelesai = row[4] instanceof Date ? row[4].toISOString() : row[4];
   
@@ -1605,11 +1606,10 @@ function getStudentDashboardData(username, kelasSiswa) {
       });
     }
   
-    // B. Cek Status Personal Siswa (DIPERBAIKI)
+    // B. Cek Status Personal Siswa
     const dataNilai = sheetNilai ? sheetNilai.getDataRange().getValues() : [];
     const props = PropertiesService.getScriptProperties();
   
-    // Cari Nama Siswa
     let namaSiswa = "";
     const sheetUser = ss.getSheetByName("Users");
     if(sheetUser) {
@@ -1620,29 +1620,41 @@ function getStudentDashboardData(username, kelasSiswa) {
     }
   
     const finalResult = jadwalList.map(j => {
-        // PERBAIKAN LOGIKA CEK SELESAI:
-        // Cek 1: Apakah ada di DB_Nilai (kolom 1 = ID Jadwal, kolom 2 = Nama)
-        // Perhatikan index array: row[1] adalah ID Jadwal (karena row[0] timestamp)
         const isFinishedDB = dataNilai.some(n => n[2] === namaSiswa && n[1].toString() === j.id.toString());
         
-        // Cek 2: Status di PropertiesService
         const stateKey = `STATUS_${username}_${j.id}`;
         const stateVal = props.getProperty(stateKey);
-  
-        let personalStatus = 'BELUM';
         
-        // Prioritaskan status SELESAI jika ada di DB atau Properties
+        let personalStatus = 'BELUM';
+        let sisaDetik = 0; 
+
+        // --- LOGIC BARU: Hitung Waktu ---
+        const hitungSisa = () => {
+           const endKey = `ENDTIME_${username}_${j.id}`;
+           const endTimeStr = props.getProperty(endKey);
+           if(endTimeStr) {
+               const now = new Date();
+               const end = new Date(endTimeStr);
+               let s = Math.floor((end.getTime() - now.getTime()) / 1000);
+               return s < 0 ? 0 : s;
+           }
+           return 0;
+        };
+        
         if (isFinishedDB || stateVal === 'SELESAI') {
            personalStatus = 'SELESAI';
         } else if (stateVal === 'LOCKED') {
            personalStatus = 'TERKUNCI';
+           sisaDetik = hitungSisa(); // <--- Hitung juga saat LOCKED
         } else if (stateVal === 'STARTED') {
            personalStatus = 'SEDANG';
+           sisaDetik = hitungSisa(); // <--- Hitung saat STARTED
         }
   
         return {
            ...j,
-           status_personal: personalStatus
+           status_personal: personalStatus,
+           sisa_detik: sisaDetik 
         };
     });
   
