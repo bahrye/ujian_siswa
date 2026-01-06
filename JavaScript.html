@@ -1015,43 +1015,36 @@
       },
 
       start: function(kodeMapel, config) {
-          // Guard: Ambil data jadwal saat ini
           const idJadwal = App.data.activeJadwalId; 
           const username = App.data.user ? App.data.user.username : JSON.parse(sessionStorage.getItem('cbt_session')).data.username;
 
-          // 1. Panggil Server untuk cek Sisa Waktu & Status
           Swal.fire({title: 'Memuat Ujian...', didOpen: () => Swal.showLoading()});
           
           google.script.run.withSuccessHandler(res => {
               Swal.close();
 
-              // Jika status Terkunci di server
               if (res.status === 'locked') {
                  App.Security.triggerLock("Status Terkunci. Masukkan Token.");
                  return;
               }
 
-              // Jika Sukses
               App.data.examRunning = true; 
               
-              // UI Changes
               document.getElementById('dashboard-container').classList.add('hidden');
               document.getElementById('page-siswa').classList.remove('hidden');
               document.getElementById('header-mapel').innerText = kodeMapel;
               
-              // Reset UI Load
               document.getElementById('exam-loading').classList.remove('hidden');
               document.getElementById('soal-container').classList.add('hidden');
               document.getElementById('nav-buttons').classList.add('hidden');
               document.getElementById('disp-pertanyaan').innerHTML = "";
 
-              try { App.Security.enterFullscreen(); } catch(e){}
+              // --- PERBAIKAN: AKTIFKAN SECURITY FEATURES ---
+              App.Security.enterFullscreen(); 
+              App.Security.enableWakeLock(); // <--- TAMBAHAN WAKE LOCK DISINI
+              // ---------------------------------------------
 
-              // --- TIMER DARI SERVER ---
-              // res.remainingSeconds adalah sisa detik yang valid dari server
               App.Exam.timerStart(res.remainingSeconds); 
-
-              // Fetch Soal
               App.Exam.loadSoal(kodeMapel, config);
 
           }).startExamSession(username, idJadwal);
@@ -1222,33 +1215,81 @@
             }
       },
 
-      // 3. Update Fungsi Pilih (Agar icon langsung berubah tanpa delay)
+      // 3. Update Fungsi Pilih (Partial Update untuk Essay agar status berubah realtime)
       pilih: function(id, val) { 
             App.data.jawabanSiswa[id] = val; 
-            
-            // Jika soal tipe PG/BS, render ulang UI penuh agar icon dan style opsi terupdate
-            // (Untuk Essay, kita hindari render ulang agar keyboard tidak menutup)
             const currentSoal = App.data.soalList[App.data.currentSoalIdx];
-            if(currentSoal.tipe !== 'ESSAY' && currentSoal.tipe !== 'ISIAN') {
-                App.Exam.render(App.data.currentSoalIdx);
-            } else {
-                // Khusus Essay: Cukup update icon status di header saja secara manual jika mau, 
-                // atau biarkan update saat pindah soal. 
-            }
 
-            // Auto Save Logic (Tetap sama)
-            const username = App.data.user ? App.data.user.username : JSON.parse(sessionStorage.getItem('cbt_session')).data.username;
-            const idJadwal = App.data.activeJadwalId;
-            const executeSave = () => {
-                const jawabanJson = JSON.stringify(App.data.jawabanSiswa);
-                google.script.run.withFailureHandler(e => console.error(e)).simpanProgressSiswa(username, idJadwal, jawabanJson);
+            // --- HELPER: Update Tampilan Status Tanpa Reload Halaman (Agar Focus Tidak Hilang) ---
+            const updateUI_Partial = () => {
+                 const isAnswered = val && val.trim().length > 0;
+                 
+                 // A. Update Icon Status di Header Soal
+                 const iconContainer = document.getElementById('soal-status-icon');
+                 if(iconContainer) {
+                     iconContainer.innerHTML = '';
+                     if (App.data.raguSiswa[id]) {
+                         iconContainer.innerHTML = `<span class="flex items-center gap-1 text-yellow-600 bg-yellow-100 px-2 py-1 rounded text-xs font-bold border border-yellow-200 animate-pulse"><i class="fas fa-bookmark"></i> Ragu-ragu</span>`;
+                     } else if (isAnswered) {
+                         iconContainer.innerHTML = `<span class="flex items-center gap-1 text-green-600 bg-green-100 px-2 py-1 rounded text-xs font-bold border border-green-200"><i class="fas fa-check-circle"></i> Terjawab</span>`;
+                     } else {
+                         iconContainer.innerHTML = `<span class="text-gray-400 text-xs italic">Belum dijawab</span>`;
+                     }
+                 }
+
+                 // B. Update Warna Tombol Nomor di Sidebar
+                 const gridContainer = document.getElementById('grid-nomor');
+                 // Pastikan elemen ada dan index valid
+                 if(gridContainer && gridContainer.children[App.data.currentSoalIdx]) {
+                     const btn = gridContainer.children[App.data.currentSoalIdx];
+                     
+                     // 1. Reset class dasar
+                     let cls = 'h-10 w-full rounded font-bold text-sm transition-all shadow-sm '; 
+                     
+                     // 2. Tentukan Warna berdasarkan Status
+                     if(App.data.raguSiswa[id]) {
+                         cls += 'bg-yellow-400 text-white border-yellow-400';
+                     } else if(isAnswered) {
+                         cls += 'bg-indigo-600 text-white border-indigo-600';
+                     } else {
+                         cls += 'bg-white border text-gray-600 hover:bg-gray-100';
+                     }
+
+                     // 3. Tambahkan Efek "Sedang Aktif" (Karena siswa sedang di nomor ini)
+                     cls += ' ring-4 ring-indigo-200 transform scale-105 font-black';
+
+                     btn.className = cls;
+                 }
             };
 
-            if (currentSoal && (currentSoal.tipe === 'ESSAY' || currentSoal.tipe === 'ISIAN')) {
-                if (App.data.saveTimeout) clearTimeout(App.data.saveTimeout);
-                App.data.saveTimeout = setTimeout(() => { executeSave(); }, 1000); 
+            // --- AUTO SAVE LOGIC ---
+            const username = App.data.user ? App.data.user.username : JSON.parse(sessionStorage.getItem('cbt_session')).data.username;
+            const idJadwal = App.data.activeJadwalId;
+
+            const executeSave = () => {
+                const jawabanJson = JSON.stringify(App.data.jawabanSiswa);
+                // Kirim ke server (silent)
+                google.script.run.withFailureHandler(e => console.error(e)).simpanProgressSiswa(username, idJadwal, jawabanJson);
+                
+                // FITUR BARU: Update Status UI setelah data dianggap masuk (saat timer habis)
+                if(currentSoal.tipe === 'ESSAY' || currentSoal.tipe === 'ISIAN') {
+                    updateUI_Partial();
+                }
+            };
+
+            // --- PENGATURAN RENDER & TIMEOUT ---
+            if(currentSoal.tipe !== 'ESSAY' && currentSoal.tipe !== 'ISIAN') {
+                // Untuk PG/BS: Render full langsung (karena klik opsi tidak butuh fokus keyboard)
+                App.Exam.render(App.data.currentSoalIdx);
+                executeSave(); 
             } else {
-                executeSave();
+                // Untuk Essay/Isian: Jangan Render Full! Gunakan Partial Update via Timeout.
+                if (App.data.saveTimeout) clearTimeout(App.data.saveTimeout);
+                
+                // Tunggu 1 detik setelah berhenti mengetik
+                App.data.saveTimeout = setTimeout(() => { 
+                    executeSave(); 
+                }, 1000); 
             }
       },
       
@@ -1350,6 +1391,7 @@
       },
       
       // 2. UPDATE: Fungsi Submit (Handle Manual vs Auto)
+      // 2. UPDATE: Fungsi Submit (Handle Manual vs Auto) dengan FIX RELOAD
       submit: function(isAutoSubmit) {
          // Hentikan semua timer
          App.data.examRunning = false; 
@@ -1384,19 +1426,41 @@
                  // Berhasil
                  Swal.fire({
                      title: 'Ujian Selesai!', 
-                     // PERBAIKAN 1: Teks diubah, tidak menampilkan res.nilai lagi
                      text: 'Jawaban Anda telah tersimpan ke sistem. Terima kasih.', 
                      icon: 'success',
                      confirmButtonText: 'Kembali ke Dashboard',
                      allowOutsideClick: false
                  }).then(() => {
-                     // PERBAIKAN 2: Reload Instan menggunakan URL yang sudah disimpan di awal
-                     if(App.data.scriptUrl) {
-                        window.top.location.href = App.data.scriptUrl;
-                     } else {
-                        // Fallback (Jaga-jaga jika url belum terambil, baru reload manual)
-                        window.top.location.reload();
+                     // === FIX: MEKANISME RELOAD YANG LEBIH KUAT ===
+                     
+                     // 1. Reset variabel global agar bersih
+                     App.Util.resetGlobals();
+                     
+                     try {
+                        // OPSI UTAMA: Coba Hard Reload (Refresh Halaman)
+                        if(App.data.scriptUrl) {
+                           window.top.location.href = App.data.scriptUrl;
+                        } else {
+                           window.top.location.reload();
+                        }
+                     } catch(e) {
+                        // OPSI CADANGAN (FALLBACK): Jika Reload diblokir browser, lakukan Soft Refresh (Ganti Tampilan Manual)
+                        console.warn("Hard reload blocked, switching to SPA mode.");
+                        
+                        // Sembunyikan Halaman Ujian, Tampilkan Dashboard
+                        document.getElementById('page-siswa').classList.add('hidden');
+                        document.getElementById('dashboard-container').classList.remove('hidden');
+                        
+                        // Restore session data untuk memastikan dashboard bisa load
+                        const sess = JSON.parse(sessionStorage.getItem('cbt_session'));
+                        if(sess) {
+                             App.data.user = sess.data;
+                             App.data.role = sess.role;
+                             // Init ulang dashboard (akan otomatis load jadwal siswa)
+                             App.Dashboard.init(sess.data);
+                        }
                      }
+                     // ===============================================
                  });
              } else { 
                  Swal.fire('Gagal Menyimpan', res.message + '. Silakan lapor pengawas.', 'error'); 
@@ -1404,7 +1468,7 @@
          }).submitUjian(p);
       },
 
-      // 3. UPDATE: Timer (Picu Auto Submit)
+      // 3. UPDATE: Timer (Update UI Header & Lock Screen)
       timerStart: function(secondsLeft) {
          if(App.data.timer) clearInterval(App.data.timer);
          App.data.timeLeft = secondsLeft;
@@ -1420,8 +1484,13 @@
                 ? `${hours}:${minutes.toString().padStart(2,'0')}:${seconds.toString().padStart(2,'0')}` 
                 : `${minutes}:${seconds.toString().padStart(2,'0')}`;
 
+            // 1. Update Timer di Header Utama
             const timerEl = document.getElementById('timer-display');
             if(timerEl) timerEl.innerText = timerStr;
+
+            // 2. UPDATE BARU: Update Timer di Layar Terkunci (Lock Screen)
+            const lockTimerEl = document.getElementById('lock-timer');
+            if(lockTimerEl) lockTimerEl.innerText = timerStr;
             
             // Warning 5 menit
             if(App.data.timeLeft === 300) {
@@ -1431,8 +1500,6 @@
             // AUTO SUBMIT SAAT WAKTU HABIS (0 DETIK)
             if(App.data.timeLeft <= 0) { 
                 clearInterval(App.data.timer); 
-                // Panggil submit dengan parameter TRUE (Auto Submit)
-                // Ini akan mem-bypass validasi kosong/ragu
                 App.Exam.submit(true); 
             }
          }, 1000);
@@ -1741,13 +1808,19 @@
        }
     },
 
-    // --- Module Siswa (Dashboard Logic) ---
+    // --- Module Siswa (Dashboard Logic - LIVE UPDATE & AUTO START) ---
     Siswa: {
-       // Load Dashboard: Jadwal + Status
+       dashboardTimer: null, 
+
        loadDashboard: function() {
           const div = document.getElementById('list-ujian-siswa');
           div.innerHTML = '<div class="text-center py-10"><i class="fas fa-spinner fa-spin text-3xl text-indigo-500"></i><p class="mt-2 text-gray-400">Memuat Jadwal & Status...</p></div>';
           
+          if (App.Siswa.dashboardTimer) {
+              clearInterval(App.Siswa.dashboardTimer);
+              App.Siswa.dashboardTimer = null;
+          }
+
           const session = JSON.parse(sessionStorage.getItem('cbt_session'));
           const user = session ? session.data : null;
 
@@ -1764,9 +1837,14 @@
                  return; 
              }
              
+             let liveTimers = [];      // Untuk hitung mundur sisa waktu
+             let upcomingExams = [];   // Untuk jadwal yang belum mulai (auto-open)
+
              data.forEach(j => {
                 const dMulai = new Date(j.mulai);
                 const dSelesai = new Date(j.selesai);
+                const now = new Date();
+
                 const tanggal = dMulai.toLocaleDateString('id-ID', {day: 'numeric', month: 'short'});
                 const jam = dMulai.toLocaleTimeString('id-ID', {hour: '2-digit', minute:'2-digit'}) + ' - ' + dSelesai.toLocaleTimeString('id-ID', {hour: '2-digit', minute:'2-digit'});
 
@@ -1774,41 +1852,64 @@
                 let statusBadge = '<span class="bg-gray-100 text-gray-500 px-2 py-1 rounded text-xs font-bold">BELUM MENGERJAKAN</span>';
                 let btnAction = '';
 
-                // Encode config dengan aman
+                // Encode config
                 const configStr = encodeURIComponent(JSON.stringify({ durasi: j.durasi, acakSoal: j.acak_soal, acakOpsi: j.acak_opsi }));
 
                 if (j.status_personal === 'SELESAI') {
-                    cardColor = "border-l-4 border-green-500 bg-green-50/30"; // Sedikit background hijau transparan
-                    
+                    cardColor = "border-l-4 border-green-500 bg-green-50/30";
                     statusBadge = '<span class="bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-bold"><i class="fas fa-check-circle"></i> SELESAI MENGERJAKAN</span>';
-                    
-                    // Tombol berubah jadi teks biasa warna hijau tebal
-                    btnAction = '<div class="px-5 py-2 font-black text-green-600 tracking-wider text-lg">SELESAI</div>';
+                    btnAction = '<button disabled class="px-4 py-2 bg-green-200 text-green-700 rounded-lg font-bold cursor-not-allowed text-sm">SELESAI</button>';
                 } 
                 else if (j.status_personal === 'SEDANG') {
                     cardColor = "border-l-4 border-yellow-500 ring-1 ring-yellow-200";
-                    statusBadge = '<span class="bg-yellow-100 text-yellow-800 px-2 py-1 rounded text-xs font-bold animate-pulse"><i class="fas fa-pen"></i> SEDANG MENGERJAKAN</span>';
+                    let timerHtml = " | WAKTU HABIS";
+                    if (j.sisa_detik > 0) {
+                        const targetTime = Date.now() + (j.sisa_detik * 1000);
+                        liveTimers.push({ id: j.id, target: targetTime });
+                        timerHtml = ` | SISA: <span id="dash-time-${j.id}" class="font-mono">...</span>`;
+                    }
+                    statusBadge = `<span class="bg-yellow-100 text-yellow-800 px-2 py-1 rounded text-xs font-bold animate-pulse"><i class="fas fa-clock"></i> SEDANG${timerHtml}</span>`;
                     btnAction = `<button onclick="App.Siswa.actionMulai('${j.kode_mapel}', '${j.id}', '${configStr}', false)" class="px-5 py-2 bg-yellow-500 hover:bg-yellow-600 text-white rounded-lg font-bold shadow text-sm transition">LANJUT MENGERJAKAN <i class="fas fa-arrow-right"></i></button>`;
                 }
                 else if (j.status_personal === 'TERKUNCI') {
                     cardColor = "border-l-4 border-red-600 bg-red-50";
-                    statusBadge = '<span class="bg-red-600 text-white px-2 py-1 rounded text-xs font-bold"><i class="fas fa-lock"></i> TERKUNCI</span>';
+                    let timerHtml = " | WAKTU HABIS";
+                    if (j.sisa_detik > 0) {
+                        const targetTime = Date.now() + (j.sisa_detik * 1000);
+                        liveTimers.push({ id: j.id, target: targetTime });
+                        timerHtml = ` | <i class="fas fa-hourglass-half"></i> SISA: <span id="dash-time-${j.id}" class="font-mono">...</span>`;
+                    }
+                    statusBadge = `<span class="bg-red-600 text-white px-2 py-1 rounded text-xs font-bold"><i class="fas fa-lock"></i> TERKUNCI${timerHtml}</span>`;
                     btnAction = `<button onclick="App.Siswa.actionUnlock('${j.kode_mapel}', '${j.id}', '${configStr}')" class="px-5 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-bold shadow text-sm transition"><i class="fas fa-key"></i> MASUKKAN TOKEN BUKA KUNCI</button>`;
                 }
                 else {
-                    cardColor = "border-l-4 border-indigo-500 hover:shadow-md transition";
-                    const now = new Date();
+                    // --- STATUS: BELUM (Normal) ---
                     if (now < dMulai) {
-                        btnAction = `<button disabled class="px-4 py-2 bg-gray-200 text-gray-400 rounded-lg font-bold cursor-not-allowed text-sm">Belum Dimulai</button>`;
+                        // KASUS 1: BELUM MULAI (Akan di-update LIVE)
+                        cardColor = "border-l-4 border-gray-400"; // Warna Abu
+                        btnAction = `<button disabled class="px-4 py-2 bg-gray-200 text-gray-400 rounded-lg font-bold cursor-not-allowed text-sm w-full md:w-auto"><i class="far fa-clock"></i> Menunggu Jadwal...</button>`;
+                        
+                        // Masukkan ke daftar pantau (Upcoming)
+                        upcomingExams.push({
+                            id: j.id,
+                            start: dMulai.getTime(),
+                            kode: j.kode_mapel,
+                            config: configStr
+                        });
                     } else if (now > dSelesai) {
+                        // KASUS 2: SUDAH LEWAT
+                        cardColor = "border-l-4 border-red-300 opacity-80";
                         btnAction = `<button disabled class="px-4 py-2 bg-red-100 text-red-400 rounded-lg font-bold cursor-not-allowed text-sm">Waktu Habis</button>`;
                     } else {
-                        btnAction = `<button onclick="App.Siswa.actionMulai('${j.kode_mapel}', '${j.id}', '${configStr}', true)" class="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold shadow text-sm transition">MULAI MENGERJAKAN</button>`;
+                        // KASUS 3: SUDAH AKTIF SAAT LOAD
+                        cardColor = "border-l-4 border-indigo-500 hover:shadow-md transition";
+                        btnAction = `<button onclick="App.Siswa.actionMulai('${j.kode_mapel}', '${j.id}', '${configStr}', true)" class="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold shadow text-sm transition animate-pulse">MULAI MENGERJAKAN</button>`;
                     }
                 }
 
+                // Tambahkan ID unik ke Card dan Wrapper Tombol untuk Update Live
                 div.insertAdjacentHTML('beforeend', `
-                  <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-100 ${cardColor} mb-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                  <div id="card-ujian-${j.id}" class="bg-white p-5 rounded-xl shadow-sm border border-gray-100 ${cardColor} mb-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 transition-colors duration-500">
                      <div class="space-y-2 flex-1">
                         <div class="flex items-center gap-2 mb-1">
                            <span class="text-[10px] font-bold uppercase tracking-wider bg-gray-100 text-gray-600 px-2 py-0.5 rounded">${j.jenis}</span>
@@ -1822,101 +1923,120 @@
                             <div class="flex items-center gap-2"><i class="fas fa-user-tie text-indigo-400"></i> ${j.pengawas}</div>
                         </div>
                      </div>
-                     <div class="w-full md:w-auto flex justify-end">${btnAction}</div>
+                     <div id="btn-wrap-${j.id}" class="w-full md:w-auto flex justify-end">${btnAction}</div>
                   </div>
                 `);
              });
+
+             // Jalankan Timer (Gabungan Sisa Waktu & Jadwal Mulai)
+             if (liveTimers.length > 0 || upcomingExams.length > 0) {
+                 App.Siswa.startDashboardTimer(liveTimers, upcomingExams);
+             }
+
           }).getStudentDashboardData(user.username, user.kelas); 
        },
 
-       // Action: Mulai (DIPERBAIKI)
-       actionMulai: function(kodeMapel, idJadwal, configStr, needToken) {
-           App.data.activeJadwalId = idJadwal;
-           // Fungsi Internal untuk start
-           const executeStart = () => {
-               try {
-                   const config = JSON.parse(decodeURIComponent(configStr));
-                   
-                   // Ambil username dengan aman
-                   let username = '';
-                   if (App.data.user) username = App.data.user.username;
-                   else {
-                       const s = JSON.parse(sessionStorage.getItem('cbt_session'));
-                       if(s) username = s.data.username;
+       // --- SINGLE INTERVAL FOR ALL TIMERS ---
+       startDashboardTimer: function(liveTimers, upcomingExams) {
+           const update = () => {
+               const now = Date.now();
+
+               // 1. Update Sisa Waktu (SEDANG / TERKUNCI)
+               liveTimers.forEach(t => {
+                   const el = document.getElementById(`dash-time-${t.id}`);
+                   if (el) {
+                       let diff = Math.floor((t.target - now) / 1000);
+                       if (diff <= 0) {
+                           el.innerHTML = "00m 00s";
+                           el.parentElement.innerHTML = " | WAKTU HABIS";
+                       } else {
+                           const h = Math.floor(diff / 3600);
+                           const m = Math.floor((diff % 3600) / 60);
+                           const s = diff % 60;
+                           el.innerText = (h > 0 ? `${h}j ` : '') + `${m}m ${s}d`;
+                       }
                    }
+               });
 
-                   // Panggil server untuk set status
-                   google.script.run.startExamSession(username, idJadwal);
-                   // Panggil frontend untuk ganti tampilan
-                   App.Exam.start(kodeMapel, config);
+               // 2. Update Jadwal Masuk (BELUM MULAI -> MULAI)
+               // Loop reverse agar aman saat splice (hapus array)
+               for (let i = upcomingExams.length - 1; i >= 0; i--) {
+                   const u = upcomingExams[i];
+                   if (now >= u.start) {
+                       // WAKTU MASUK! Update UI
+                       const btnWrap = document.getElementById(`btn-wrap-${u.id}`);
+                       const card = document.getElementById(`card-ujian-${u.id}`);
+                       
+                       // A. Ganti Tombol
+                       if(btnWrap) {
+                           // Efek animasi fadeIn
+                           btnWrap.innerHTML = `<button onclick="App.Siswa.actionMulai('${u.kode}', '${u.id}', '${u.config}', true)" class="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold shadow text-sm transition animate-bounce">MULAI MENGERJAKAN</button>`;
+                       }
 
-               } catch (e) {
-                   console.error(e);
-                   Swal.fire('Error Sistem', 'Gagal memproses konfigurasi ujian: ' + e.message, 'error');
+                       // B. Ganti Warna Kartu (Abu -> Indigo)
+                       if(card) {
+                           card.classList.remove('border-gray-400');
+                           card.classList.add('border-indigo-500', 'shadow-md');
+                       }
+
+                       // C. Notifikasi Kecil (Opsional)
+                       const Toast = Swal.mixin({toast: true, position: 'top-end', showConfirmButton: false, timer: 3000});
+                       Toast.fire({icon: 'info', title: `Ujian ${u.kode} telah dimulai!`});
+
+                       // Hapus dari daftar pantau agar tidak dieksekusi terus menerus
+                       upcomingExams.splice(i, 1);
+                   }
                }
            };
 
-           if(!needToken) {
-               executeStart();
-               return;
-           }
+           update(); // Run immediately
+           App.Siswa.dashboardTimer = setInterval(update, 1000);
+       },
+
+       actionMulai: function(kodeMapel, idJadwal, configStr, needToken) {
+           App.data.activeJadwalId = idJadwal;
+           if(App.Siswa.dashboardTimer) clearInterval(App.Siswa.dashboardTimer);
+
+           const executeStart = () => {
+               try {
+                   const config = JSON.parse(decodeURIComponent(configStr));
+                   let username = App.data.user ? App.data.user.username : JSON.parse(sessionStorage.getItem('cbt_session')).data.username;
+                   google.script.run.startExamSession(username, idJadwal);
+                   App.Exam.start(kodeMapel, config);
+               } catch (e) {
+                   Swal.fire('Error Sistem', 'Gagal memproses konfigurasi: ' + e.message, 'error');
+               }
+           };
+
+           if(!needToken) { executeStart(); return; }
 
            Swal.fire({
-            title: 'Token Ujian',
-            text: 'Minta token kepada Pengawas',
-            input: 'text',
-            inputAttributes: { autocapitalize: 'off', autocomplete: 'off' },
-            showCancelButton: true,
-            confirmButtonText: 'Mulai',
-            confirmButtonColor: '#4f46e5',
+            title: 'Token Ujian', text: 'Minta token kepada Pengawas',
+            input: 'text', inputAttributes: { autocapitalize: 'off', autocomplete: 'off' },
+            showCancelButton: true, confirmButtonText: 'Mulai', confirmButtonColor: '#4f46e5',
             showLoaderOnConfirm: true,
             preConfirm: (token) => {
                return new Promise((resolve) => {
                   google.script.run.withSuccessHandler(res => {
-                     if(res.status === 'success') {
-                         resolve(true); // Berhasil, tutup modal dan lanjut
-                     } else {
-                         // JANGAN resolve(false), cukup showValidationMessage
-                         // Agar modal tetap terbuka dan siswa bisa input ulang
-                         Swal.showValidationMessage(res.message);
-                         resolve(); // Resolve kosong agar loading berhenti tapi modal tidak close (tergantung versi Swal)
-                         // Jika modal tetap tertutup, hapus baris resolve() ini.
-                     }
-                  }).withFailureHandler(err => {
-                      Swal.showValidationMessage("Error Koneksi: " + err.message);
-                      resolve(); 
-                  }).verifikasiTokenUjian(token.toUpperCase(), idJadwal);
+                     if(res.status === 'success') resolve(true);
+                     else { Swal.showValidationMessage(res.message); resolve(); }
+                  }).withFailureHandler(err => { Swal.showValidationMessage("Error Koneksi"); resolve(); }).verifikasiTokenUjian(token.toUpperCase(), idJadwal);
                });
-            },
-            allowOutsideClick: () => !Swal.isLoading()
-          }).then((result) => {
-             // Pastikan isConfirmed true DAN value true
-             if (result.isConfirmed && result.value === true) {
-                executeStart();
-             }
-          });
+            }
+          }).then((result) => { if (result.isConfirmed && result.value === true) executeStart(); });
        },
 
-       // Action: Unlock (FIXED & TESTED)
        actionUnlock: function(kodeMapel, idJadwal, configStr) {
-           // 1. Simpan ID Jadwal ke Global (Penting untuk Security)
            App.data.activeJadwalId = idJadwal;
-           
-           // 2. Ambil Username
+           if(App.Siswa.dashboardTimer) clearInterval(App.Siswa.dashboardTimer);
            const username = App.data.user ? App.data.user.username : JSON.parse(sessionStorage.getItem('cbt_session')).data.username;
-
            Swal.fire({
-            title: 'TERKUNCI',
-            text: 'Masukkan Token Buka Kunci',
-            input: 'text',
-            inputAttributes: { autocapitalize: 'off' },
-            showCancelButton: true,
-            confirmButtonText: 'Buka & Lanjut',
-            confirmButtonColor: '#dc2626',
+            title: 'TERKUNCI', text: 'Masukkan Token Buka Kunci',
+            input: 'text', inputAttributes: { autocapitalize: 'off' },
+            showCancelButton: true, confirmButtonText: 'Buka & Lanjut', confirmButtonColor: '#dc2626',
             showLoaderOnConfirm: true,
             preConfirm: (token) => {
                return new Promise((resolve) => {
-                  // Verifikasi Token
                   google.script.run.withSuccessHandler(res => {
                      if(res.status === 'success') resolve(true);
                      else { Swal.showValidationMessage(res.message); resolve(false); }
@@ -1926,18 +2046,10 @@
           }).then((result) => {
              if (result.isConfirmed && result.value === true) {
                 const config = JSON.parse(decodeURIComponent(configStr));
-                
-                // Tampilkan Loading
                 Swal.fire({title: 'Membuka Kunci...', didOpen: () => Swal.showLoading()});
-
-                // === PERBAIKAN UTAMA DISINI ===
-                // Panggil unlockSiswa dulu untuk mereset status DB dari 'LOCKED' ke 'STARTED'
                 google.script.run.withSuccessHandler(() => {
-                    
-                    // Setelah DB bersih, baru mulai ujian
                     Swal.close();
                     App.Exam.start(kodeMapel, config);
-                    
                 }).unlockSiswa(username, idJadwal);
              }
           });
@@ -1948,25 +2060,15 @@
            tbody.innerHTML = '<tr><td colspan="4" class="p-6 text-center"><i class="fas fa-spinner fa-spin"></i> Memuat...</td></tr>';
            const sess = JSON.parse(sessionStorage.getItem('cbt_session'));
            if(!sess) return;
-
            google.script.run.withSuccessHandler(data => {
                tbody.innerHTML = '';
                if(!data || data.length === 0) { tbody.innerHTML = '<tr><td colspan="4" class="p-6 text-center text-gray-400">Belum ada riwayat ujian.</td></tr>'; return; }
-
                data.forEach(r => {
                    const tgl = new Date(r.waktu).toLocaleString('id-ID');
                    let nilaiClass = "text-gray-800";
                    if(r.nilai < 70) nilaiClass = "text-red-600";
                    if(r.nilai >= 85) nilaiClass = "text-green-600";
-
-                   tbody.insertAdjacentHTML('beforeend', `
-                     <tr class="hover:bg-slate-50 border-b">
-                        <td class="p-4 text-xs text-gray-500">${tgl}</td>
-                        <td class="p-4 font-bold text-gray-700">${r.mapel}</td>
-                        <td class="p-4 text-center text-sm">${r.benar}</td>
-                        <td class="p-4 text-center font-bold text-lg ${nilaiClass}">${r.nilai}</td>
-                     </tr>
-                   `);
+                   tbody.insertAdjacentHTML('beforeend', `<tr class="hover:bg-slate-50 border-b"><td class="p-4 text-xs text-gray-500">${tgl}</td><td class="p-4 font-bold text-gray-700">${r.mapel}</td><td class="p-4 text-center text-sm">${r.benar}</td><td class="p-4 text-center font-bold text-lg ${nilaiClass}">${r.nilai}</td></tr>`);
                });
            }).getRiwayatNilaiSiswa(sess.data.nama);
        }
@@ -2325,9 +2427,39 @@
       }
     },
 
-    // --- Module 8: Security (FIXED) ---
+    // --- Module 8: Security (FIXED & WAKE LOCK ADDED) ---
     Security: {
-      enterFullscreen: function() { document.documentElement.requestFullscreen().catch(()=>{}); },
+      wakeLockSentinel: null,
+
+      // 1. Fungsi Menjaga Layar Tetap Hidup
+      enableWakeLock: async function() {
+         if ('wakeLock' in navigator) {
+             try {
+                 App.Security.wakeLockSentinel = await navigator.wakeLock.request('screen');
+                 console.log('Screen Wake Lock: ACTIVE');
+                 
+                 // Jika lock terlepas (misal karena minimize), minta lagi saat kembali
+                 App.Security.wakeLockSentinel.addEventListener('release', () => {
+                     console.log('Screen Wake Lock: RELEASED');
+                 });
+             } catch (err) {
+                 console.error(`Wake Lock Error: ${err.name}, ${err.message}`);
+             }
+         }
+      },
+
+      // 2. Fungsi Re-Activate (Dipanggil saat tab visible kembali)
+      restoreWakeLock: async function() {
+         if (App.Security.wakeLockSentinel !== null && document.visibilityState === 'visible') {
+             await App.Security.enableWakeLock();
+         }
+      },
+
+      enterFullscreen: function() { 
+          try {
+              document.documentElement.requestFullscreen().catch(()=>{});
+          } catch(e) {}
+      },
       
       triggerLock: function(msg) { 
          if(!App.data.examRunning && msg !== "Status Terkunci. Masukkan Token.") return;
@@ -2347,11 +2479,8 @@
          const t = document.getElementById('token-unlock').value;
          const btn = document.getElementById('btnUnlock');
          
-         // Pastikan Username Terambil
          const sess = JSON.parse(sessionStorage.getItem('cbt_session'));
          const username = App.data.user ? App.data.user.username : (sess ? sess.data.username : '');
-         
-         // Pastikan ID Jadwal ada (diambil dari global state saat ujian berjalan/terkunci)
          const idJadwal = App.data.activeJadwalId;
 
          if(!username) { Swal.fire('Error', 'Sesi invalid. Silakan login ulang.', 'error'); return; }
@@ -2362,11 +2491,14 @@
             App.UI.setLoading(btn, false, 'BUKA KUNCI');
             
             if(r.status === 'success') { 
-                // Jika Token Benar -> Reset Status di Database -> Buka Layar
                 google.script.run.withSuccessHandler(() => {
                     document.getElementById('lock-screen').classList.add('hidden'); 
                     document.getElementById('token-unlock').value = "";
+                    
+                    // Aktifkan kembali Fullscreen & Wake Lock
                     App.Security.enterFullscreen();
+                    App.Security.enableWakeLock();
+
                 }).unlockSiswa(username, idJadwal);
 
             } else {
@@ -2388,7 +2520,20 @@
   // INITIALIZATION
   // ===========================================
   document.getElementById('current-date').innerText = new Date().toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-  document.addEventListener("visibilitychange", () => { if(App.data.examRunning && document.hidden) App.Security.triggerLock("Pindah Tab"); });
+  
+  // Listener Visibility Change
+  document.addEventListener("visibilitychange", () => { 
+      // 1. Jika ujian jalan & hidden -> KUNCI LAYAR
+      if(App.data.examRunning && document.hidden) {
+          App.Security.triggerLock("Pindah Tab / Keluar Aplikasi"); 
+      }
+      
+      // 2. Jika ujian jalan & visible (kembali ke tab) -> RESTORE WAKE LOCK
+      if(App.data.examRunning && !document.hidden) {
+          App.Security.restoreWakeLock();
+      }
+  });
+
   window.addEventListener("blur", () => { if(App.data.examRunning) App.Security.triggerLock("Keluar App"); });
   let activityTimer;
   ['click', 'mousemove', 'keypress', 'scroll', 'touchstart'].forEach(evt => document.addEventListener(evt, () => sessionStorage.setItem('last_activity', Date.now()), false));
