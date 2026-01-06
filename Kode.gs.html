@@ -384,6 +384,13 @@ function submitUjian(payload) {
       JSON.stringify(payload.jawaban) // Simpan JSON jawaban mentah
     ]);
 
+    // TAMBAHAN: Hapus data di DB_Progress karena sudah submit final
+    // Kita butuh username & idJadwal di payload submitUjian
+    // (Pastikan payload di frontend mengirim data ini)
+    if(payload.username && payload.idJadwal) {
+        hapusProgressSiswa(payload.username, payload.idJadwal);
+    }
+
     return { 
       status: 'success', 
       nilai: nilaiAkhir, 
@@ -398,14 +405,20 @@ function submitUjian(payload) {
 }
 
 // ==========================================
-// API 5: VERIFIKASI TOKEN PENGAWAS (UNLOCK)
+// API 5: VERIFIKASI TOKEN PENGAWAS (FIXED)
 // ==========================================
-function verifikasiTokenUnlock(tokenInput) {
-  // Disini kita set Token Statis dulu: "ADMIN123"
-  // Nanti bisa diambil dari Sheet "Users" role Pengawas
-  const TOKEN_RAHASIA = "ADMIN123";
+function verifikasiTokenUnlock(tokenInput, username) {
+  const props = PropertiesService.getScriptProperties();
+  const storedToken = props.getProperty(`UNLOCK_${username}`);
+  const MASTER_TOKEN = "ADMIN123"; 
   
-  if (tokenInput === TOKEN_RAHASIA) {
+  // Pastikan input menjadi string dan hilangkan spasi (trim)
+  const inputClean = String(tokenInput).trim();
+  const storedClean = storedToken ? String(storedToken).trim() : "";
+  
+  if (inputClean === storedClean || inputClean === MASTER_TOKEN) {
+    // Opsional: Hapus token setelah dipakai agar tidak bisa dipakai ulang (uncomment jika perlu)
+    // props.deleteProperty(`UNLOCK_${username}`);
     return { status: 'success' };
   } else {
     return { status: 'error', message: 'Token Salah!' };
@@ -760,10 +773,80 @@ function generateTimeBasedToken() {
   return token.toUpperCase();
 }
 
-// Update Start Exam untuk set status
+// ==========================================
+// LOGIKA WAKTU & STATUS UJIAN (UPDATE BESAR)
+// ==========================================
+
+// 1. Memulai Ujian & Menghitung Waktu Selesai (Server Authority)
 function startExamSession(username, idJadwal) {
-   const props = PropertiesService.getScriptProperties();
-   props.setProperty(`STATUS_${username}_${idJadwal}`, 'STARTED');
+  const props = PropertiesService.getScriptProperties();
+  const statusKey = `STATUS_${username}_${idJadwal}`;
+  const endKey = `ENDTIME_${username}_${idJadwal}`;
+  
+  // Cek jika sedang terkunci
+  const currentStatus = props.getProperty(statusKey);
+  if (currentStatus === 'LOCKED') {
+     return { status: 'locked', message: 'Ujian Terkunci' };
+  }
+
+  // Update status jadi STARTED
+  if (currentStatus !== 'SELESAI') {
+    props.setProperty(statusKey, 'STARTED');
+  }
+
+  // Hitung Timer Server-Side
+  let endTimeStr = props.getProperty(endKey);
+  
+  if (!endTimeStr) {
+    const durasiMenit = getDurasiFromJadwal(idJadwal); // <-- Ini sekarang aman
+    const now = new Date();
+    const endTime = new Date(now.getTime() + (durasiMenit * 60 * 1000));
+    
+    props.setProperty(endKey, endTime.toISOString());
+    endTimeStr = endTime.toISOString();
+  }
+  
+  const now = new Date();
+  const end = new Date(endTimeStr);
+  const remainingSeconds = Math.floor((end.getTime() - now.getTime()) / 1000);
+
+  return { 
+    status: 'success', 
+    remainingSeconds: remainingSeconds > 0 ? remainingSeconds : 0
+  };
+}
+
+// Helper: Ambil Durasi Jadwal
+function getDurasiFromJadwal(idJadwal) {
+  // Jika ID kosong, kembalikan default 60 menit
+  if (!idJadwal) return 60; 
+
+  const ss = SpreadsheetApp.openById(SS_ID);
+  const sheet = ss.getSheetByName("DB_Jadwal");
+  if (!sheet) return 60; // Safety check jika sheet hilang
+
+  const data = sheet.getDataRange().getValues();
+  
+  // Loop cari ID
+  for(let i=1; i<data.length; i++) {
+    // Gunakan String() untuk membungkus nilai agar tidak error jika cell kosong/null
+    if(String(data[i][0]) === String(idJadwal)) {
+      return parseInt(data[i][8]) || 60; // Ambil kolom durasi (index 8), default 60
+    }
+  }
+  return 60; // Default jika ID tidak ketemu
+}
+
+// 2. Mencatat Pelanggaran (LOCK PERSISTENT)
+function setSiswaViolation(username, idJadwal, reason) {
+  const props = PropertiesService.getScriptProperties();
+  const statusKey = `STATUS_${username}_${idJadwal}`;
+  const reasonKey = `REASON_${username}_${idJadwal}`; // Simpan alasan
+  
+  props.setProperty(statusKey, 'LOCKED');
+  props.setProperty(reasonKey, reason);
+  
+  return { status: 'success' };
 }
 
 // ==========================================
@@ -867,49 +950,33 @@ function verifikasiTokenUjian(inputToken, idJadwal) {
   }
 }
 
-// 4. Update Monitoring Siswa (Return Data Siswa + Token Ujian Tersebut)
+// 3. Update Monitoring Siswa (Menampilkan Alasan Pelanggaran)
 function getMonitoringSiswa(idJadwal) {
   const ss = SpreadsheetApp.openById(SS_ID);
-  
-  // A. Ambil Data Jadwal untuk Cek Waktu
+
   const sheetJadwal = ss.getSheetByName("DB_Jadwal");
   const dataJadwal = sheetJadwal.getDataRange().getValues();
   let jadwalData = null;
-  
-  // Cari baris jadwal (Mulai baris 1)
   for(let i=1; i<dataJadwal.length; i++) {
      if(dataJadwal[i][0].toString() === idJadwal.toString()) {
-        // Index 3 = Mulai, Index 4 = Selesai
-        jadwalData = { 
-           mulai: new Date(dataJadwal[i][3]), 
-           selesai: new Date(dataJadwal[i][4]) 
-        };
+        jadwalData = { mulai: new Date(dataJadwal[i][3]), selesai: new Date(dataJadwal[i][4]) };
         break;
      }
   }
-
-  // B. Logika Token Berdasarkan Waktu
+  
+  // Logika Token (Copy dari kode lama Anda)
   let currentToken = "ERROR";
   const now = new Date();
-
   if (jadwalData) {
-     if (now < jadwalData.mulai) {
-        currentToken = "BELUM MULAI"; // Belum waktunya
-     } else if (now > jadwalData.selesai) {
-        currentToken = "SELESAI";     // Sudah lewat
-     } else {
-        // WAKTUNYA UJIAN -> Generate Token
-        currentToken = generateTokenForExam(idJadwal);
-     }
+     if (now < jadwalData.mulai) currentToken = "BELUM MULAI";
+     else if (now > jadwalData.selesai) currentToken = "SELESAI";
+     else currentToken = generateTokenForExam(idJadwal);
   }
 
-  // C. Ambil Data Siswa (Sama seperti sebelumnya)
   const sheetUser = ss.getSheetByName("Users");
   const users = sheetUser.getDataRange().getValues().filter(r => r[3].toLowerCase() === 'siswa');
-  
   const sheetNilai = ss.getSheetByName("DB_Nilai");
   const dataNilai = sheetNilai ? sheetNilai.getDataRange().getValues() : [];
-  
   const props = PropertiesService.getScriptProperties();
   
   let result = [];
@@ -921,10 +988,11 @@ function getMonitoringSiswa(idJadwal) {
     let status = "BELUM";
     let nilai = "-";
     let isLocked = false;
+    let violationReason = "";
 
-    // Cek Selesai 
     const selesai = dataNilai.find(n => n[2] === nama && n[3].toString().includes(idJadwal)); 
     const stateKey = `STATUS_${username}_${idJadwal}`;
+    const reasonKey = `REASON_${username}_${idJadwal}`;
     const stateVal = props.getProperty(stateKey);
 
     if (selesai) {
@@ -935,15 +1003,24 @@ function getMonitoringSiswa(idJadwal) {
     } else if (stateVal === 'LOCKED') {
       status = "TERKUNCI";
       isLocked = true;
+      violationReason = props.getProperty(reasonKey) || "Pelanggaran Sistem"; // Ambil alasan
     }
 
-    result.push({ nama, kelas, status, nilai, isLocked, username });
+    result.push({ nama, kelas, status, nilai, isLocked, violationReason, username });
   });
   
-  return { 
-    students: result, 
-    token: currentToken 
-  };
+  return { students: result, token: currentToken };
+}
+
+// 4. Buka Kunci (Reset Status ke STARTED)
+function unlockSiswa(username, idJadwal) {
+   const props = PropertiesService.getScriptProperties();
+   // Kembalikan status ke STARTED agar siswa bisa lanjut
+   props.setProperty(`STATUS_${username}_${idJadwal}`, 'STARTED');
+   // Hapus alasan pelanggaran
+   props.deleteProperty(`REASON_${username}_${idJadwal}`);
+   
+   return { status: 'success' };
 }
 
 // ==========================================
@@ -1580,4 +1657,70 @@ function getRiwayatNilaiSiswa(namaSiswa) {
     }
   }
   return result;
+}
+
+// ==========================================
+// FITUR AUTO-SAVE & PROGRESS (DATABASE CADANGAN)
+// ==========================================
+
+// 1. Simpan Progress Jawaban (Dipanggil saat klik Next)
+function simpanProgressSiswa(username, idJadwal, jawabanJson) {
+  const ss = SpreadsheetApp.openById(SS_ID);
+  let sheet = ss.getSheetByName("DB_Progress");
+  
+  // Buat sheet jika belum ada
+  if (!sheet) {
+    sheet = ss.insertSheet("DB_Progress");
+    sheet.appendRow(["ID_Sesi", "Username", "ID_Jadwal", "Jawaban_JSON", "Last_Update"]);
+  }
+  
+  const idSesi = username + "_" + idJadwal;
+  const timestamp = new Date();
+  
+  // Cek apakah data user sudah ada? (Update vs Insert)
+  // Kita pakai TextFinder untuk performa cepat
+  const textFinder = sheet.createTextFinder(idSesi).matchEntireCell(true);
+  const result = textFinder.findNext();
+  
+  if (result) {
+    // UPDATE: Jika sudah ada, update kolom Jawaban (Kolom 4) & Waktu (Kolom 5)
+    const row = result.getRow();
+    sheet.getRange(row, 4).setValue(jawabanJson);
+    sheet.getRange(row, 5).setValue(timestamp);
+  } else {
+    // INSERT: Jika belum ada, buat baris baru
+    sheet.appendRow([idSesi, username, idJadwal, jawabanJson, timestamp]);
+  }
+}
+
+// 2. Ambil Progress Jawaban (Dipanggil saat Ujian Dimulai/Reload)
+function getProgressSiswa(username, idJadwal) {
+  const ss = SpreadsheetApp.openById(SS_ID);
+  const sheet = ss.getSheetByName("DB_Progress");
+  if (!sheet) return "{}"; // Return JSON kosong jika sheet belum ada
+
+  const idSesi = username + "_" + idJadwal;
+  const textFinder = sheet.createTextFinder(idSesi).matchEntireCell(true);
+  const result = textFinder.findNext();
+
+  if (result) {
+    // Ambil JSON jawaban dari kolom 4
+    return sheet.getRange(result.getRow(), 4).getValue();
+  }
+  return "{}";
+}
+
+// 3. (Opsional) Hapus Progress setelah Submit Sukses
+function hapusProgressSiswa(username, idJadwal) {
+  const ss = SpreadsheetApp.openById(SS_ID);
+  const sheet = ss.getSheetByName("DB_Progress");
+  if (!sheet) return;
+  
+  const idSesi = username + "_" + idJadwal;
+  const textFinder = sheet.createTextFinder(idSesi).matchEntireCell(true);
+  const result = textFinder.findNext();
+  
+  if (result) {
+    sheet.deleteRow(result.getRow());
+  }
 }
