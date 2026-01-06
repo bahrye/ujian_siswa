@@ -7,6 +7,7 @@
     data: {
       role: '',
       user: null,
+      scriptUrl: null,
       soalList: [],
       userList: [],
       mapelList: [],
@@ -1126,11 +1127,30 @@
           // RENDER OPSI (PG / BS / ESSAY) - Kode tetap sama
           const labelUrut = ['A','B','C','D','E'];
           if(s.tipe === 'PG') {
-              s.shuffledKeys.forEach((realKey, i) => {
+              const labelUrut = ['A','B','C','D','E']; 
+              let visualIndex = 0; // <--- PENGHITUNG MANUAL (KUNCI PERBAIKANNYA)
+
+              s.shuffledKeys.forEach((realKey) => {
+                // Hanya render jika isi opsi benar-benar ada
                 if(s.opsi[realKey]) {
-                  const visualLabel = labelUrut[i]; 
-                  const active = App.data.jawabanSiswa[s.id] === realKey ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white hover:bg-gray-50';
-                  ops.insertAdjacentHTML('beforeend', `<div onclick="App.Exam.pilih('${s.id}','${realKey}')" class="cursor-pointer border rounded p-3 flex gap-3 items-center transition ${active}"><span class="font-bold w-6 text-center shrink-0 border-r pr-2">${visualLabel}</span><span class="text-sm md:text-base pl-2">${s.opsi[realKey]}</span></div>`);
+                  // Ambil label berdasarkan urutan visual yang valid (0=A, 1=B, dst)
+                  const visualLabel = labelUrut[visualIndex]; 
+                  visualIndex++; // Naikkan penghitung hanya setelah render berhasil
+
+                  const isActive = App.data.jawabanSiswa[s.id] === realKey 
+                      ? 'bg-indigo-600 text-white border-indigo-600' 
+                      : 'bg-white hover:bg-gray-50 text-gray-700';
+                  
+                  ops.insertAdjacentHTML('beforeend', `
+                    <div onclick="App.Exam.pilih('${s.id}','${realKey}')" class="cursor-pointer border rounded-lg p-3 flex gap-3 items-center transition shadow-sm mb-2 ${isActive}">
+                        <div class="w-8 h-8 flex items-center justify-center rounded-full font-bold border shrink-0 ${isActive.includes('bg-white') ? 'bg-gray-100 text-gray-600 border-gray-200' : 'bg-white text-indigo-600 border-white'}">
+                            ${visualLabel}
+                        </div>
+                        <div class="flex-1 text-sm md:text-base">
+                            ${s.opsi[realKey]}
+                        </div>
+                    </div>
+                  `);
                 }
               });
           } else if (s.tipe === 'BS') {
@@ -1358,13 +1378,19 @@
                  // Berhasil
                  Swal.fire({
                      title: 'Ujian Selesai!', 
-                     text: `Nilai Anda: ${res.nilai}`, 
+                     // PERBAIKAN 1: Teks diubah, tidak menampilkan res.nilai lagi
+                     text: 'Jawaban Anda telah tersimpan ke sistem. Terima kasih.', 
                      icon: 'success',
                      confirmButtonText: 'Kembali ke Dashboard',
                      allowOutsideClick: false
                  }).then(() => {
-                     // Reload Halaman Utama -> Otomatis kembali ke Dashboard -> Status jadi Selesai
-                     google.script.run.withSuccessHandler(url => window.top.location.href = url).getScriptUrl();
+                     // PERBAIKAN 2: Reload Instan menggunakan URL yang sudah disimpan di awal
+                     if(App.data.scriptUrl) {
+                        window.top.location.href = App.data.scriptUrl;
+                     } else {
+                        // Fallback (Jaga-jaga jika url belum terambil, baru reload manual)
+                        window.top.location.reload();
+                     }
                  });
              } else { 
                  Swal.fire('Gagal Menyimpan', res.message + '. Silakan lapor pengawas.', 'error'); 
@@ -1733,9 +1759,12 @@
                 const configStr = encodeURIComponent(JSON.stringify({ durasi: j.durasi, acakSoal: j.acak_soal, acakOpsi: j.acak_opsi }));
 
                 if (j.status_personal === 'SELESAI') {
-                    cardColor = "border-l-4 border-green-500 opacity-75";
-                    statusBadge = '<span class="bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-bold"><i class="fas fa-check-circle"></i> SELESAI</span>';
-                    btnAction = '<span class="text-sm font-bold text-green-600">Nilai Tersimpan</span>';
+                    cardColor = "border-l-4 border-green-500 bg-green-50/30"; // Sedikit background hijau transparan
+                    
+                    statusBadge = '<span class="bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-bold"><i class="fas fa-check-circle"></i> SELESAI MENGERJAKAN</span>';
+                    
+                    // Tombol berubah jadi teks biasa warna hijau tebal
+                    btnAction = '<div class="px-5 py-2 font-black text-green-600 tracking-wider text-lg">SELESAI</div>';
                 } 
                 else if (j.status_personal === 'SEDANG') {
                     cardColor = "border-l-4 border-yellow-500 ring-1 ring-yellow-200";
@@ -2366,5 +2395,13 @@
      }
   }, 60 * 1000);
 
-  window.addEventListener('load', App.Auth.checkSession);
+  window.addEventListener('load', () => {
+      App.Auth.checkSession();
+      
+      // PERBAIKAN: Ambil URL Web App sekarang, simpan untuk dipakai nanti.
+      // Ini menghilangkan jeda waktu saat reload selesai ujian.
+      google.script.run.withSuccessHandler(url => {
+          App.data.scriptUrl = url;
+      }).getScriptUrl();
+  });
 </script>
