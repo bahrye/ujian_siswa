@@ -257,25 +257,43 @@ function hapusSoalDb(idSoal) {
 }
 
 // ==========================================
-// API 3: SISWA - AMBIL SOAL
+// API 3: SISWA - AMBIL SOAL (DIPERBAIKI)
 // ==========================================
 function getSoalUjian(kodeMapel) {
   try {
     const ss = SpreadsheetApp.openById(SS_ID);
     const sheet = ss.getSheetByName("DB_Soal");
+    
+    // Validasi jika sheet tidak ada
+    if (!sheet) {
+      return { status: 'error', message: 'Database Soal (DB_Soal) tidak ditemukan!' };
+    }
+
     const data = sheet.getDataRange().getValues();
-    data.shift(); 
+    data.shift(); // Hapus Header
 
     let soalList = [];
     
+    // Normalisasi input mapel (hilangkan spasi, jadikan huruf kecil)
+    const targetMapel = kodeMapel ? kodeMapel.toString().trim().toLowerCase() : "";
+
     for (let i = 0; i < data.length; i++) {
       let row = data[i];
-      // Cek Kode Mapel (Case Insensitive)
-      if (row[1].toString().toLowerCase() === kodeMapel.toLowerCase()) {
+      
+      // Ambil kode mapel dari Database dan normalisasi
+      let dbMapel = row[1] ? row[1].toString().trim().toLowerCase() : "";
+
+      // Cek Kesamaan Kode Mapel
+      if (dbMapel === targetMapel) {
         
-        // Parse JSON Opsi
+        // Parse JSON Opsi dengan aman
         let opsiObj = {};
-        try { opsiObj = JSON.parse(row[5]); } catch (e) {}
+        try { 
+          opsiObj = JSON.parse(row[5]); 
+        } catch (e) {
+          // Jika opsi bukan JSON valid, biarkan kosong atau handle manual
+          console.log("Error parsing opsi soal ID: " + row[0]);
+        }
 
         soalList.push({
           id: row[0],
@@ -283,19 +301,20 @@ function getSoalUjian(kodeMapel) {
           pertanyaan: row[3],
           gambar: row[4],
           opsi: opsiObj 
-          // Kunci jawaban TIDAK dikirim ke frontend demi keamanan
+          // PENTING: Kunci jawaban (row[6]) TIDAK dikirim ke frontend
         });
       }
     }
 
+    // Jika tidak ada soal yang cocok
     if (soalList.length === 0) {
-      return { status: 'error', message: 'Soal tidak ditemukan untuk Mapel: ' + kodeMapel };
+      return { status: 'error', message: 'Soal tidak ditemukan untuk Mapel: ' + kodeMapel + '. Pastikan Kode Mapel di "Bank Soal" sama persis dengan di "Jadwal Ujian".' };
     }
 
     return { status: 'success', data: soalList };
 
   } catch (e) {
-    return { status: 'error', message: e.toString() };
+    return { status: 'error', message: 'Server Error: ' + e.toString() };
   }
 }
 
