@@ -1109,145 +1109,147 @@
           }).getSoalUjian(kode);
       },
 
-      render: function(idx) {
-          App.data.currentSoalIdx = idx; 
-          const s = App.data.soalList[idx];
-          const totalSoal = App.data.soalList.length;
-          
-          document.getElementById('disp-no').innerText = idx + 1;
-          document.getElementById('disp-pertanyaan').innerHTML = s.pertanyaan; 
-
-          const imgCont = document.getElementById('disp-gambar-container'); 
-          const img = document.getElementById('disp-gambar');
-          if(s.gambar) { imgCont.classList.remove('hidden'); img.src = s.gambar; } else { imgCont.classList.add('hidden'); }
-          
-          const ops = document.getElementById('disp-opsi'); 
-          ops.innerHTML = '';
-
-          // RENDER OPSI (PG / BS / ESSAY) - Kode tetap sama
-          const labelUrut = ['A','B','C','D','E'];
-          if(s.tipe === 'PG') {
-              const labelUrut = ['A','B','C','D','E']; 
-              let visualIndex = 0; // <--- PENGHITUNG MANUAL (KUNCI PERBAIKANNYA)
-
-              s.shuffledKeys.forEach((realKey) => {
-                // Hanya render jika isi opsi benar-benar ada
-                if(s.opsi[realKey]) {
-                  // Ambil label berdasarkan urutan visual yang valid (0=A, 1=B, dst)
-                  const visualLabel = labelUrut[visualIndex]; 
-                  visualIndex++; // Naikkan penghitung hanya setelah render berhasil
-
-                  const isActive = App.data.jawabanSiswa[s.id] === realKey 
-                      ? 'bg-indigo-600 text-white border-indigo-600' 
-                      : 'bg-white hover:bg-gray-50 text-gray-700';
-                  
-                  ops.insertAdjacentHTML('beforeend', `
-                    <div onclick="App.Exam.pilih('${s.id}','${realKey}')" class="cursor-pointer border rounded-lg p-3 flex gap-3 items-center transition shadow-sm mb-2 ${isActive}">
-                        <div class="w-8 h-8 flex items-center justify-center rounded-full font-bold border shrink-0 ${isActive.includes('bg-white') ? 'bg-gray-100 text-gray-600 border-gray-200' : 'bg-white text-indigo-600 border-white'}">
-                            ${visualLabel}
-                        </div>
-                        <div class="flex-1 text-sm md:text-base">
-                            ${s.opsi[realKey]}
-                        </div>
-                    </div>
-                  `);
-                }
-              });
-          } else if (s.tipe === 'BS') {
-              ['A','B'].forEach(h => {
-                  const val = h==='A'?'BENAR':'SALAH';
-                  const active = App.data.jawabanSiswa[s.id] === val ? 'bg-indigo-600 text-white' : 'bg-white';
-                  ops.insertAdjacentHTML('beforeend', `<div onclick="App.Exam.pilih('${s.id}','${val}')" class="cursor-pointer border rounded p-3 font-bold ${active}">${val}</div>`);
-              });
+      // 1. Fungsi Baru: Toggle Sidebar Mobile
+      toggleNavMobile: function() {
+          const sidebar = document.getElementById('exam-sidebar');
+          // Cek apakah sedang hidden
+          if (sidebar.classList.contains('hidden')) {
+              // BUKA: Hapus hidden, pastikan styling fixed overlay
+              sidebar.classList.remove('hidden');
+              sidebar.classList.add('flex', 'fixed', 'inset-0', 'z-50');
           } else {
-              const val = App.data.jawabanSiswa[s.id] || '';
-              ops.innerHTML = `<textarea onkeyup="App.Exam.pilih('${s.id}', this.value)" class="w-full border rounded p-2 h-32 focus:ring-2 ring-indigo-500 outline-none">${val}</textarea>`;
-          }
-
-          App.Exam.renderGrid();
-
-          // === LOGIKA TOMBOL NEXT / SELESAI (BARU) ===
-          const btnNextContainer = document.getElementById('nav-buttons');
-          // Cari tombol Next (asumsi tombol terakhir di container)
-          // Kita cari berdasarkan onclick atau buat ID khusus. 
-          // Agar aman, kita update HTML tombol Next di fungsi loadSoal/HTML, 
-          // atau kita manipulasi children terakhir:
-          
-          const btnNext = btnNextContainer.lastElementChild; 
-          
-          if (idx === totalSoal - 1) {
-              // Jika Soal Terakhir: Ubah jadi SELESAI
-              btnNext.innerHTML = 'Selesai <i class="fas fa-check-circle"></i>';
-              btnNext.className = "px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-bold w-24 shadow-md transition";
-              btnNext.onclick = function() { App.Exam.finish(); }; // Panggil Finish
-          } else {
-              // Jika Bukan Soal Terakhir: Ubah jadi NEXT
-              btnNext.innerHTML = 'Next <i class="fas fa-chevron-right"></i>';
-              btnNext.className = "px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-bold w-24 shadow-md transition";
-              btnNext.onclick = function() { App.Exam.next(); }; // Panggil Next
+              // TUTUP: Kembalikan ke hidden (untuk mobile)
+              sidebar.classList.add('hidden');
+              sidebar.classList.remove('fixed', 'inset-0', 'z-50');
           }
       },
 
+      // 2. Update Fungsi Render (Agar Icon Status Muncul)
+      render: function(idx) {
+            App.data.currentSoalIdx = idx; 
+            const s = App.data.soalList[idx];
+            const totalSoal = App.data.soalList.length;
+            
+            document.getElementById('disp-no').innerText = idx + 1;
+            document.getElementById('disp-pertanyaan').innerHTML = s.pertanyaan; 
+
+            // --- UPDATE LOGIKA ICON STATUS (KUNING/HIJAU) ---
+            const iconContainer = document.getElementById('soal-status-icon');
+            iconContainer.innerHTML = ''; // Reset
+
+            // Cek Ragu
+            if (App.data.raguSiswa[s.id]) {
+                iconContainer.innerHTML += `<span class="flex items-center gap-1 text-yellow-600 bg-yellow-100 px-2 py-1 rounded text-xs font-bold border border-yellow-200 animate-pulse"><i class="fas fa-bookmark"></i> Ragu-ragu</span>`;
+            } 
+            // Cek Sudah Dijawab (dan tidak ragu)
+            else if (App.data.jawabanSiswa[s.id]) {
+                iconContainer.innerHTML += `<span class="flex items-center gap-1 text-green-600 bg-green-100 px-2 py-1 rounded text-xs font-bold border border-green-200"><i class="fas fa-check-circle"></i> Terjawab</span>`;
+            } else {
+                iconContainer.innerHTML += `<span class="text-gray-400 text-xs italic">Belum dijawab</span>`;
+            }
+            // ------------------------------------------------
+
+            const imgCont = document.getElementById('disp-gambar-container'); 
+            const img = document.getElementById('disp-gambar');
+            if(s.gambar) { imgCont.classList.remove('hidden'); img.src = s.gambar; } else { imgCont.classList.add('hidden'); }
+            
+            const ops = document.getElementById('disp-opsi'); 
+            ops.innerHTML = '';
+
+            // RENDER OPSI (Sama seperti sebelumnya, tapi dipercantik sedikit CSS-nya)
+            const labelUrut = ['A','B','C','D','E'];
+            if(s.tipe === 'PG') {
+                let visualIndex = 0; 
+                s.shuffledKeys.forEach((realKey) => {
+                  if(s.opsi[realKey]) {
+                    const visualLabel = labelUrut[visualIndex]; 
+                    visualIndex++; 
+
+                    const isSelected = App.data.jawabanSiswa[s.id] === realKey;
+                    // Styling dinamis
+                    const baseClass = "cursor-pointer border-2 rounded-xl p-3 flex gap-4 items-center transition-all duration-200 shadow-sm mb-2 group";
+                    const activeClass = isSelected 
+                        ? 'bg-indigo-50 border-indigo-600 ring-1 ring-indigo-500' 
+                        : 'bg-white border-gray-200 hover:border-indigo-300 hover:bg-gray-50';
+                    
+                    const circleClass = isSelected
+                        ? 'bg-indigo-600 text-white border-indigo-600'
+                        : 'bg-gray-100 text-gray-500 border-gray-200 group-hover:border-indigo-300 group-hover:text-indigo-600';
+
+                    ops.insertAdjacentHTML('beforeend', `
+                      <div onclick="App.Exam.pilih('${s.id}','${realKey}')" class="${baseClass} ${activeClass}">
+                          <div class="w-10 h-10 flex items-center justify-center rounded-full font-bold border-2 text-lg shrink-0 transition-colors ${circleClass}">
+                              ${visualLabel}
+                          </div>
+                          <div class="flex-1 text-gray-700 text-sm md:text-base leading-snug">
+                              ${s.opsi[realKey]}
+                          </div>
+                          ${isSelected ? '<div class="text-indigo-600"><i class="fas fa-check-circle text-xl"></i></div>' : ''}
+                      </div>
+                    `);
+                  }
+                });
+            } else if (s.tipe === 'BS') {
+                ['A','B'].forEach(h => {
+                    const val = h==='A'?'BENAR':'SALAH';
+                    const isSel = App.data.jawabanSiswa[s.id] === val;
+                    const theme = val === 'BENAR' ? 'green' : 'red';
+                    const active = isSel 
+                        ? `bg-${theme}-600 text-white border-${theme}-600 shadow-lg transform scale-[1.02]` 
+                        : `bg-white text-gray-600 hover:bg-${theme}-50 border-gray-200`;
+                    
+                    ops.insertAdjacentHTML('beforeend', `<div onclick="App.Exam.pilih('${s.id}','${val}')" class="cursor-pointer border-2 rounded-lg p-4 font-bold text-center transition-all ${active}">${val}</div>`);
+                });
+            } else {
+                const val = App.data.jawabanSiswa[s.id] || '';
+                ops.innerHTML = `<textarea onkeyup="App.Exam.pilih('${s.id}', this.value)" class="w-full border-2 border-gray-300 rounded-lg p-3 h-40 focus:ring-4 ring-indigo-100 focus:border-indigo-500 outline-none transition text-gray-700" placeholder="Ketik jawaban Anda di sini...">${val}</textarea>`;
+            }
+
+            App.Exam.renderGrid();
+
+            // Update Tombol Next
+            const btnNext = document.getElementById('btn-next-soal'); // Gunakan ID spesifik
+            if (btnNext) {
+              if (idx === totalSoal - 1) {
+                    btnNext.innerHTML = 'Selesai <i class="fas fa-check-circle"></i>';
+                    btnNext.className = "px-4 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-bold w-28 flex items-center justify-center gap-2 shadow-md transition";
+                    btnNext.onclick = function() { App.Exam.finish(); }; 
+              } else {
+                    btnNext.innerHTML = 'Next <i class="fas fa-arrow-right"></i>';
+                    btnNext.className = "px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-bold w-28 flex items-center justify-center gap-2 shadow-md transition";
+                    btnNext.onclick = function() { App.Exam.next(); }; 
+              }
+            }
+      },
+
+      // 3. Update Fungsi Pilih (Agar icon langsung berubah tanpa delay)
       pilih: function(id, val) { 
-          // 1. Update State Lokal (Agar UI langsung berubah)
-          App.data.jawabanSiswa[id] = val; 
-          
-          // 2. Update Grid Navigasi (Agar warna nomor berubah)
-          App.Exam.renderGrid(); 
-          
-          // Jika soal tipe PG/BS, update UI opsi aktif tanpa render ulang seluruh soal (agar tidak kedip)
-          const currentSoal = App.data.soalList.find(s => s.id === id);
-          if(currentSoal && (currentSoal.tipe === 'PG' || currentSoal.tipe === 'BS')) {
-              // Hapus kelas aktif dari semua opsi di soal ini
-              // (Implementasi sederhana: render ulang opsi saja jika mau, atau biarkan render ulang soal)
-              // Untuk konsistensi visual yang cepat, kita biarkan logic render ulang soal jika perlu, 
-              // tapi biasanya render ulang soal (App.Exam.render) akan memutuskan fokus input essay.
-              // Jadi kita cek: jika Essay jangan render ulang soal.
-              if(currentSoal.tipe !== 'ESSAY' && currentSoal.tipe !== 'ISIAN') {
-                 // Tidak perlu render ulang full jika hanya klik opsi, tapi kode lama me-render ulang.
-                 // Kita biarkan render ulang untuk PG/BS agar visual update.
-                 // Tapi UNTUK ESSAY JANGAN RENDER ULANG (nanti keyboard close di HP).
-                 // Logic render ada di luar fungsi pilih di kode lama? 
-                 // Di kode sebelumnya, pilih() tidak memanggil render() kecuali untuk update UI.
-                 // Kita update UI opsi manual atau panggil render() hanya untuk PG.
-                 // Di kode render() sebelumnya saya melihat ada onclick="...render()..."
-                 // Mari kita update UI via DOM manipulation sederhana atau panggil render jika bukan essay.
-                 // (Untuk keamanan, panggil render jika bukan essay/isian)
-              }
-          }
+            App.data.jawabanSiswa[id] = val; 
+            
+            // Jika soal tipe PG/BS, render ulang UI penuh agar icon dan style opsi terupdate
+            // (Untuk Essay, kita hindari render ulang agar keyboard tidak menutup)
+            const currentSoal = App.data.soalList[App.data.currentSoalIdx];
+            if(currentSoal.tipe !== 'ESSAY' && currentSoal.tipe !== 'ISIAN') {
+                App.Exam.render(App.data.currentSoalIdx);
+            } else {
+                // Khusus Essay: Cukup update icon status di header saja secara manual jika mau, 
+                // atau biarkan update saat pindah soal. 
+            }
 
-          // 3. LOGIKA AUTO-SAVE REALTIME (THE MAGIC)
-          const username = App.data.user ? App.data.user.username : JSON.parse(sessionStorage.getItem('cbt_session')).data.username;
-          const idJadwal = App.data.activeJadwalId;
-          
-          // Fungsi Pembantu untuk mengirim data
-          const executeSave = () => {
-              const jawabanJson = JSON.stringify(App.data.jawabanSiswa);
-              google.script.run
-                  .withFailureHandler(e => console.error("Gagal AutoSave", e)) // Silent fail (hanya console)
-                  .simpanProgressSiswa(username, idJadwal, jawabanJson);
-          };
+            // Auto Save Logic (Tetap sama)
+            const username = App.data.user ? App.data.user.username : JSON.parse(sessionStorage.getItem('cbt_session')).data.username;
+            const idJadwal = App.data.activeJadwalId;
+            const executeSave = () => {
+                const jawabanJson = JSON.stringify(App.data.jawabanSiswa);
+                google.script.run.withFailureHandler(e => console.error(e)).simpanProgressSiswa(username, idJadwal, jawabanJson);
+            };
 
-          // 4. CEK TIPE SOAL UNTUK STRATEGI PENYIMPANAN
-          if (currentSoal && (currentSoal.tipe === 'ESSAY' || currentSoal.tipe === 'ISIAN')) {
-              // STRATEGI DEBOUNCE (Tunda Simpan)
-              // Jika user masih mengetik, batalkan simpan sebelumnya
-              if (App.data.saveTimeout) clearTimeout(App.data.saveTimeout);
-              
-              // Tunggu 1 detik (1000ms) setelah ketikan terakhir, baru kirim ke server
-              App.data.saveTimeout = setTimeout(() => {
-                  executeSave();
-              }, 1000); 
-          } else {
-              // STRATEGI INSTANT (Langsung Simpan)
-              // Untuk PG/BS/Cocok, langsung kirim saat diklik
-              executeSave();
-              
-              // Render ulang UI agar terlihat terpilih (Khusus PG/BS)
-              if (currentSoal.tipe !== 'ESSAY' && currentSoal.tipe !== 'ISIAN') {
-                 App.Exam.render(App.data.currentSoalIdx);
-              }
-          }
+            if (currentSoal && (currentSoal.tipe === 'ESSAY' || currentSoal.tipe === 'ISIAN')) {
+                if (App.data.saveTimeout) clearTimeout(App.data.saveTimeout);
+                App.data.saveTimeout = setTimeout(() => { executeSave(); }, 1000); 
+            } else {
+                executeSave();
+            }
       },
       
       next: function() { 
@@ -1267,10 +1269,14 @@
       },
 
       prev: function() { if(App.data.currentSoalIdx > 0) App.Exam.render(App.data.currentSoalIdx-1); },
+
+      // 4. Update Toggle Ragu (Refresh Icon)
       toggleRagu: function() { 
-          const id = App.data.soalList[App.data.currentSoalIdx].id; 
-          if(App.data.raguSiswa[id]) delete App.data.raguSiswa[id]; else App.data.raguSiswa[id] = true; 
-          App.Exam.render(App.data.currentSoalIdx); // Refresh grid & UI
+            const id = App.data.soalList[App.data.currentSoalIdx].id; 
+            if(App.data.raguSiswa[id]) delete App.data.raguSiswa[id]; else App.data.raguSiswa[id] = true; 
+            
+            // Render ulang halaman saat ini untuk update icon kuning
+            App.Exam.render(App.data.currentSoalIdx); 
       },
       
       // Update Render Grid (Nomor Soal)
