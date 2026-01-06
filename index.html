@@ -780,6 +780,10 @@
        <div class="max-w-md w-full">
          <i class="fas fa-lock text-5xl mb-4 animate-bounce"></i>
          <h2 class="text-2xl font-bold mb-2">TERKUNCI!</h2>
+         
+         <div id="lock-timer" class="text-4xl font-mono font-bold text-yellow-300 my-4 tracking-widest border-2 border-red-700 bg-red-800 rounded-lg py-2 inline-block px-6 shadow-inner">
+            --:--
+         </div>
          <p id="lock-reason" class="mb-4 text-red-200">Keluar aplikasi.</p>
          <input type="password" id="token-unlock" class="w-full p-3 text-black text-center text-xl font-bold rounded-lg mb-4 outline-none focus:ring-4 ring-red-500" placeholder="TOKEN PENGAWAS">
          <button onclick="App.Security.unlock()" id="btnUnlock" class="w-full py-3 bg-white text-red-900 font-bold rounded-lg shadow-lg">BUKA KUNCI</button>
