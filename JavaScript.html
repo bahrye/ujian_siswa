@@ -210,16 +210,36 @@
       },
 
       loadOptionsMapel: function() {
+         // Cek Role User
+         const user = App.data.user || JSON.parse(sessionStorage.getItem('cbt_session')).data;
+         const role = user.role.toLowerCase();
+         const nama = user.nama;
+
+         // Handler Rendering (Dipisah agar rapi)
+         const handleData = (data) => {
+            App.Cache.set('mapel_opts', data); // Simpan daftar mapel yg diizinkan ke cache
+            App.BankSoal.renderOptionsMapel(data);
+            App.BankSoal.loadDaftar(); // Load soal setelah mapel siap
+         };
+
+         // Gunakan Cache jika ada
          if(App.Cache.get('mapel_opts')) {
-             App.BankSoal.renderOptionsMapel(App.Cache.get('mapel_opts'));
-             App.BankSoal.loadDaftar();
+             handleData(App.Cache.get('mapel_opts'));
              return;
          }
-         google.script.run.withSuccessHandler(data => {
-            App.Cache.set('mapel_opts', data);
-            App.BankSoal.renderOptionsMapel(data);
-            App.BankSoal.loadDaftar();
-         }).getAllMapel();
+
+         // Panggil Server Sesuai Role
+         if (role === 'guru') {
+             // KHUSUS GURU: Ambil mapel miliknya saja
+             google.script.run.withSuccessHandler(data => {
+                handleData(data);
+             }).getMapelByGuru(nama);
+         } else {
+             // ADMIN: Ambil semua mapel
+             google.script.run.withSuccessHandler(data => {
+                handleData(data);
+             }).getAllMapel();
+         }
       },
 
       renderOptionsMapel: function(data) {
@@ -261,15 +281,29 @@
       renderTable: function(data) {
         const tbody = document.getElementById('tbody-soal');
         tbody.innerHTML = '';
+        
         if (data.length === 0) { tbody.innerHTML = '<tr><td colspan="5" class="p-8 text-center text-gray-400">Tidak ada soal.</td></tr>'; return; }
         
+        // --- LOGIKA FILTER CLIENT-SIDE (KHUSUS GURU) ---
+        // Kita hanya tampilkan soal jika Kode Mapel-nya ada di daftar mapel guru
+        const allowedMapels = App.Cache.get('mapel_opts') || [];
+        const isGuru = App.data.role === 'guru';
+        
+        // Buat Set kode mapel yg diizinkan agar pencarian cepat
+        const allowedCodes = new Set(allowedMapels.map(m => m.kode));
+
+        let count = 0;
+
         data.forEach((s, idx) => {
+             // JIKA GURU: Skip soal jika mapelnya tidak ada di daftar izin
+             if (isGuru && !allowedCodes.has(s.mapel)) return;
+
+             count++;
              const tmp = document.createElement("DIV"); tmp.innerHTML = s.soal;
              let snippet = tmp.textContent || tmp.innerText || "";
              if(snippet.length > 50) snippet = snippet.substring(0, 50) + "...";
              if(s.soal.includes('<img')) snippet = "📷 " + snippet;
              
-             // Tampilan Bobot (Badge Kecil)
              let badgeBobot = "";
              if(s.bobot) {
                 badgeBobot = `<span class="ml-2 bg-yellow-100 text-yellow-700 text-[10px] px-1.5 py-0.5 rounded border border-yellow-200" title="Bobot Nilai"><i class="fas fa-weight-hanging"></i> ${s.bobot}</span>`;
@@ -277,23 +311,28 @@
 
              const dataStr = encodeURIComponent(JSON.stringify(s));
              const row = `
-               <tr class="hover:bg-slate-50 border-b border-gray-100">
-                 <td class="p-4 text-center font-bold text-gray-500">${idx+1}</td>
+               <tr class="hover:bg-slate-50 border-b border-gray-100 animate__animated animate__fadeIn">
+                 <td class="p-4 text-center font-bold text-gray-500">${count}</td>
                  <td class="p-4">
                     <span class="bg-indigo-100 text-indigo-800 text-xs px-2 py-1 rounded font-bold">${s.tipe}</span>
-                    <br><span class="text-xs text-gray-400">${s.mapel}</span>
+                    <br><span class="text-xs text-gray-400 font-mono mt-1 inline-block">${s.mapel}</span>
                  </td>
                  <td class="p-4 text-gray-700 font-medium">
                     ${snippet} ${badgeBobot}
                  </td>
                  <td class="p-4 font-mono text-sm text-emerald-600 font-bold">${s.kunci || '-'}</td>
                  <td class="p-4 text-right">
-                   <button onclick="App.BankSoal.edit('${dataStr}')" class="text-blue-600 mr-3"><i class="fas fa-edit"></i></button>
-                   <button onclick="App.BankSoal.hapus('${s.id}')" class="text-red-500"><i class="fas fa-trash"></i></button>
+                   <button onclick="App.BankSoal.edit('${dataStr}')" class="text-blue-600 mr-3 hover:text-blue-800 transition"><i class="fas fa-edit"></i></button>
+                   <button onclick="App.BankSoal.hapus('${s.id}')" class="text-red-500 hover:text-red-700 transition"><i class="fas fa-trash"></i></button>
                  </td>
                </tr>`;
              tbody.insertAdjacentHTML('beforeend', row);
         });
+
+        // Jika setelah difilter ternyata kosong
+        if (count === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" class="p-8 text-center text-gray-400">Tidak ada soal untuk mapel Anda.</td></tr>';
+        }
       },
 
       submit: function(e) {
@@ -2079,12 +2118,13 @@
           }).getStudentDashboardData(user.username, user.kelas); 
        },
 
-       // --- SINGLE INTERVAL FOR ALL TIMERS ---
+       // --- SINGLE INTERVAL FOR ALL TIMERS (UPDATED) ---
        startDashboardTimer: function(liveTimers, upcomingExams) {
            const update = () => {
                const now = Date.now();
 
                // 1. Update Sisa Waktu (SEDANG / TERKUNCI)
+               // (Bagian ini tidak berubah, hanya render sisa waktu pengerjaan)
                liveTimers.forEach(t => {
                    const el = document.getElementById(`dash-time-${t.id}`);
                    if (el) {
@@ -2101,34 +2141,46 @@
                    }
                });
 
-               // 2. Update Jadwal Masuk (BELUM MULAI -> MULAI)
+               // 2. Update Jadwal Masuk (BELUM MULAI -> MULAI) & COUNTDOWN 30 DETIK
                // Loop reverse agar aman saat splice (hapus array)
                for (let i = upcomingExams.length - 1; i >= 0; i--) {
                    const u = upcomingExams[i];
+                   
+                   // Hitung selisih waktu (detik) menuju jam mulai
+                   // Math.ceil agar hitungannya: 30, 29, ..., 1 (bukan desimal)
+                   const diffSeconds = Math.ceil((u.start - now) / 1000);
+                   const btnWrap = document.getElementById(`btn-wrap-${u.id}`);
+
+                   // KONDISI A: WAKTU SUDAH MASUK (Start)
                    if (now >= u.start) {
-                       // WAKTU MASUK! Update UI
-                       const btnWrap = document.getElementById(`btn-wrap-${u.id}`);
-                       const card = document.getElementById(`card-ujian-${u.id}`);
-                       
-                       // A. Ganti Tombol
+                       // Update Tombol jadi "MULAI"
                        if(btnWrap) {
-                           // Efek animasi fadeIn
+                           // Efek animasi bounce agar menarik perhatian
                            btnWrap.innerHTML = `<button onclick="App.Siswa.actionMulai('${u.kode}', '${u.id}', '${u.config}', true)" class="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold shadow text-sm transition animate-bounce">MULAI MENGERJAKAN</button>`;
                        }
 
-                       // B. Ganti Warna Kartu (Abu -> Indigo)
+                       // Ganti Warna Kartu (Abu -> Indigo)
+                       const card = document.getElementById(`card-ujian-${u.id}`);
                        if(card) {
                            card.classList.remove('border-gray-400');
                            card.classList.add('border-indigo-500', 'shadow-md');
                        }
 
-                       // C. Notifikasi Kecil (Opsional)
+                       // Notifikasi Kecil
                        const Toast = Swal.mixin({toast: true, position: 'top-end', showConfirmButton: false, timer: 3000});
                        Toast.fire({icon: 'info', title: `Ujian ${u.kode} telah dimulai!`});
 
                        // Hapus dari daftar pantau agar tidak dieksekusi terus menerus
                        upcomingExams.splice(i, 1);
+                   } 
+                   // KONDISI B: HITUNG MUNDUR 30 DETIK TERAKHIR
+                   else if (diffSeconds <= 30 && diffSeconds > 0) {
+                       if (btnWrap) {
+                           // Update Teks Tombol menjadi Countdown (Warna Orange)
+                           btnWrap.innerHTML = `<button disabled class="px-4 py-2 bg-orange-100 text-orange-600 border border-orange-200 rounded-lg font-bold cursor-not-allowed text-sm w-full md:w-auto transition-all duration-200"><i class="fas fa-stopwatch animate-pulse"></i> Ujian Dimulai Dalam ${diffSeconds} detik</button>`;
+                       }
                    }
+                   // (Opsional) Jika masih > 30 detik, biarkan teks default "Menunggu Jadwal..." dari loadDashboard
                }
            };
 
