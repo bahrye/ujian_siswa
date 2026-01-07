@@ -1581,13 +1581,28 @@ function pancingIzin() {
 }
 
 // ==========================================
-// UPDATE FUNGSI: getStudentDashboardData (Sisa Waktu untuk STARTED & LOCKED)
+// UPDATE FUNGSI: getStudentDashboardData (Dengan Nama Lengkap Pengawas)
 // ==========================================
 function getStudentDashboardData(username, kelasSiswa) {
   try {
     const ss = SpreadsheetApp.openById(SS_ID);
     const sheetJadwal = ss.getSheetByName("DB_Jadwal");
     const sheetNilai = ss.getSheetByName("DB_Nilai");
+    
+    // 1. [BARU] Ambil Data User untuk Mapping Username -> Nama Lengkap
+    const sheetUser = ss.getSheetByName("Users");
+    let mapPengawas = {};
+    
+    if (sheetUser) {
+       const dataUser = sheetUser.getDataRange().getValues();
+       dataUser.shift(); // Skip Header
+       // Loop untuk buat kamus: { "username1": "Budi Santoso", "username2": "Siti Aminah" }
+       dataUser.forEach(u => {
+          const uName = u[1] ? u[1].toString().trim() : "";
+          const uFull = u[4] ? u[4].toString().trim() : "";
+          if(uName) mapPengawas[uName] = uFull;
+       });
+    }
     
     let jadwalList = [];
     
@@ -1606,9 +1621,21 @@ function getStudentDashboardData(username, kelasSiswa) {
           if (targetKelas.toLowerCase() === 'semua' || (kelasSiswa && targetKelas === kelasSiswa)) {
              const m = mapelList.find(x => x.kode === row[2]);
              const j = jenisList.find(x => x.id === row[1]);
-             // Konversi tanggal aman
+             
              const tMulai = row[3] instanceof Date ? row[3].toISOString() : row[3];
              const tSelesai = row[4] instanceof Date ? row[4].toISOString() : row[4];
+  
+             // 2. [BARU] Logika Ganti Username ke Nama Lengkap
+             let pengawasRaw = row[6] ? row[6].toString().trim() : "";
+             let pengawasDisplay = "-";
+
+             if (pengawasRaw.toLowerCase() === 'semua') {
+                 pengawasDisplay = "Semua Pengawas";
+             } else if (mapPengawas[pengawasRaw]) {
+                 pengawasDisplay = mapPengawas[pengawasRaw]; // Pakai Nama Lengkap
+             } else {
+                 pengawasDisplay = pengawasRaw; // Fallback ke username jika nama tidak ketemu
+             }
   
              jadwalList.push({
                id: row[0],
@@ -1617,7 +1644,7 @@ function getStudentDashboardData(username, kelasSiswa) {
                nama_mapel: m ? m.nama : row[2],
                mulai: tMulai,
                selesai: tSelesai,
-               pengawas: row[6] || '-',
+               pengawas: pengawasDisplay, // <--- Ini sekarang berisi Nama Lengkap
                durasi: row[8] || 60,
                acak_soal: row[9],
                acak_opsi: row[10]
@@ -1627,12 +1654,12 @@ function getStudentDashboardData(username, kelasSiswa) {
       });
     }
   
-    // B. Cek Status Personal Siswa
+    // B. Cek Status Personal Siswa (Kode Lama - Tidak Berubah)
     const dataNilai = sheetNilai ? sheetNilai.getDataRange().getValues() : [];
     const props = PropertiesService.getScriptProperties();
   
     let namaSiswa = "";
-    const sheetUser = ss.getSheetByName("Users");
+    // Cari nama siswa login untuk pencocokan nilai (fallback)
     if(sheetUser) {
        const dataUser = sheetUser.getDataRange().getValues();
        for(let u of dataUser) { 
@@ -1641,7 +1668,11 @@ function getStudentDashboardData(username, kelasSiswa) {
     }
   
     const finalResult = jadwalList.map(j => {
-        const isFinishedDB = dataNilai.some(n => n[2] === namaSiswa && n[1].toString() === j.id.toString());
+        // Cek Nilai berdasarkan Username (Prioritas) atau Nama
+        const isFinishedDB = dataNilai.some(n => 
+            (n[2] && n[2].toString() === username && n[1].toString() === j.id.toString()) || // Cek Username
+            (n[2] && n[2].toString() === namaSiswa && n[1].toString() === j.id.toString())   // Cek Nama (Legacy)
+        );
         
         const stateKey = `STATUS_${username}_${j.id}`;
         const stateVal = props.getProperty(stateKey);
@@ -1649,7 +1680,6 @@ function getStudentDashboardData(username, kelasSiswa) {
         let personalStatus = 'BELUM';
         let sisaDetik = 0; 
 
-        // --- LOGIC BARU: Hitung Waktu ---
         const hitungSisa = () => {
            const endKey = `ENDTIME_${username}_${j.id}`;
            const endTimeStr = props.getProperty(endKey);
@@ -1666,10 +1696,10 @@ function getStudentDashboardData(username, kelasSiswa) {
            personalStatus = 'SELESAI';
         } else if (stateVal === 'LOCKED') {
            personalStatus = 'TERKUNCI';
-           sisaDetik = hitungSisa(); // <--- Hitung juga saat LOCKED
+           sisaDetik = hitungSisa(); 
         } else if (stateVal === 'STARTED') {
            personalStatus = 'SEDANG';
-           sisaDetik = hitungSisa(); // <--- Hitung saat STARTED
+           sisaDetik = hitungSisa(); 
         }
   
         return {
