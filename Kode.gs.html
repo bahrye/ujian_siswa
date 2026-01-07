@@ -326,63 +326,83 @@ function getScriptUrl() {
 }
 
 // ==========================================
-// [UPDATE] API 4: SUBMIT UJIAN (Perbaikan Penyimpanan)
+// [UPDATE] API 4: SUBMIT UJIAN (Auto Grade PG/BS & Siapkan Slot Nilai Akhir)
 // ==========================================
 function submitUjian(payload) {
   try {
     const ss = SpreadsheetApp.openById(SS_ID);
     
-    // 1. Ambil Kunci Jawaban
+    // 1. Ambil Soal & Kunci Jawaban
     const sheetSoal = ss.getSheetByName("DB_Soal");
     const dataSoal = sheetSoal.getDataRange().getValues();
     dataSoal.shift(); 
     
-    let kunciJawaban = {}; 
-    let totalSoalPG = 0;
+    let mapSoal = {};
+    let totalBobot = 0;
+    let skorPerolehan = 0;
     
-    // Cari soal berdasarkan Mapel (pastikan kode mapel sama persis)
+    // Filter soal berdasarkan Mapel
     for (let i = 0; i < dataSoal.length; i++) {
       let row = dataSoal[i]; 
+      // row[1] = Mapel, row[2] = Tipe, row[6] = Kunci, row[7] = Bobot
+      
       if (row[1].toString().toLowerCase() === payload.mapel.toLowerCase()) {
-        if (row[2] === "PG") {
-          kunciJawaban[row[0]] = row[6]; 
-          totalSoalPG++;
+        const tipe = row[2];
+        const idSoal = row[0];
+        const kunci = row[6];
+        const bobot = (row[7] && !isNaN(row[7])) ? parseFloat(row[7]) : 1; // Default bobot 1
+
+        // Hanya Auto-Grade Tipe PG dan BS (Dan COCOK jika memungkinkan, tapi asumsi manual)
+        // User meminta "PG/BS/COCOK", kita coba cover PG & BS yang pasti auto.
+        if (tipe === "PG" || tipe === "BS") {
+           totalBobot += bobot;
+           mapSoal[idSoal] = { kunci: kunci, bobot: bobot };
         }
       }
     }
 
-    // 2. Hitung Nilai
-    let benar = 0;
+    // 2. Hitung Nilai Sementara
+    let detailBenar = 0;
     for (let idSoal in payload.jawaban) {
       const jwbSiswa = payload.jawaban[idSoal];
-      const jwbKunci = kunciJawaban[idSoal];
-      if (jwbKunci && jwbSiswa === jwbKunci) benar++;
+      const dataS = mapSoal[idSoal];
+      
+      if (dataS) {
+         // Cek Jawaban (Case insensitive safe)
+         if (String(jwbSiswa).trim().toUpperCase() === String(dataS.kunci).trim().toUpperCase()) {
+             skorPerolehan += dataS.bobot;
+             detailBenar++;
+         }
+      }
     }
 
-    let nilaiAkhir = 0;
-    if (totalSoalPG > 0) {
-      nilaiAkhir = Math.round((benar / totalSoalPG) * 100);
+    // Hitung Skala 0-100
+    let nilaiSementara = 0;
+    if (totalBobot > 0) {
+      nilaiSementara = Math.round((skorPerolehan / totalBobot) * 100);
     }
 
-    // 3. Simpan ke DB_Nilai (UPDATE MENAMBAHKAN SISA WAKTU)
+    // 3. Simpan ke DB_Nilai
     const sheetNilai = ss.getSheetByName("DB_Nilai");
     if (!sheetNilai) return { status: 'error', message: 'Sheet DB_Nilai belum dibuat!' };
 
-    // Format Lama: [Timestamp, ID_Jadwal, USERNAME, Nama, Mapel, Nilai, Benar, JSON]
-    // Format BARU: Tambahkan payload.sisaWaktu di kolom ke-9 (Index 8)
+    // Format Data:
+    // [0:Time, 1:IdJadwal, 2:Username, 3:Nama, 4:Mapel, 5:NilaiSementara, 6:InfoBenar, 7:JSON, 8:SisaWaktu, 9:NilaiAkhir]
+    
     sheetNilai.appendRow([
       new Date(),           
       payload.idJadwal,     
       payload.username,     
       payload.nama,         
       payload.mapel,        
-      nilaiAkhir,           
-      benar + " / " + totalSoalPG, 
+      nilaiSementara,       // Kolom 5: Nilai Sementara
+      detailBenar + " Benar (Auto)", 
       JSON.stringify(payload.jawaban),
-      payload.sisaWaktu || 0 // <--- KOLOM BARU (Index 8)
+      payload.sisaWaktu || 0, // Kolom 8: Sisa Waktu
+      ""                     // Kolom 9: Nilai Akhir (Kosong saat submit, diisi Guru nanti)
     ]);
 
-    // 4. Update Status Property & Hapus Progress
+    // 4. Update Status & Hapus Progress
     if(payload.username && payload.idJadwal) {
         hapusProgressSiswa(payload.username, payload.idJadwal);
         const props = PropertiesService.getScriptProperties();
@@ -391,8 +411,8 @@ function submitUjian(payload) {
 
     return { 
       status: 'success', 
-      nilai: nilaiAkhir, 
-      message: 'Ujian Selesai! Nilai Anda: ' + nilaiAkhir 
+      nilai: nilaiSementara, 
+      message: 'Ujian Selesai! Nilai Sementara Anda: ' + nilaiSementara 
     };
 
   } catch (e) {
@@ -1671,7 +1691,7 @@ function getStudentDashboardData(username, kelasSiswa) {
 // [UPDATE & FIX] API 9: RIWAYAT NILAI & DETAIL
 // ==========================================
 
-// 1. Ambil List Riwayat (Filter by Username) - UPDATE SISA WAKTU
+// [UPDATE] API: AMBIL RIWAYAT (Baca Kolom Nilai Akhir)
 function getRiwayatNilaiSiswa(username) {
   const ss = SpreadsheetApp.openById(SS_ID);
   
@@ -1691,7 +1711,7 @@ function getRiwayatNilaiSiswa(username) {
   let result = [];
   const now = new Date();
 
-  // Helper Format Detik ke Menit:Detik
+  // Helper Format Detik
   const formatSisa = (detik) => {
       if(!detik || detik <= 0) return "0m 0d";
       const m = Math.floor(detik / 60);
@@ -1699,6 +1719,7 @@ function getRiwayatNilaiSiswa(username) {
       return `${m}m ${s}d`;
   };
 
+  // Loop Data Nilai
   for (let i = dataNilai.length - 1; i >= 0; i--) {
     let row = dataNilai[i]; 
     
@@ -1715,17 +1736,19 @@ function getRiwayatNilaiSiswa(username) {
          jamSubmit = Utilities.formatDate(new Date(row[0]), "Asia/Jakarta", "HH:mm") + " WIB";
       } catch(e) {}
 
-      // Ambil Sisa Waktu dari Kolom Index 8 (Kolom ke-9)
+      // Mapping Kolom Baru
       const sisaDetik = row[8] ? parseInt(row[8]) : 0;
+      const nilaiSementara = row[5];
+      const nilaiAkhir = row[9]; // Kolom ke-10 (Index 9) adalah Nilai Akhir
 
       result.push({
         idJadwal: idJadwal,
         tgl: tglSubmit,
         jam: jamSubmit, 
-        sisaWaktuStr: formatSisa(sisaDetik), // <--- Data Baru
+        sisaWaktuStr: formatSisa(sisaDetik),
         mapel: row[4],
-        nilai: row[5],
-        benarStr: row[6],
+        nilaiSementara: nilaiSementara,
+        nilaiAkhir: nilaiAkhir, // Kirim Nilai Akhir
         isPublished: isPublished
       });
     }
