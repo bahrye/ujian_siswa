@@ -110,9 +110,12 @@ function simpanSoal(data) {
     let processedSoal = processHtmlImages(data.soal);
     let opsis = {};
     try { opsis = JSON.parse(data.opsiJson); } catch(e) {}
+    // Proses Opsi (Gambar / Audio / Video)
     for (let key in opsis) {
-      if (key.startsWith('img_') && opsis[key] && opsis[key].toString().startsWith('data:image/')) {
-        opsis[key] = saveBase64ToDrive(opsis[key], "OPSI-" + key);
+      // Mendeteksi awalan 'img_' (legacy) atau 'media_' (baru)
+      if ((key.startsWith('img_') || key.startsWith('media_')) && opsis[key] && opsis[key].toString().includes('base64,')) {
+        // saveBase64ToDrive sudah otomatis mendeteksi mime-type (image/audio/video) dari header base64
+        opsis[key] = saveBase64ToDrive(opsis[key], "MEDIA-" + key);
       }
     }
     const processedOpsi = JSON.stringify(opsis);
