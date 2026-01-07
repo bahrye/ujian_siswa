@@ -1971,3 +1971,38 @@ function hapusProgressSiswa(username, idJadwal) {
     sheet.deleteRow(result.getRow());
   }
 }
+
+// ==========================================
+// TAMBAHAN: API KHUSUS GURU
+// ==========================================
+
+// Ambil Mapel Khusus Guru Tertentu (Berdasarkan Nama)
+function getMapelByGuru(namaGuru) {
+  const ss = SpreadsheetApp.openById(SS_ID);
+  const sheet = ss.getSheetByName("DB_Mapel");
+  if (!sheet) return [];
+  
+  const data = sheet.getDataRange().getValues();
+  data.shift(); // Skip Header
+  
+  // Normalisasi nama guru (trim & lowercase) untuk pencocokan
+  const targetName = namaGuru ? namaGuru.toString().trim().toLowerCase() : "";
+  
+  let result = [];
+  data.forEach(row => {
+    // row[0]:ID, row[1]:Kode, row[2]:Nama, row[3]:Guru
+    const guruDiDb = row[3] ? row[3].toString().trim().toLowerCase() : "";
+    
+    // Pencocokan: Jika nama guru sama persis
+    if (guruDiDb === targetName) {
+      result.push({
+        id: row[0],
+        kode: row[1],
+        nama: row[2],
+        guru: row[3]
+      });
+    }
+  });
+  
+  return result;
+}
