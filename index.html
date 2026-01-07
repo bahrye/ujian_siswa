@@ -194,13 +194,72 @@
                   </div>
                   <div class="bg-slate-50 p-4 rounded-lg border border-slate-200">
                     <div id="area-pg" class="opsi-area">
-                      <p class="text-xs font-bold text-gray-500 mb-3 uppercase">Pilihan Jawaban</p>
-                      <div class="space-y-3">
-                         <div class="flex flex-col gap-1"><div class="flex gap-2 items-center"><span class="w-6 font-bold text-center shrink-0">A</span><input type="text" id="pg-a" class="input-std text-sm" placeholder="Teks A"><input type="file" id="file-a" accept="image/*" class="hidden" onchange="App.BankSoal.handleImage(this, 'A')"><label for="file-a" class="btn-upload-opsi shrink-0"><i class="fas fa-image"></i></label></div><div id="prev-box-A" class="hidden pl-8 flex items-center gap-2"><img id="img-prev-A" class="img-opsi-preview" onclick="App.UI.zoomImg(this)"><button type="button" onclick="App.BankSoal.removeImage('A')" class="text-xs text-red-500 underline">Hapus</button></div></div>
-                         <div class="flex flex-col gap-1"><div class="flex gap-2 items-center"><span class="w-6 font-bold text-center shrink-0">B</span><input type="text" id="pg-b" class="input-std text-sm" placeholder="Teks B"><input type="file" id="file-b" accept="image/*" class="hidden" onchange="App.BankSoal.handleImage(this, 'B')"><label for="file-b" class="btn-upload-opsi shrink-0"><i class="fas fa-image"></i></label></div><div id="prev-box-B" class="hidden pl-8 flex items-center gap-2"><img id="img-prev-B" class="img-opsi-preview" onclick="App.UI.zoomImg(this)"><button type="button" onclick="App.BankSoal.removeImage('B')" class="text-xs text-red-500 underline">Hapus</button></div></div>
-                         <div class="flex flex-col gap-1"><div class="flex gap-2 items-center"><span class="w-6 font-bold text-center shrink-0">C</span><input type="text" id="pg-c" class="input-std text-sm" placeholder="Teks C"><input type="file" id="file-c" accept="image/*" class="hidden" onchange="App.BankSoal.handleImage(this, 'C')"><label for="file-c" class="btn-upload-opsi shrink-0"><i class="fas fa-image"></i></label></div><div id="prev-box-C" class="hidden pl-8 flex items-center gap-2"><img id="img-prev-C" class="img-opsi-preview" onclick="App.UI.zoomImg(this)"><button type="button" onclick="App.BankSoal.removeImage('C')" class="text-xs text-red-500 underline">Hapus</button></div></div>
-                         <div class="flex flex-col gap-1"><div class="flex gap-2 items-center"><span class="w-6 font-bold text-center shrink-0">D</span><input type="text" id="pg-d" class="input-std text-sm" placeholder="Teks D"><input type="file" id="file-d" accept="image/*" class="hidden" onchange="App.BankSoal.handleImage(this, 'D')"><label for="file-d" class="btn-upload-opsi shrink-0"><i class="fas fa-image"></i></label></div><div id="prev-box-D" class="hidden pl-8 flex items-center gap-2"><img id="img-prev-D" class="img-opsi-preview" onclick="App.UI.zoomImg(this)"><button type="button" onclick="App.BankSoal.removeImage('D')" class="text-xs text-red-500 underline">Hapus</button></div></div>
-                         <div class="flex flex-col gap-1"><div class="flex gap-2 items-center"><span class="w-6 font-bold text-center shrink-0 text-gray-400">E</span><input type="text" id="pg-e" class="input-std text-sm" placeholder="Opsional"><input type="file" id="file-e" accept="image/*" class="hidden" onchange="App.BankSoal.handleImage(this, 'E')"><label for="file-e" class="btn-upload-opsi shrink-0"><i class="fas fa-image"></i></label></div><div id="prev-box-E" class="hidden pl-8 flex items-center gap-2"><img id="img-prev-E" class="img-opsi-preview" onclick="App.UI.zoomImg(this)"><button type="button" onclick="App.BankSoal.removeImage('E')" class="text-xs text-red-500 underline">Hapus</button></div></div>
+                      <p class="text-xs font-bold text-gray-500 mb-3 uppercase">Pilihan Jawaban (Teks / Gambar / Audio / Video)</p>
+                      <div class="space-y-4">
+                         <div class="flex flex-col gap-2 p-3 border rounded-lg bg-gray-50">
+                            <div class="flex gap-2 items-center">
+                               <span class="w-6 font-bold text-center shrink-0">A</span>
+                               <input type="text" id="pg-a" class="input-std text-sm" placeholder="Teks Jawaban A">
+                               <input type="file" id="file-a" accept="image/*,audio/*,video/*" class="hidden" onchange="App.BankSoal.handleMedia(this, 'A')">
+                               <label for="file-a" class="btn-upload-opsi shrink-0" title="Upload Media"><i class="fas fa-paperclip"></i></label>
+                            </div>
+                            <div id="prev-box-A" class="hidden pl-8 flex flex-col gap-2">
+                               <div id="media-content-A" class="w-full max-w-[200px]"></div>
+                               <button type="button" onclick="App.BankSoal.removeMedia('A')" class="text-xs text-red-500 underline text-left">Hapus Media</button>
+                            </div>
+                         </div>
+
+                         <div class="flex flex-col gap-2 p-3 border rounded-lg bg-gray-50">
+                            <div class="flex gap-2 items-center">
+                               <span class="w-6 font-bold text-center shrink-0">B</span>
+                               <input type="text" id="pg-b" class="input-std text-sm" placeholder="Teks Jawaban B">
+                               <input type="file" id="file-b" accept="image/*,audio/*,video/*" class="hidden" onchange="App.BankSoal.handleMedia(this, 'B')">
+                               <label for="file-b" class="btn-upload-opsi shrink-0"><i class="fas fa-paperclip"></i></label>
+                            </div>
+                            <div id="prev-box-B" class="hidden pl-8 flex flex-col gap-2">
+                               <div id="media-content-B" class="w-full max-w-[200px]"></div>
+                               <button type="button" onclick="App.BankSoal.removeMedia('B')" class="text-xs text-red-500 underline text-left">Hapus Media</button>
+                            </div>
+                         </div>
+
+                         <div class="flex flex-col gap-2 p-3 border rounded-lg bg-gray-50">
+                            <div class="flex gap-2 items-center">
+                               <span class="w-6 font-bold text-center shrink-0">C</span>
+                               <input type="text" id="pg-c" class="input-std text-sm" placeholder="Teks Jawaban C">
+                               <input type="file" id="file-c" accept="image/*,audio/*,video/*" class="hidden" onchange="App.BankSoal.handleMedia(this, 'C')">
+                               <label for="file-c" class="btn-upload-opsi shrink-0"><i class="fas fa-paperclip"></i></label>
+                            </div>
+                            <div id="prev-box-C" class="hidden pl-8 flex flex-col gap-2">
+                               <div id="media-content-C" class="w-full max-w-[200px]"></div>
+                               <button type="button" onclick="App.BankSoal.removeMedia('C')" class="text-xs text-red-500 underline text-left">Hapus Media</button>
+                            </div>
+                         </div>
+
+                         <div class="flex flex-col gap-2 p-3 border rounded-lg bg-gray-50">
+                            <div class="flex gap-2 items-center">
+                               <span class="w-6 font-bold text-center shrink-0">D</span>
+                               <input type="text" id="pg-d" class="input-std text-sm" placeholder="Teks Jawaban D">
+                               <input type="file" id="file-d" accept="image/*,audio/*,video/*" class="hidden" onchange="App.BankSoal.handleMedia(this, 'D')">
+                               <label for="file-d" class="btn-upload-opsi shrink-0"><i class="fas fa-paperclip"></i></label>
+                            </div>
+                            <div id="prev-box-D" class="hidden pl-8 flex flex-col gap-2">
+                               <div id="media-content-D" class="w-full max-w-[200px]"></div>
+                               <button type="button" onclick="App.BankSoal.removeMedia('D')" class="text-xs text-red-500 underline text-left">Hapus Media</button>
+                            </div>
+                         </div>
+
+                         <div class="flex flex-col gap-2 p-3 border rounded-lg bg-gray-50">
+                            <div class="flex gap-2 items-center">
+                               <span class="w-6 font-bold text-center shrink-0 text-gray-400">E</span>
+                               <input type="text" id="pg-e" class="input-std text-sm" placeholder="Opsional">
+                               <input type="file" id="file-e" accept="image/*,audio/*,video/*" class="hidden" onchange="App.BankSoal.handleMedia(this, 'E')">
+                               <label for="file-e" class="btn-upload-opsi shrink-0"><i class="fas fa-paperclip"></i></label>
+                            </div>
+                            <div id="prev-box-E" class="hidden pl-8 flex flex-col gap-2">
+                               <div id="media-content-E" class="w-full max-w-[200px]"></div>
+                               <button type="button" onclick="App.BankSoal.removeMedia('E')" class="text-xs text-red-500 underline text-left">Hapus Media</button>
+                            </div>
+                         </div>
                       </div>
                       <div class="mt-4">
                         <label class="block text-xs font-bold text-gray-500 mb-1">Kunci Jawaban</label>
