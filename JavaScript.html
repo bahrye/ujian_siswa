@@ -316,10 +316,25 @@
         else if (tipe === 'ISIAN') kunciJawaban = document.getElementById('kunci-isian').value;
         else if (tipe === 'BS') { const r = document.querySelector('input[name="kunci_bs"]:checked'); kunciJawaban = r ? r.value : ""; opsiData = { A: "BENAR", B: "SALAH" }; }
         else if (tipe === 'COCOK') {
-           const kiris = document.querySelectorAll('.cocok-kiri'); const kanans = document.querySelectorAll('.cocok-kanan');
-           let pairs = []; kiris.forEach((el, idx) => { if(el.value && kanans[idx].value) pairs.push({ k: el.value, v: kanans[idx].value }); });
-           if(pairs.length < 2) return Swal.fire('Warning','Min. 2 pasang','warning');
-           opsiData = pairs; kunciJawaban = "COCOK_AUTO";
+           const kiris = document.querySelectorAll('.cocok-kiri'); 
+           const kanans = document.querySelectorAll('.cocok-kanan');
+           const skors = document.querySelectorAll('.cocok-skor');
+           
+           let pairs = []; 
+           kiris.forEach((el, idx) => { 
+             if(el.value && kanans[idx].value) {
+                // Simpan K:Kiri, V:Kanan, S:Score
+                pairs.push({ 
+                   k: el.value, 
+                   v: kanans[idx].value, 
+                   s: skors[idx].value || 1 // Default bobot 1 jika kosong
+                }); 
+             }
+           });
+           
+           if(pairs.length < 2) return Swal.fire('Warning','Minimal buat 2 pasang pencocokan.','warning');
+           opsiData = pairs; 
+           kunciJawaban = "COCOK_AUTO";
         } else { kunciJawaban = "MANUAL"; }
 
         const btn = document.getElementById('btnSave');
@@ -438,7 +453,8 @@
                const container = document.getElementById('container-cocok'); 
                container.innerHTML = "";
                if(Array.isArray(opsi)) {
-                   opsi.forEach(p => App.BankSoal.addRowCocok(p.k, p.v));
+                   // Pass parameter ke-3 yaitu score (p.s)
+                   opsi.forEach(p => App.BankSoal.addRowCocok(p.k, p.v, p.s));
                }
             }
 
@@ -567,11 +583,23 @@
       removeImage: function(hur) {
         App.data.opsiImages[hur] = null; document.getElementById('file-'+hur.toLowerCase()).value = ""; document.getElementById('prev-box-'+hur).classList.add('hidden'); document.getElementById('img-prev-'+hur).src = "";
       },
-      addRowCocok: function(k='', v='') {
-        const div = document.createElement('div'); div.className = 'flex gap-2 items-center';
-        div.innerHTML = `<input type="text" class="input-std text-sm cocok-kiri" value="${k}" placeholder="Kiri"><i class="fas fa-arrow-right text-gray-400"></i><input type="text" class="input-std text-sm cocok-kanan" value="${v}" placeholder="Kanan"><button type="button" onclick="this.parentElement.remove()" class="text-red-400 px-2"><i class="fas fa-times"></i></button>`;
+      // Tambahkan input score (p.s)
+      addRowCocok: function(k='', v='', s='') {
+        const div = document.createElement('div'); 
+        div.className = 'flex gap-2 items-center mb-2';
+        // Input Kiri, Kanan, dan Bobot Kecil
+        div.innerHTML = `
+          <input type="text" class="input-std text-sm cocok-kiri flex-1" value="${k}" placeholder="Pertanyaan (Kiri)">
+          <i class="fas fa-arrow-right text-gray-400"></i>
+          <input type="text" class="input-std text-sm cocok-kanan flex-1" value="${v}" placeholder="Jawaban (Kanan)">
+          <div class="flex items-center gap-1 w-20">
+             <span class="text-[10px] text-gray-500 font-bold">Bobot:</span>
+             <input type="number" class="input-std text-sm cocok-skor px-1 py-1 text-center" value="${s}" placeholder="1">
+          </div>
+          <button type="button" onclick="this.parentElement.remove()" class="text-red-400 px-2 hover:text-red-600"><i class="fas fa-times"></i></button>
+        `;
         document.getElementById('container-cocok').appendChild(div);
-      }
+      },
     },
 
     // --- Module 4: Users Management ---
@@ -1135,10 +1163,14 @@
                 iconContainer.innerHTML += `<span class="flex items-center gap-1 text-yellow-600 bg-yellow-100 px-2 py-1 rounded text-xs font-bold border border-yellow-200 animate-pulse"><i class="fas fa-bookmark"></i> Ragu-ragu</span>`;
             } 
             // Cek Sudah Dijawab (dan tidak ragu)
-            else if (App.data.jawabanSiswa[s.id]) {
-                iconContainer.innerHTML += `<span class="flex items-center gap-1 text-green-600 bg-green-100 px-2 py-1 rounded text-xs font-bold border border-green-200"><i class="fas fa-check-circle"></i> Terjawab</span>`;
+            // Fix: Cek juga jika tipe object (Pencocokan) minimal punya 1 key
+            else if (
+                App.data.jawabanSiswa[s.id] && 
+                (typeof App.data.jawabanSiswa[s.id] !== 'object' || Object.keys(App.data.jawabanSiswa[s.id]).length > 0)
+            ) {
+                 iconContainer.innerHTML += `<span class="flex items-center gap-1 text-green-600 bg-green-100 px-2 py-1 rounded text-xs font-bold border border-green-200"><i class="fas fa-check-circle"></i> Terjawab</span>`;
             } else {
-                iconContainer.innerHTML += `<span class="text-gray-400 text-xs italic">Belum dijawab</span>`;
+                 iconContainer.innerHTML += `<span class="text-gray-400 text-xs italic">Belum dijawab</span>`;
             }
             // ------------------------------------------------
 
@@ -1193,7 +1225,49 @@
                     
                     ops.insertAdjacentHTML('beforeend', `<div onclick="App.Exam.pilih('${s.id}','${val}')" class="cursor-pointer border-2 rounded-lg p-4 font-bold text-center transition-all ${active}">${val}</div>`);
                 });
-            } else {
+            } 
+            // ==========================================
+            // FIX MASALAH DISINI: TAMBAHKAN TIPE COCOK
+            // ==========================================
+            else if (s.tipe === 'COCOK') {
+                const pairs = s.opsi; // Array of objects {k, v, s}
+                let userAns = App.data.jawabanSiswa[s.id] || {}; // Object { "Kiri": "Kanan" }
+                
+                // 1. Siapkan Daftar Jawaban (Kanan) untuk Dropdown & Acak urutannya
+                let rightOptions = pairs.map(p => p.v);
+                rightOptions = App.Exam.shuffleArray([...rightOptions]); // Shuffle agar tidak sejajar
+                
+                let htmlTable = `<div class="bg-gray-50 p-4 rounded-lg border border-gray-200"><p class="text-xs font-bold text-gray-500 mb-3 uppercase">Pasangkan pernyataan berikut:</p><div class="space-y-3">`;
+
+                // 2. Render Baris Kiri (Tetap) + Dropdown Kanan
+                pairs.forEach((p, idx) => {
+                    const currentVal = userAns[p.k] || ""; // Jawaban user untuk baris ini
+                    
+                    let optionsHtml = `<option value="">- Pilih Pasangan -</option>`;
+                    rightOptions.forEach(opt => {
+                        const selected = (opt === currentVal) ? "selected" : "";
+                        optionsHtml += `<option value="${opt}" ${selected}>${opt}</option>`;
+                    });
+
+                    htmlTable += `
+                      <div class="flex flex-col md:flex-row gap-2 items-center bg-white p-3 rounded border shadow-sm">
+                          <div class="flex-1 font-medium text-gray-700 w-full md:w-auto text-sm">${p.k}</div>
+                          <div class="hidden md:block text-gray-400"><i class="fas fa-arrow-right"></i></div>
+                          <div class="md:hidden text-gray-400 text-center"><i class="fas fa-arrow-down"></i></div>
+                          <div class="flex-1 w-full md:w-auto">
+                              <select onchange="App.Exam.pilihCocok('${s.id}', '${p.k}', this.value)" class="w-full p-2 border rounded bg-indigo-50 border-indigo-200 font-semibold text-indigo-700 outline-none focus:ring-2 ring-indigo-500 text-sm">
+                                  ${optionsHtml}
+                              </select>
+                          </div>
+                      </div>
+                    `;
+                });
+                
+                htmlTable += `</div></div>`;
+                ops.innerHTML = htmlTable;
+            }
+            else {
+                // Tipe ESSAY / ISIAN (Default)
                 const val = App.data.jawabanSiswa[s.id] || '';
                 ops.innerHTML = `<textarea onkeyup="App.Exam.pilih('${s.id}', this.value)" class="w-full border-2 border-gray-300 rounded-lg p-3 h-40 focus:ring-4 ring-indigo-100 focus:border-indigo-500 outline-none transition text-gray-700" placeholder="Ketik jawaban Anda di sini...">${val}</textarea>`;
             }
@@ -1291,6 +1365,69 @@
                     executeSave(); 
                 }, 1000); 
             }
+      },
+
+      // Helper khusus untuk input tipe COCOK (UPDATE FIX STATUS)
+      pilihCocok: function(idSoal, keyKiri, valKanan) {
+          // 1. Ambil data jawaban lama atau inisialisasi object baru
+          let currentAns = App.data.jawabanSiswa[idSoal];
+          if (typeof currentAns !== 'object' || currentAns === null) {
+              currentAns = {};
+          }
+          
+          // 2. Update pasangan key-value
+          if (valKanan === "") {
+              delete currentAns[keyKiri]; // Hapus jika pilih default
+          } else {
+              currentAns[keyKiri] = valKanan;
+          }
+          
+          // 3. Simpan ke state global
+          App.data.jawabanSiswa[idSoal] = currentAns;
+
+          // 4. Cek Status Terjawab (Minimal 1 pasang terisi)
+          const isAnswered = Object.keys(currentAns).length > 0;
+          const isRagu = App.data.raguSiswa[idSoal];
+
+          // --- UPDATE UI REALTIME (HEADER STATUS) ---
+          const iconContainer = document.getElementById('soal-status-icon');
+          if(iconContainer) {
+             iconContainer.innerHTML = '';
+             if (isRagu) {
+                 iconContainer.innerHTML = `<span class="flex items-center gap-1 text-yellow-600 bg-yellow-100 px-2 py-1 rounded text-xs font-bold border border-yellow-200 animate-pulse"><i class="fas fa-bookmark"></i> Ragu-ragu</span>`;
+             } else if (isAnswered) {
+                 iconContainer.innerHTML = `<span class="flex items-center gap-1 text-green-600 bg-green-100 px-2 py-1 rounded text-xs font-bold border border-green-200"><i class="fas fa-check-circle"></i> Terjawab</span>`;
+             } else {
+                 iconContainer.innerHTML = `<span class="text-gray-400 text-xs italic">Belum dijawab</span>`;
+             }
+          }
+
+          // --- UPDATE UI REALTIME (TOMBOL NAVIGASI) ---
+          const gridContainer = document.getElementById('grid-nomor');
+          if(gridContainer && gridContainer.children[App.data.currentSoalIdx]) {
+               const btn = gridContainer.children[App.data.currentSoalIdx];
+               
+               // Reset class dasar
+               let cls = 'h-10 w-full rounded font-bold text-sm transition-all shadow-sm ';
+               
+               if(isRagu) {
+                   cls += 'bg-yellow-400 text-white border-yellow-400';
+               } else if(isAnswered) {
+                   cls += 'bg-indigo-600 text-white border-indigo-600';
+               } else {
+                   cls += 'bg-white border text-gray-600 hover:bg-gray-100';
+               }
+               
+               // Tambahkan efek aktif karena sedang di halaman ini
+               cls += ' ring-4 ring-indigo-200 transform scale-105 font-black';
+               
+               btn.className = cls;
+          }
+
+          // 5. Kirim ke server (Silent Save)
+          const username = App.data.user ? App.data.user.username : JSON.parse(sessionStorage.getItem('cbt_session')).data.username;
+          const idJadwal = App.data.activeJadwalId;
+          google.script.run.withFailureHandler(e=>console.log(e)).simpanProgressSiswa(username, idJadwal, JSON.stringify(App.data.jawabanSiswa));
       },
       
       next: function() { 
