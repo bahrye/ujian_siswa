@@ -364,21 +364,22 @@ function submitUjian(payload) {
       nilaiAkhir = Math.round((benar / totalSoalPG) * 100);
     }
 
-    // 3. Simpan ke DB_Nilai (STRUKTUR BARU dengan USERNAME)
+    // 3. Simpan ke DB_Nilai (UPDATE MENAMBAHKAN SISA WAKTU)
     const sheetNilai = ss.getSheetByName("DB_Nilai");
     if (!sheetNilai) return { status: 'error', message: 'Sheet DB_Nilai belum dibuat!' };
 
-    // Format Baru: [Timestamp, ID_Jadwal, USERNAME, Nama, Mapel, Nilai, Benar, JSON]
-    // Kita tambahkan Username (index 2) untuk kunci pencarian yang akurat
+    // Format Lama: [Timestamp, ID_Jadwal, USERNAME, Nama, Mapel, Nilai, Benar, JSON]
+    // Format BARU: Tambahkan payload.sisaWaktu di kolom ke-9 (Index 8)
     sheetNilai.appendRow([
       new Date(),           
       payload.idJadwal,     
-      payload.username,     // <--- Penambahan Kolom Username
+      payload.username,     
       payload.nama,         
       payload.mapel,        
       nilaiAkhir,           
       benar + " / " + totalSoalPG, 
-      JSON.stringify(payload.jawaban) 
+      JSON.stringify(payload.jawaban),
+      payload.sisaWaktu || 0 // <--- KOLOM BARU (Index 8)
     ]);
 
     // 4. Update Status Property & Hapus Progress
@@ -1670,59 +1671,58 @@ function getStudentDashboardData(username, kelasSiswa) {
 // [UPDATE & FIX] API 9: RIWAYAT NILAI & DETAIL
 // ==========================================
 
-// 1. Ambil List Riwayat (Filter by Username)
+// 1. Ambil List Riwayat (Filter by Username) - UPDATE SISA WAKTU
 function getRiwayatNilaiSiswa(username) {
   const ss = SpreadsheetApp.openById(SS_ID);
   
-  // Ambil Data Nilai
   const sheetNilai = ss.getSheetByName("DB_Nilai");
   if (!sheetNilai) return [];
   const dataNilai = sheetNilai.getDataRange().getValues();
-  dataNilai.shift(); // Skip Header
+  dataNilai.shift(); 
   
-  // Ambil Data Jadwal (Untuk cek waktu selesai)
   const sheetJadwal = ss.getSheetByName("DB_Jadwal");
   let jadwalMap = {};
   if (sheetJadwal) {
      const dataJ = sheetJadwal.getDataRange().getValues();
      dataJ.shift();
-     for(let j of dataJ) {
-        // ID Jadwal -> { Selesai (Date) }
-        jadwalMap[j[0]] = j[4] ? new Date(j[4]) : new Date(); 
-     }
+     for(let j of dataJ) { jadwalMap[j[0]] = j[4] ? new Date(j[4]) : new Date(); }
   }
 
   let result = [];
   const now = new Date();
 
-  // Loop dari bawah (terbaru)
-  // Struktur DataNilai Baru: [0:Waktu, 1:ID_Jadwal, 2:Username, 3:Nama, 4:Mapel, 5:Nilai, 6:Benar, 7:JSON]
+  // Helper Format Detik ke Menit:Detik
+  const formatSisa = (detik) => {
+      if(!detik || detik <= 0) return "0m 0d";
+      const m = Math.floor(detik / 60);
+      const s = detik % 60;
+      return `${m}m ${s}d`;
+  };
+
   for (let i = dataNilai.length - 1; i >= 0; i--) {
     let row = dataNilai[i]; 
     
-    // Filter berdasarkan USERNAME (Kolom 2) agar akurat
     if (row[2] && row[2].toString() === username) {
       const idJadwal = row[1];
       const waktuSelesaiJadwal = jadwalMap[idJadwal];
       
-      // Logika: Apakah Ujian Sudah Ditutup?
       let isPublished = false;
-      if (waktuSelesaiJadwal && now > waktuSelesaiJadwal) {
-         isPublished = true;
-      }
+      if (waktuSelesaiJadwal && now > waktuSelesaiJadwal) { isPublished = true; }
 
-      // Format Waktu
-      let tglSubmit = "";
-      let jamSubmit = "";
+      let tglSubmit = ""; let jamSubmit = "";
       try {
          tglSubmit = Utilities.formatDate(new Date(row[0]), "Asia/Jakarta", "dd MMM yyyy");
          jamSubmit = Utilities.formatDate(new Date(row[0]), "Asia/Jakarta", "HH:mm") + " WIB";
       } catch(e) {}
 
+      // Ambil Sisa Waktu dari Kolom Index 8 (Kolom ke-9)
+      const sisaDetik = row[8] ? parseInt(row[8]) : 0;
+
       result.push({
         idJadwal: idJadwal,
         tgl: tglSubmit,
-        jam: jamSubmit, // Ini untuk kolom "Siswa Waktu"
+        jam: jamSubmit, 
+        sisaWaktuStr: formatSisa(sisaDetik), // <--- Data Baru
         mapel: row[4],
         nilai: row[5],
         benarStr: row[6],
