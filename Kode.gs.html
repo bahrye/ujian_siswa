@@ -326,7 +326,7 @@ function getScriptUrl() {
 }
 
 // ==========================================
-// [UPDATE] API 4: SUBMIT UJIAN (Auto Grade PG/BS & Siapkan Slot Nilai Akhir)
+// [UPDATE] API 4: SUBMIT UJIAN (Auto Grade PG, BS & COCOK)
 // ==========================================
 function submitUjian(payload) {
   try {
@@ -338,68 +338,110 @@ function submitUjian(payload) {
     dataSoal.shift(); 
     
     let mapSoal = {};
-    let totalBobot = 0;
-    let skorPerolehan = 0;
+    let totalBobotUjian = 0; // Total skor maksimal seluruh ujian
+    let skorPerolehan = 0;   // Skor yang didapat siswa
     
     // Filter soal berdasarkan Mapel
     for (let i = 0; i < dataSoal.length; i++) {
       let row = dataSoal[i]; 
-      // row[1] = Mapel, row[2] = Tipe, row[6] = Kunci, row[7] = Bobot
+      // row[1] = Mapel, row[2] = Tipe, row[5] = Opsi(JSON), row[6] = Kunci, row[7] = Bobot
       
       if (row[1].toString().toLowerCase() === payload.mapel.toLowerCase()) {
-        const tipe = row[2];
         const idSoal = row[0];
+        const tipe = row[2];
+        const opsiRaw = row[5];
         const kunci = row[6];
-        const bobot = (row[7] && !isNaN(row[7])) ? parseFloat(row[7]) : 1; // Default bobot 1
+        let bobotSoal = (row[7] && !isNaN(row[7])) ? parseFloat(row[7]) : 1;
 
-        // Hanya Auto-Grade Tipe PG dan BS (Dan COCOK jika memungkinkan, tapi asumsi manual)
-        // User meminta "PG/BS/COCOK", kita coba cover PG & BS yang pasti auto.
+        // PARSING OPSI UNTUK COCOK
+        let opsiObj = {};
+        try { opsiObj = JSON.parse(opsiRaw); } catch(e){}
+
         if (tipe === "PG" || tipe === "BS") {
-           totalBobot += bobot;
-           mapSoal[idSoal] = { kunci: kunci, bobot: bobot };
+           totalBobotUjian += bobotSoal;
+           mapSoal[idSoal] = { tipe: tipe, kunci: kunci, bobot: bobotSoal };
+        } 
+        else if (tipe === "COCOK") {
+           // Untuk COCOK, bobot total adalah jumlah bobot semua pasangan
+           let maxScoreCocok = 0;
+           if(Array.isArray(opsiObj)) {
+              opsiObj.forEach(pair => {
+                 // pair.s adalah score/bobot per pasang
+                 let w = (pair.s && !isNaN(pair.s)) ? parseFloat(pair.s) : 0;
+                 maxScoreCocok += w;
+              });
+           }
+           // Jika user lupa isi bobot per pasang, pakai bobot global dibagi rata (fallback)
+           if (maxScoreCocok === 0) maxScoreCocok = bobotSoal;
+
+           totalBobotUjian += maxScoreCocok;
+           mapSoal[idSoal] = { tipe: tipe, dataPairs: opsiObj, bobotTotal: bobotSoal };
         }
       }
     }
 
-    // 2. Hitung Nilai Sementara
+    // 2. Hitung Nilai
     let detailBenar = 0;
+    
     for (let idSoal in payload.jawaban) {
-      const jwbSiswa = payload.jawaban[idSoal];
+      const jwbSiswa = payload.jawaban[idSoal]; // String (PG/BS) atau Object (COCOK)
       const dataS = mapSoal[idSoal];
       
       if (dataS) {
-         // Cek Jawaban (Case insensitive safe)
-         if (String(jwbSiswa).trim().toUpperCase() === String(dataS.kunci).trim().toUpperCase()) {
-             skorPerolehan += dataS.bobot;
-             detailBenar++;
+         if (dataS.tipe === "PG" || dataS.tipe === "BS") {
+             // Cek Jawaban Biasa
+             if (String(jwbSiswa).trim().toUpperCase() === String(dataS.kunci).trim().toUpperCase()) {
+                 skorPerolehan += dataS.bobot;
+                 detailBenar++;
+             }
+         } 
+         else if (dataS.tipe === "COCOK") {
+             // Cek Jawaban Pencocokan (Looping per pasang)
+             // jwbSiswa formatnya: { "Kiri1": "Kanan1", "Kiri2": "Kanan2" }
+             let pairsConfig = dataS.dataPairs; // Array [{k:'A', v:'B', s:2}, ...]
+             
+             if(Array.isArray(pairsConfig)) {
+                let benarCount = 0;
+                pairsConfig.forEach(p => {
+                    const kunciKiri = p.k; 
+                    const kunciKanan = p.v;
+                    const skorItem = (p.s && !isNaN(p.s)) ? parseFloat(p.s) : 0;
+                    
+                    // Cek apakah siswa menjawab pasangan ini dengan benar
+                    // Kita trim dan lowercase agar tidak sensitif spasi/huruf besar kecil
+                    if(jwbSiswa[kunciKiri] && 
+                       String(jwbSiswa[kunciKiri]).trim().toLowerCase() === String(kunciKanan).trim().toLowerCase()) {
+                          skorPerolehan += skorItem;
+                          benarCount++;
+                    }
+                });
+                if(benarCount === pairsConfig.length) detailBenar++; // Anggap benar penuh jika semua pasang benar
+             }
          }
       }
     }
 
     // Hitung Skala 0-100
     let nilaiSementara = 0;
-    if (totalBobot > 0) {
-      nilaiSementara = Math.round((skorPerolehan / totalBobot) * 100);
+    if (totalBobotUjian > 0) {
+      nilaiSementara = Math.round((skorPerolehan / totalBobotUjian) * 100);
     }
 
     // 3. Simpan ke DB_Nilai
     const sheetNilai = ss.getSheetByName("DB_Nilai");
     if (!sheetNilai) return { status: 'error', message: 'Sheet DB_Nilai belum dibuat!' };
 
-    // Format Data:
-    // [0:Time, 1:IdJadwal, 2:Username, 3:Nama, 4:Mapel, 5:NilaiSementara, 6:InfoBenar, 7:JSON, 8:SisaWaktu, 9:NilaiAkhir]
-    
     sheetNilai.appendRow([
       new Date(),           
       payload.idJadwal,     
       payload.username,     
       payload.nama,         
       payload.mapel,        
-      nilaiSementara,       // Kolom 5: Nilai Sementara
-      detailBenar + " Benar (Auto)", 
+      nilaiSementara,       
+      detailBenar + " Soal Full Benar", 
       JSON.stringify(payload.jawaban),
-      payload.sisaWaktu || 0, // Kolom 8: Sisa Waktu
-      ""                     // Kolom 9: Nilai Akhir (Kosong saat submit, diisi Guru nanti)
+      payload.sisaWaktu || 0, 
+      ""                     
     ]);
 
     // 4. Update Status & Hapus Progress
