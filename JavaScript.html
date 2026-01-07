@@ -348,10 +348,16 @@
         let opsiData = {}; let kunciJawaban = "";
         if (tipe === 'PG') {
           opsiData = { A: document.getElementById('pg-a').value, B: document.getElementById('pg-b').value, C: document.getElementById('pg-c').value, D: document.getElementById('pg-d').value, E: document.getElementById('pg-e').value };
-          ['A','B','C','D','E'].forEach(h => { if(App.data.opsiImages[h]) opsiData['img_'+h] = App.data.opsiImages[h]; });
+          
+          // UPDATE: Gunakan prefix 'media_' untuk mendukung semua tipe file
+          ['A','B','C','D','E'].forEach(h => { 
+              if(App.data.opsiImages[h]) opsiData['media_'+h] = App.data.opsiImages[h]; 
+          });
+          
           kunciJawaban = document.getElementById('kunci-pg').value;
-          if((!opsiData.A && !opsiData.img_A) || (!opsiData.B && !opsiData.img_B)) return Swal.fire('Error', 'Min. Opsi A & B', 'warning');
-        } 
+          // Validasi minimal (Cek teks ATAU media)
+          if((!opsiData.A && !opsiData.media_A) || (!opsiData.B && !opsiData.media_B)) return Swal.fire('Error', 'Min. Opsi A & B (Teks atau Media)', 'warning');
+        }
         else if (tipe === 'ISIAN') kunciJawaban = document.getElementById('kunci-isian').value;
         else if (tipe === 'BS') { const r = document.querySelector('input[name="kunci_bs"]:checked'); kunciJawaban = r ? r.value : ""; opsiData = { A: "BENAR", B: "SALAH" }; }
         else if (tipe === 'COCOK') {
@@ -463,22 +469,42 @@
                  const inputEl = document.getElementById('pg-'+h.toLowerCase());
                  if(inputEl) inputEl.value = opsi[h] || "";
                  
-                 // Isi Gambar Preview (Reset dulu biar gak nyangkut gambar soal lain)
-                 App.BankSoal.removeImage(h); 
+                 // Reset Preview
+                 App.BankSoal.removeMedia(h); 
 
-                 if(opsi['img_'+h]) { 
-                   App.data.opsiImages[h] = opsi['img_'+h]; 
+                 // Cek apakah ada media (support key lama 'img_' dan baru 'media_')
+                 const mediaVal = opsi['media_'+h] || opsi['img_'+h];
+
+                 if(mediaVal) { 
+                   // Simpan ke memory (walaupun URL, simpan saja agar tidak hilang saat save ulang tanpa edit)
+                   // Note: Jika user tidak mengganti file, kita kirim URL lama, backend harus handle (biasanya aman)
+                   // TAPI untuk aman, kita set null di memory App.data.opsiImages agar tidak terkirim ulang sebagai base64,
+                   // kecuali user upload baru. Namun untuk Preview kita butuh.
+                   
                    const box = document.getElementById('prev-box-'+h);
-                   const img = document.getElementById('img-prev-'+h);
-                   if(box && img) {
+                   const content = document.getElementById('media-content-A'.replace('A', h));
+                   
+                   if(box && content) {
                       box.classList.remove('hidden'); 
-                      img.src = opsi['img_'+h]; 
+                      
+                      // Deteksi Tipe File dari URL string
+                      let htmlTag = '';
+                      const urlLower = mediaVal.toLowerCase();
+                      
+                      if(urlLower.includes('.mp3') || urlLower.includes('audio')) {
+                          htmlTag = `<audio controls src="${mediaVal}" class="w-full h-8"></audio>`;
+                      } else if(urlLower.includes('.mp4') || urlLower.includes('video')) {
+                          htmlTag = `<video controls src="${mediaVal}" class="w-full max-h-32 rounded bg-black"></video>`;
+                      } else {
+                          // Default Image
+                          htmlTag = `<img src="${mediaVal}" class="img-opsi-preview" onclick="App.UI.zoomImg(this)">`;
+                      }
+                      content.innerHTML = htmlTag;
                    }
                  }
                });
-               // Set Kunci PG
                document.getElementById('kunci-pg').value = s.kunci;
-            } 
+            }
             else if (s.tipe === 'ISIAN') {
                 document.getElementById('kunci-isian').value = s.kunci;
             }
@@ -599,8 +625,9 @@
         document.getElementById('btnSave').innerText = "SIMPAN SOAL";
         if(App.data.quill) App.data.quill.setContents([]);
         App.BankSoal.changeType();
-        ['A','B','C','D','E'].forEach(h => App.BankSoal.removeImage(h));
+        ['A','B','C','D','E'].forEach(h => App.BankSoal.removeMedia(h)); // Ganti removeImage jadi removeMedia
       },
+
       changeType: function() {
         const tipe = document.getElementById('tipe-soal').value;
         document.querySelectorAll('.opsi-area').forEach(el => el.classList.add('hidden'));
@@ -610,18 +637,51 @@
         if (tipe === 'BS') document.getElementById('area-bs').classList.remove('hidden');
         if (tipe === 'COCOK') { document.getElementById('area-cocok').classList.remove('hidden'); if(document.getElementById('container-cocok').children.length === 0) App.BankSoal.addRowCocok(); }
       },
-      handleImage: function(input, hur) {
+
+      handleMedia: function(input, hur) {
         if (input.files && input.files[0]) {
           const file = input.files[0];
-          if(file.size > 2 * 1024 * 1024) return Swal.fire('Max 2MB', '', 'warning');
+          // UPDATE LIMIT: Naikkan jadi 10MB untuk support Video/Audio
+          if(file.size > 10 * 1024 * 1024) return Swal.fire('File Terlalu Besar', 'Maksimal 10MB', 'warning');
+          
           const reader = new FileReader();
-          reader.onload = (e) => { const b64 = e.target.result; App.data.opsiImages[hur] = b64; document.getElementById('prev-box-'+hur).classList.remove('hidden'); document.getElementById('img-prev-'+hur).src = b64; }
+          reader.onload = (e) => { 
+              const b64 = e.target.result; 
+              App.data.opsiImages[hur] = b64; // Simpan Base64
+              
+              const box = document.getElementById('prev-box-'+hur);
+              const content = document.getElementById('media-content-'+hur);
+              
+              if(box && content) {
+                  box.classList.remove('hidden');
+                  
+                  // Render Preview Berdasarkan Tipe File
+                  if (file.type.startsWith('image/')) {
+                      content.innerHTML = `<img src="${b64}" class="img-opsi-preview" onclick="App.UI.zoomImg(this)">`;
+                  } else if (file.type.startsWith('audio/')) {
+                      content.innerHTML = `<audio controls src="${b64}" class="w-full h-8"></audio>`;
+                  } else if (file.type.startsWith('video/')) {
+                      content.innerHTML = `<video controls src="${b64}" class="w-full max-h-32 rounded bg-black"></video>`;
+                  } else {
+                      content.innerHTML = `<p class="text-xs text-gray-500">${file.name}</p>`;
+                  }
+              }
+          }
           reader.readAsDataURL(file);
         }
       },
-      removeImage: function(hur) {
-        App.data.opsiImages[hur] = null; document.getElementById('file-'+hur.toLowerCase()).value = ""; document.getElementById('prev-box-'+hur).classList.add('hidden'); document.getElementById('img-prev-'+hur).src = "";
+
+      removeMedia: function(hur) {
+        App.data.opsiImages[hur] = null; 
+        document.getElementById('file-'+hur.toLowerCase()).value = ""; 
+        
+        const box = document.getElementById('prev-box-'+hur);
+        const content = document.getElementById('media-content-'+hur);
+        
+        if(box) box.classList.add('hidden');
+        if(content) content.innerHTML = "";
       },
+
       // Tambahkan input score (p.s)
       addRowCocok: function(k='', v='', s='') {
         const div = document.createElement('div'); 
