@@ -3,7 +3,7 @@
   <head>
     <base target="_top">
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>CBT SYSTEM PRO</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
@@ -19,7 +19,7 @@
   </head>
   <body>
 
-    <div id="login-container" class="min-h-screen flex items-center justify-center bg-slate-900 p-4">
+    <div id="login-container" class="min-h-[100dvh] flex items-center justify-center bg-slate-900 p-4">
       <div class="glass-panel w-full max-w-sm p-8 rounded-xl shadow-2xl">
         <div class="text-center mb-6">
           <div class="w-16 h-16 bg-indigo-600 rounded-lg mx-auto flex items-center justify-center mb-3">
@@ -38,7 +38,7 @@
       </div>
     </div>
 
-    <div id="dashboard-container" class="hidden flex h-screen overflow-hidden bg-gray-100 relative">
+    <div id="dashboard-container" class="hidden flex h-[100dvh] overflow-hidden bg-gray-100 relative">
       
       <div id="sidebar-backdrop" onclick="App.UI.toggleSidebar()" class="fixed inset-0 bg-black bg-opacity-50 z-20 hidden md:hidden glass-panel"></div>
 
@@ -80,7 +80,7 @@
           <div class="text-xs md:text-sm text-gray-500 text-right" id="current-date"></div>
         </header>
 
-        <div class="flex-1 overflow-y-auto p-4 md:p-6 scroll-smooth" id="main-view-area">
+        <div class="flex-1 overflow-auto p-4 md:p-6 scroll-smooth w-full" id="main-view-area" style="-webkit-overflow-scrolling: touch;">
           
           <div id="view-dashboard" class="space-y-6 animate__animated animate__fadeIn">
              <div class="flex justify-between items-center">
@@ -555,7 +555,7 @@
       </main>
     </div>
 
-    <div id="page-siswa" class="hidden fixed inset-0 z-50 bg-gray-100 flex flex-col font-sans h-full overflow-hidden">
+    <div id="page-siswa" class="hidden fixed inset-0 z-50 bg-gray-100 flex flex-col font-sans h-[100dvh] overflow-hidden supports-[height:100dvh]:h-[100dvh]">
         <header class="bg-slate-900 text-white px-4 py-3 flex justify-between items-center z-40 shrink-0 shadow-md">
              <div class="flex items-center gap-3 overflow-hidden">
                <button onclick="App.Exam.toggleNavMobile()" class="md:hidden text-gray-300 hover:text-white transition">
@@ -599,7 +599,7 @@
                     <i class="fas fa-spinner fa-spin text-3xl mb-2"></i> <p>Memuat Soal...</p>
                  </div>
                  
-                 <div id="soal-container" class="hidden flex-1 overflow-y-auto p-4 md:p-8 pb-32 md:pb-20 scroll-smooth">
+                 <div id="soal-container" class="hidden flex-1 overflow-auto p-4 md:p-8 pb-32 md:pb-20 scroll-smooth w-full" style="-webkit-overflow-scrolling: touch;">
                     <div class="max-w-3xl mx-auto bg-white rounded-xl shadow-sm border border-gray-200 p-4 md:p-6 min-h-[50vh]">
                         
                         <div class="flex justify-between items-start mb-4 border-b pb-3">
