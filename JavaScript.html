@@ -2058,73 +2058,67 @@
        // [UPDATE] LOAD HASIL / RIWAYAT
        loadHasil: function() {
            const tbody = document.getElementById('tbody-hasil-siswa');
-           
-           tbody.innerHTML = '<tr><td colspan="5" class="p-8 text-center"><i class="fas fa-spinner fa-spin text-indigo-500 text-2xl"></i><p class="mt-2 text-gray-500">Memuat Riwayat...</p></td></tr>';
+           tbody.innerHTML = '<tr><td colspan="7" class="p-8 text-center"><i class="fas fa-spinner fa-spin text-indigo-500 text-2xl"></i><p class="mt-2 text-gray-500">Memuat Riwayat...</p></td></tr>';
            
            const sess = JSON.parse(sessionStorage.getItem('cbt_session'));
            if(!sess) return;
 
-           // Kirim USERNAME, bukan Nama, agar pencarian akurat
            google.script.run.withSuccessHandler(data => {
                tbody.innerHTML = '';
                
                if(!data || data.length === 0) { 
-                   tbody.innerHTML = '<tr><td colspan="5" class="p-8 text-center text-gray-400 border-2 border-dashed rounded m-4">Belum ada riwayat ujian yang diselesaikan.</td></tr>'; 
+                   tbody.innerHTML = '<tr><td colspan="7" class="p-8 text-center text-gray-400 border-2 border-dashed rounded m-4">Belum ada riwayat ujian.</td></tr>'; 
                    return; 
                }
 
                data.forEach(r => {
-                   // A. Logika Tombol Lihat (Jawaban Benar)
+                   // A. Logika Tombol Detail
                    let btnLihat = '';
                    if (r.isPublished) {
-                       btnLihat = `
-                           <button onclick="App.Siswa.lihatDetail('${r.idJadwal}')" class="group relative px-3 py-1.5 bg-indigo-50 text-indigo-600 rounded-lg hover:bg-indigo-600 hover:text-white transition shadow-sm border border-indigo-100">
-                               <i class="fas fa-eye"></i> <span class="text-xs font-bold ml-1">Lihat</span>
-                           </button>`;
+                       btnLihat = `<button onclick="App.Siswa.lihatDetail('${r.idJadwal}')" class="px-3 py-1.5 bg-indigo-50 text-indigo-600 rounded hover:bg-indigo-600 hover:text-white transition border border-indigo-100"><i class="fas fa-eye"></i></button>`;
                    } else {
-                       btnLihat = `
-                           <div class="group relative inline-block cursor-not-allowed">
-                               <button disabled class="px-3 py-1.5 bg-gray-100 text-gray-400 rounded-lg border border-gray-200">
-                                   <i class="fas fa-eye-slash"></i>
-                               </button>
-                               <span class="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 w-max px-2 py-1 bg-gray-800 text-white text-[10px] rounded opacity-0 group-hover:opacity-100 transition z-10">
-                                   Menunggu Jadwal Selesai
-                               </span>
-                           </div>`;
+                       btnLihat = `<button disabled class="px-3 py-1.5 bg-gray-100 text-gray-300 rounded cursor-not-allowed"><i class="fas fa-eye-slash"></i></button>`;
                    }
 
-                   // B. Logika Nilai Akhir
-                   let displayNilai = '';
-                   if (r.isPublished) {
+                   // B. LOGIKA TAMPILAN NILAI (KUNCI UTAMA)
+                   // Jika Nilai Akhir TERISI (Tidak null/empty), maka Nilai Sementara DIHAPUS (Hidden/-).
+                   
+                   let displaySementara = '';
+                   let displayAkhir = '';
+
+                   // Cek apakah ada Nilai Akhir
+                   if (r.nilaiAkhir !== "" && r.nilaiAkhir !== null && r.nilaiAkhir !== undefined) {
+                       // KASUS: SUDAH DINILAI GURU
+                       displaySementara = '<span class="text-gray-300">-</span>'; // Dihapus/Strip
+                       
                        let color = 'text-gray-800';
-                       if(r.nilai < 70) color = 'text-red-600';
-                       if(r.nilai >= 85) color = 'text-green-600';
-                       displayNilai = `<span class="text-lg font-black ${color}">${r.nilai}</span>`;
+                       if(r.nilaiAkhir < 70) color = 'text-red-600';
+                       if(r.nilaiAkhir >= 85) color = 'text-green-600';
+                       displayAkhir = `<span class="text-lg font-black ${color}">${r.nilaiAkhir}</span>`;
                    } else {
-                       displayNilai = `<span class="text-[10px] font-bold text-orange-600 bg-orange-50 px-2 py-1 rounded border border-orange-100"><i class="fas fa-clock"></i> Menunggu Rekap</span>`;
+                       // KASUS: BELUM DINILAI GURU (Tampilkan Sementara)
+                       displaySementara = `<span class="text-base font-bold text-gray-600 bg-gray-100 px-2 py-1 rounded">${r.nilaiSementara}</span>`;
+                       
+                       displayAkhir = `<span class="text-[10px] text-orange-400 italic bg-orange-50 px-2 py-0.5 rounded border border-orange-100">Menunggu</span>`;
                    }
 
-                   // C. Render Baris (5 Kolom)
+                   // C. Render Baris
                    const row = `
                        <tr class="hover:bg-slate-50 border-b transition">
-                           <td class="p-4 text-sm text-gray-600 font-medium">
-                               <i class="far fa-calendar-alt text-gray-400 mr-2"></i>${r.tgl}
-                           </td>
-                           <td class="p-4 text-sm text-gray-600 font-mono">
-                               ${r.jam}
-                           </td>
-                           <td class="p-4 text-sm font-bold text-indigo-600 bg-indigo-50/50">
-                               <i class="fas fa-hourglass-end mr-1 text-indigo-400"></i> ${r.sisaWaktuStr || '-'}
-                           </td>
-                           <td class="p-4 font-bold text-gray-700">
-                               ${r.mapel}
-                           </td>
+                           <td class="p-4 text-sm text-gray-600 font-medium"><i class="far fa-calendar-alt text-gray-400 mr-2"></i>${r.tgl}</td>
+                           <td class="p-4 text-sm text-gray-600 font-mono">${r.jam}</td>
+                           <td class="p-4 text-sm font-bold text-indigo-600 bg-indigo-50/30"><i class="fas fa-hourglass-end mr-1 text-indigo-400"></i> ${r.sisaWaktuStr || '-'}</td>
+                           <td class="p-4 font-bold text-gray-700">${r.mapel}</td>
+                           
                            <td class="p-4 text-center">
-                               ${btnLihat}
+                               ${displaySementara}
                            </td>
+
                            <td class="p-4 text-center">
-                               ${displayNilai}
+                               ${displayAkhir}
                            </td>
+
+                           <td class="p-4 text-center">${btnLihat}</td>
                        </tr>`;
                    
                    tbody.insertAdjacentHTML('beforeend', row);
@@ -2208,7 +2202,7 @@
                                // Highlight Kunci (Jika siswa salah, beri tahu yang benar)
                                else if(!item.isCorrect && k === item.kunci) {
                                    cls = 'p-2 rounded border border-green-300 bg-green-50 text-green-800 font-bold flex gap-3 items-center ring-1 ring-green-400 opacity-75';
-                                   icon = '<i class="fas fa-check text-green-600"></i> (Kunci)';
+                                   icon = '<i class="fas fa-check text-green-600"></i>';
                                }
 
                                opsiHtml += `<div class="${cls}"><div class="w-6 shrink-0 text-center">${k}.</div> <div class="grow">${item.opsi[k]}</div> ${icon}</div>`;
