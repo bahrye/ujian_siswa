@@ -2217,10 +2217,11 @@
                        opsiHtml += '</div>';
                    }
 
-                   // Render Gambar Soal jika ada (Parsing HTML string)
+                   // 1. PERBAIKAN STYLING GAMBAR
                    let soalContent = item.pertanyaan;
-                   // (Opsional) Tambahkan styling untuk gambar di dalam soal agar responsif
-                   soalContent = soalContent.replace(/<img /g, '<img class="max-w-full h-auto rounded border my-2" ');
+                   // Tambahkan class 'block' agar gambar turun baris sendiri
+                   // Tambahkan 'clear-both' untuk mencegah elemen lain naik ke sampingnya
+                   soalContent = soalContent.replace(/<img /g, '<img class="block max-w-full h-auto rounded border border-gray-200 my-4 shadow-sm clear-both" ');
 
                    const html = `
                        <div class="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-gray-200 mb-6 ${cardBorder}">
@@ -2229,11 +2230,11 @@
                                ${statusBadge}
                            </div>
                            
-                           <div class="text-gray-800 font-medium text-base mb-4 leading-loose">
+                           <div class="text-gray-800 font-medium text-base mb-6 leading-loose w-full overflow-hidden">
                                ${soalContent}
                            </div>
                            
-                           <div class="bg-slate-50 p-4 rounded-lg border border-slate-200">
+                           <div class="bg-slate-50 p-4 rounded-lg border border-slate-200 mt-4 clear-both">
                                <div class="flex flex-col gap-1 mb-2">
                                    <span class="text-xs font-bold text-gray-500 uppercase tracking-wider">Jawaban Kamu:</span>
                                    <div class="font-bold text-gray-800 p-2 bg-white rounded border border-gray-300 shadow-sm min-h-[40px] flex items-center">
