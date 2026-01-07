@@ -2606,20 +2606,19 @@
       }
     },
 
-    // --- Module 8: Security (FIXED & WAKE LOCK ADDED) ---
+    // --- Module 8: Security (REFINED) ---
     Security: {
       wakeLockSentinel: null,
+      isReloading: false, // Flag untuk mendeteksi reload
 
       // 1. Fungsi Menjaga Layar Tetap Hidup
       enableWakeLock: async function() {
          if ('wakeLock' in navigator) {
              try {
                  App.Security.wakeLockSentinel = await navigator.wakeLock.request('screen');
-                 console.log('Screen Wake Lock: ACTIVE');
-                 
-                 // Jika lock terlepas (misal karena minimize), minta lagi saat kembali
+                 // Re-acquire lock jika terlepas (misal karena switch app sebentar)
                  App.Security.wakeLockSentinel.addEventListener('release', () => {
-                     console.log('Screen Wake Lock: RELEASED');
+                     // console.log('Screen Wake Lock: RELEASED');
                  });
              } catch (err) {
                  console.error(`Wake Lock Error: ${err.name}, ${err.message}`);
@@ -2627,7 +2626,7 @@
          }
       },
 
-      // 2. Fungsi Re-Activate (Dipanggil saat tab visible kembali)
+      // 2. Fungsi Restore (Panggil saat visible kembali)
       restoreWakeLock: async function() {
          if (App.Security.wakeLockSentinel !== null && document.visibilityState === 'visible') {
              await App.Security.enableWakeLock();
@@ -2636,11 +2635,37 @@
 
       enterFullscreen: function() { 
           try {
-              document.documentElement.requestFullscreen().catch(()=>{});
+              if (document.documentElement.requestFullscreen) {
+                document.documentElement.requestFullscreen().catch(()=>{});
+              }
           } catch(e) {}
       },
       
+      // 3. Logic Pelanggaran (Cerdas)
+      checkViolation: function(reason) {
+         // A. Jangan kunci jika ujian belum mulai / sudah selesai
+         if(!App.data.examRunning) return;
+
+         // B. Jangan kunci jika sedang proses Reload Halaman
+         if(App.Security.isReloading) return;
+
+         // C. Jangan kunci jika Internet Mati (Offline)
+         if(!navigator.onLine) {
+             // Opsional: Tampilkan Toast peringatan internet, tapi jangan kunci
+             Swal.fire({
+                 toast: true, position: 'bottom', icon: 'warning', 
+                 title: 'Koneksi Terputus. Jangan tutup halaman!', 
+                 showConfirmButton: false, timer: 3000
+             });
+             return;
+         }
+
+         // D. Jika Lolos Filter di atas, barulah KUNCI
+         App.Security.triggerLock(reason);
+      },
+
       triggerLock: function(msg) { 
+         // Double check status ujian
          if(!App.data.examRunning && msg !== "Status Terkunci. Masukkan Token.") return;
 
          document.getElementById('lock-screen').classList.remove('hidden'); 
@@ -2674,7 +2699,7 @@
                     document.getElementById('lock-screen').classList.add('hidden'); 
                     document.getElementById('token-unlock').value = "";
                     
-                    // Aktifkan kembali Fullscreen & Wake Lock
+                    // Aktifkan kembali pengaman
                     App.Security.enterFullscreen();
                     App.Security.enableWakeLock();
 
@@ -2684,6 +2709,33 @@
                 Swal.fire('Token Salah', 'Minta token baru ke Pengawas.', 'error');
             }
          }).verifikasiTokenUnlock(t, username); 
+      },
+
+      // 4. Anti Copy Paste (Event Handler)
+      preventCopyPaste: function() {
+          // Blokir Klik Kanan
+          document.addEventListener('contextmenu', event => event.preventDefault());
+          
+          // Blokir Tombol Keyboard (Ctrl+C, Ctrl+V, Ctrl+U, F12, PrintScreen)
+          document.addEventListener('keydown', function(e) {
+              if (
+                  (e.ctrlKey && (e.key === 'c' || e.key === 'v' || e.key === 'u' || e.key === 'p')) || 
+                  e.key === 'F12' || 
+                  e.key === 'PrintScreen'
+              ) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  return false;
+              }
+          });
+
+          // Blokir Event Copy/Cut/Paste di level DOM
+          ['copy', 'cut', 'paste', 'dragstart', 'drop'].forEach(evt => {
+              document.addEventListener(evt, e => {
+                  e.preventDefault();
+                  return false;
+              });
+          });
       }
     },
 
@@ -2696,55 +2748,67 @@
   };
 
   // ===========================================
-  // INITIALIZATION
+  // INITIALIZATION & EVENT LISTENERS
   // ===========================================
   document.getElementById('current-date').innerText = new Date().toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
   
-  // Listener Visibility Change
+  // 1. Deteksi Pindah Tab / Minimize (Visibility Change)
+  // Ini adalah deteksi utama untuk "Berpindah Tab" atau "Tutup Aplikasi"
   document.addEventListener("visibilitychange", () => { 
-      // 1. Jika ujian jalan & hidden -> KUNCI LAYAR
-      if(App.data.examRunning && document.hidden) {
-          App.Security.triggerLock("Pindah Tab / Keluar Aplikasi"); 
-      }
-      
-      // 2. Jika ujian jalan & visible (kembali ke tab) -> RESTORE WAKE LOCK
-      if(App.data.examRunning && !document.hidden) {
+      if(document.hidden) {
+          // Cek pelanggaran dengan logika cerdas (cek internet/reload)
+          App.Security.checkViolation("Keluar Aplikasi / Pindah Tab");
+      } else {
+          // Saat kembali, restore Wake Lock agar layar tidak mati lagi
           App.Security.restoreWakeLock();
       }
   });
 
-  window.addEventListener("blur", () => { if(App.data.examRunning) App.Security.triggerLock("Keluar App"); });
+  // 2. Deteksi Reload (Before Unload)
+  // Set flag isReloading agar saat halaman tertutup tidak dianggap pelanggaran
+  window.addEventListener("beforeunload", () => {
+      App.Security.isReloading = true;
+  });
+
+  // 3. Deteksi Blur (Window Focus Lost) - HANYA MONITORING, TIDAK LOCK
+  // Kita hapus trigger lock pada 'blur' karena terlalu sensitif (misal: tarik notifikasi bar)
+  // window.addEventListener("blur", () => { ... }); // DIHAPUS agar HP tidak terkunci saat layar mati/notif
+
+  // 4. Deteksi Offline/Online (Monitoring Koneksi)
+  window.addEventListener('offline', () => {
+       Swal.fire({
+           toast: true, position: 'bottom', icon: 'error', 
+           title: 'Tidak ada internet! Jawaban mungkin tidak tersimpan.', 
+           showConfirmButton: false, timer: 5000
+       });
+       // Kita TIDAK memanggil triggerLock disini, sesuai request.
+  });
+
+  window.addEventListener('online', () => {
+       Swal.fire({
+           toast: true, position: 'bottom', icon: 'success', 
+           title: 'Internet Terhubung Kembali.', 
+           showConfirmButton: false, timer: 3000
+       });
+  });
+
+  // 5. Inisialisasi Anti Copy Paste
+  App.Security.preventCopyPaste();
+
+  // 6. Session Timeout
   let activityTimer;
   ['click', 'mousemove', 'keypress', 'scroll', 'touchstart'].forEach(evt => document.addEventListener(evt, () => sessionStorage.setItem('last_activity', Date.now()), false));
 
   setInterval(() => {
      const lastAct = sessionStorage.getItem('last_activity');
-     // Cek jika ada sesi (lastAct) DAN waktu sudah lewat (misal 10 menit)
-     if (lastAct && (Date.now() - parseInt(lastAct) > 10 * 60 * 1000)) { 
-        
-        // Hapus sesi
+     if (lastAct && (Date.now() - parseInt(lastAct) > 60 * 60 * 1000)) { // 60 menit idle
         sessionStorage.clear(); 
-        
-        // Tampilkan pesan, lalu panggil forceLogout (bukan reload)
-        Swal.fire({
-          title: 'Sesi Habis', 
-          text: 'Silakan login kembali.', 
-          icon: 'warning',
-          confirmButtonText: 'OK'
-        }).then(() => {
-            // Panggil fungsi logout aplikasi agar langsung ganti ke tampilan Login
-            App.Auth.forceLogout(); 
-        });
+        Swal.fire({title: 'Sesi Habis', text: 'Silakan login kembali.', icon: 'warning', confirmButtonText: 'OK'}).then(() => { App.Auth.forceLogout(); });
      }
   }, 60 * 1000);
 
   window.addEventListener('load', () => {
       App.Auth.checkSession();
-      
-      // PERBAIKAN: Ambil URL Web App sekarang, simpan untuk dipakai nanti.
-      // Ini menghilangkan jeda waktu saat reload selesai ujian.
-      google.script.run.withSuccessHandler(url => {
-          App.data.scriptUrl = url;
-      }).getScriptUrl();
+      google.script.run.withSuccessHandler(url => { App.data.scriptUrl = url; }).getScriptUrl();
   });
 </script>
