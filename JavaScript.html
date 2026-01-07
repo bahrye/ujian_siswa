@@ -1837,16 +1837,18 @@
                  return; 
              }
              
-             let liveTimers = [];      // Untuk hitung mundur sisa waktu
-             let upcomingExams = [];   // Untuk jadwal yang belum mulai (auto-open)
+             let liveTimers = [];
+             let upcomingExams = [];
 
              data.forEach(j => {
                 const dMulai = new Date(j.mulai);
                 const dSelesai = new Date(j.selesai);
                 const now = new Date();
 
-                const tanggal = dMulai.toLocaleDateString('id-ID', {day: 'numeric', month: 'short'});
-                const jam = dMulai.toLocaleTimeString('id-ID', {hour: '2-digit', minute:'2-digit'}) + ' - ' + dSelesai.toLocaleTimeString('id-ID', {hour: '2-digit', minute:'2-digit'});
+                // --- [UPDATE] Format Waktu Lengkap ---
+                const opts = { day: 'numeric', month: 'short', hour: '2-digit', minute:'2-digit' };
+                // Contoh: 10 Jan 08:00 s.d. 10 Jan 10:00
+                const waktuLengkap = dMulai.toLocaleString('id-ID', opts) + ' s.d. ' + dSelesai.toLocaleString('id-ID', opts);
 
                 let cardColor = "border-l-4 border-gray-400";
                 let statusBadge = '<span class="bg-gray-100 text-gray-500 px-2 py-1 rounded text-xs font-bold">BELUM MENGERJAKAN</span>';
@@ -1916,9 +1918,13 @@
                            ${statusBadge}
                         </div>
                         <h4 class="font-bold text-xl text-gray-800">${j.nama_mapel} <span class="text-sm font-normal text-gray-500">(${j.kode_mapel})</span></h4>
-                        <div class="grid grid-cols-2 md:flex md:gap-6 text-sm text-gray-600 mt-2">
-                            <div class="flex items-center gap-2"><i class="far fa-calendar-alt text-indigo-400"></i> ${tanggal}</div>
-                            <div class="flex items-center gap-2"><i class="far fa-clock text-indigo-400"></i> ${jam}</div>
+                        
+                        <div class="grid grid-cols-1 md:flex md:gap-6 text-sm text-gray-600 mt-2">
+                            <div class="flex items-center gap-2 md:col-span-2">
+                                <i class="far fa-clock text-indigo-400"></i> 
+                                <span class="font-medium">${waktuLengkap}</span>
+                            </div>
+                            
                             <div class="flex items-center gap-2"><i class="fas fa-hourglass-half text-indigo-400"></i> ${j.durasi} Menit</div>
                             <div class="flex items-center gap-2"><i class="fas fa-user-tie text-indigo-400"></i> ${j.pengawas}</div>
                         </div>
