@@ -168,7 +168,7 @@ function simpanSoal(data) {
 
 // --- FUNGSI BANTUAN (HELPER) ---
 
-// A. Fungsi Upload Base64 ke Drive (SOLUSI IFRAME PREVIEW)
+// A. Fungsi Upload Base64 ke Drive
 function saveBase64ToDrive(base64Str, namePrefix) {
   try {
     const folderName = "CBT_Assets";
@@ -182,11 +182,10 @@ function saveBase64ToDrive(base64Str, namePrefix) {
     
     // Tentukan Ekstensi
     let ext = "";
-    let typeTag = "#file"; // Hash tag untuk penanda di frontend
     
-    if(mimeType.includes("image")) { ext = ".jpg"; typeTag = "#image"; }
-    else if(mimeType.includes("audio")) { ext = ".mp3"; typeTag = "#audio"; }
-    else if(mimeType.includes("video")) { ext = ".mp4"; typeTag = "#video"; }
+    if(mimeType.includes("image")) { ext = ".jpg"; }
+    else if(mimeType.includes("audio")) { ext = ".mp3"; }
+    // Video dihapus
     
     const fileName = namePrefix + "_" + Date.now() + ext;
     const blob = Utilities.newBlob(decoded, mimeType, fileName);
@@ -195,15 +194,19 @@ function saveBase64ToDrive(base64Str, namePrefix) {
     file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
     
     // OUTPUT URL
-    // 1. Jika Gambar: Gunakan link thumbnail (tetap cepat)
+    const fileId = file.getId();
+
+    // 1. Jika Gambar: Gunakan link thumbnail (cepat & stabil)
     if (mimeType.startsWith('image/')) {
-        return "https://lh3.googleusercontent.com/d/" + file.getId();
+        return "https://lh3.googleusercontent.com/d/" + fileId;
     } 
-    // 2. Jika Audio/Video: Gunakan LINK PREVIEW + Hash Tag Penanda
-    else {
-        // Link ini akan membuka player bawaan Google Drive di dalam Iframe
-        return "https://drive.google.com/file/d/" + file.getId() + "/preview" + typeTag;
+    // 2. Jika Audio: Gunakan LINK DOWNLOAD/STREAM (PENTING AGAR BISA DIPLAY)
+    // Ditambahkan parameter &confirm=t agar lebih stabil
+    else if (mimeType.startsWith('audio/')) {
+        return "https://drive.google.com/uc?export=download&confirm=t&id=" + fileId + "#audio";
     }
+    
+    return "https://drive.google.com/open?id=" + fileId; // Fallback
     
   } catch(e) {
     return base64Str; 
@@ -213,21 +216,15 @@ function saveBase64ToDrive(base64Str, namePrefix) {
 function processHtmlImages(htmlContent) {
   if (!htmlContent) return "";
   
-  // Regex yang menangkap src="data:..." pada tag img, audio, atau video
-  // Menangkap format: src="data:(tipe)/(ext);base64,(kode)"
-  const regex = /src="(data:(image|audio|video)\/[a-zA-Z0-9.-]+;base64,[^"]+)"/g;
+  // HAPUS 'video' dari regex, hanya image dan audio
+  const regex = /src="(data:(image|audio)\/[a-zA-Z0-9.-]+;base64,[^"]+)"/g;
   
   return htmlContent.replace(regex, function(match, fullBase64, type) {
-    // Tentukan prefix nama file berdasarkan tipe
     let prefix = "FILE";
     if (type === 'image') prefix = "SOAL-IMG";
     else if (type === 'audio') prefix = "SOAL-AUDIO";
-    else if (type === 'video') prefix = "SOAL-VIDEO";
     
-    // Upload ke Drive
     const newUrl = saveBase64ToDrive(fullBase64, prefix);
-    
-    // Kembalikan src baru
     return 'src="' + newUrl + '"';
   });
 }
