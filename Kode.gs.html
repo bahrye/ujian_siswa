@@ -193,12 +193,13 @@ function saveBase64ToDrive(base64Str, namePrefix) {
 
     // OUTPUT URL
     if (mimeType.startsWith('image/')) {
+        // Link gambar tetap sama (karena googleusercontent lebih cepat)
         return "https://lh3.googleusercontent.com/d/" + fileId;
     } 
     else if (mimeType.startsWith('audio/')) {
-        // PERBAIKAN: Tambahkan '#audio' di akhir link!
-        // Ini kuncinya agar tidak dianggap gambar rusak.
-        return "https://drive.google.com/uc?export=download&confirm=t&id=" + fileId + "&type=.mp3#audio";
+        // GANTI INI: Gunakan link PREVIEW agar player Google Drive yang menangani
+        // Kita tambahkan #audio_preview sebagai penanda untuk Frontend
+        return "https://drive.google.com/file/d/" + fileId + "/preview#audio_preview";
     }
     
     return "https://drive.google.com/open?id=" + fileId; 
