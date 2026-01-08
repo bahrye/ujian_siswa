@@ -321,9 +321,17 @@
                     ${snippet} ${badgeBobot}
                  </td>
                  <td class="p-4 font-mono text-sm text-emerald-600 font-bold">${s.kunci || '-'}</td>
-                 <td class="p-4 text-right">
-                   <button onclick="App.BankSoal.edit('${dataStr}')" class="text-blue-600 mr-3 hover:text-blue-800 transition"><i class="fas fa-edit"></i></button>
-                   <button onclick="App.BankSoal.hapus('${s.id}')" class="text-red-500 hover:text-red-700 transition"><i class="fas fa-trash"></i></button>
+                 <td class="p-4 text-right whitespace-nowrap">
+                    <button onclick="App.BankSoal.preview('${dataStr}')" class="text-emerald-600 mr-3 hover:text-emerald-800 transition bg-emerald-50 p-2 rounded-lg" title="Preview Soal">
+                        <i class="fas fa-eye"></i>
+                    </button>
+                    
+                    <button onclick="App.BankSoal.edit('${dataStr}')" class="text-blue-600 mr-3 hover:text-blue-800 transition bg-blue-50 p-2 rounded-lg" title="Edit">
+                        <i class="fas fa-edit"></i>
+                    </button>
+                    <button onclick="App.BankSoal.hapus('${s.id}')" class="text-red-500 hover:text-red-700 transition bg-red-50 p-2 rounded-lg" title="Hapus">
+                        <i class="fas fa-trash"></i>
+                    </button>
                  </td>
                </tr>`;
              tbody.insertAdjacentHTML('beforeend', row);
@@ -333,6 +341,73 @@
         if (count === 0) {
             tbody.innerHTML = '<tr><td colspan="5" class="p-8 text-center text-gray-400">Tidak ada soal untuk mapel Anda.</td></tr>';
         }
+      },
+
+      // [BARU] Trigger Klik Input File
+      triggerMedia: function(type) {
+        const input = document.getElementById('q-media-input');
+        // Set accept attribute sesuai tipe tombol yang diklik
+        if(type === 'image') input.accept = "image/*";
+        if(type === 'audio') input.accept = "audio/*";
+        if(type === 'video') input.accept = "video/*";
+        
+        // Simpan tipe yang sedang diupload ke dataset agar bisa dibaca nanti
+        input.dataset.uploadType = type;
+        input.click();
+      },
+
+      // [BARU] Handler setelah file dipilih
+      handleEditorMedia: function(input) {
+         if (input.files && input.files[0]) {
+            const file = input.files[0];
+            const type = input.dataset.uploadType || 'image';
+            
+            // Validasi Ukuran (Max 25MB agar kuat upload video pendek)
+            if(file.size > 25 * 1024 * 1024) return Swal.fire('Terlalu Besar', 'Maksimal ukuran file 25MB', 'warning');
+
+            // Tampilkan Loading
+            const loadingMsg = Swal.fire({
+               title: 'Memproses Media...',
+               text: 'Mohon tunggu sebentar',
+               allowOutsideClick: false,
+               didOpen: () => Swal.showLoading()
+            });
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+               const b64 = e.target.result;
+               
+               // Pastikan editor fokus
+               App.data.quill.focus();
+               
+               // Ambil posisi kursor terakhir, jika null taruh di akhir
+               const range = App.data.quill.getSelection(true);
+               let index = range ? range.index : App.data.quill.getLength();
+
+               if (type === 'image') {
+                   // Gambar (Bawaan)
+                   App.data.quill.insertEmbed(index, 'image', b64);
+               } else if (type === 'audio') {
+                   // Panggil Custom Blot 'audio'
+                   App.data.quill.insertEmbed(index, 'audio', b64);
+               } else if (type === 'video') {
+                   // Panggil Custom Blot 'videoFile'
+                   App.data.quill.insertEmbed(index, 'videoFile', b64);
+               }
+               
+               // Geser kursor ke setelah media
+               App.data.quill.setSelection(index + 1);
+               
+               Swal.close(); // Tutup loading
+            };
+            
+            // Handle error baca file
+            reader.onerror = () => { Swal.fire('Error', 'Gagal membaca file', 'error'); };
+            
+            reader.readAsDataURL(file);
+         }
+         // Reset input
+         input.value = '';
       },
 
       submit: function(e) {
@@ -347,16 +422,35 @@
 
         let opsiData = {}; let kunciJawaban = "";
         if (tipe === 'PG') {
-          opsiData = { A: document.getElementById('pg-a').value, B: document.getElementById('pg-b').value, C: document.getElementById('pg-c').value, D: document.getElementById('pg-d').value, E: document.getElementById('pg-e').value };
+          opsiData = { 
+            A: document.getElementById('pg-a').value, 
+            B: document.getElementById('pg-b').value, 
+            C: document.getElementById('pg-c').value, 
+            D: document.getElementById('pg-d').value, 
+            E: document.getElementById('pg-e').value 
+          };
           
-          // UPDATE: Gunakan prefix 'media_' untuk mendukung semua tipe file
+          // [UPDATE PENTING] Logika Prioritas Media
           ['A','B','C','D','E'].forEach(h => { 
-              if(App.data.opsiImages[h]) opsiData['media_'+h] = App.data.opsiImages[h]; 
+              const newFile = App.data.opsiImages[h]; // File Baru (Base64)
+              const oldFile = document.getElementById('existing-media-'+h.toLowerCase()).value; // File Lama (URL)
+              
+              if(newFile) {
+                  // Jika user upload baru, pakai yang baru
+                  opsiData['media_'+h] = newFile; 
+              } else if(oldFile) {
+                  // Jika tidak upload baru, tapi ada file lama, pakai yang lama
+                  opsiData['media_'+h] = oldFile;
+              }
           });
           
           kunciJawaban = document.getElementById('kunci-pg').value;
-          // Validasi minimal (Cek teks ATAU media)
-          if((!opsiData.A && !opsiData.media_A) || (!opsiData.B && !opsiData.media_B)) return Swal.fire('Error', 'Min. Opsi A & B (Teks atau Media)', 'warning');
+          
+          // Validasi (Cek Teks ATAU Media)
+          // Sekarang opsiData.media_A sudah terisi URL lama, jadi validasi ini akan lolos
+          if((!opsiData.A && !opsiData.media_A) || (!opsiData.B && !opsiData.media_B)) {
+              return Swal.fire('Error', 'Min. Opsi A & B (Teks atau Media)', 'warning');
+          }
         }
         else if (tipe === 'ISIAN') kunciJawaban = document.getElementById('kunci-isian').value;
         else if (tipe === 'BS') { const r = document.querySelector('input[name="kunci_bs"]:checked'); kunciJawaban = r ? r.value : ""; opsiData = { A: "BENAR", B: "SALAH" }; }
@@ -400,25 +494,44 @@
       edit: function(str) {
         const s = JSON.parse(decodeURIComponent(str));
         
-        // 1. Set ID & Judul dulu
+        // 1. Set ID & Judul
         document.getElementById('soal-id').value = s.id;
         document.getElementById('form-soal-title').innerText = "Edit Soal";
         document.getElementById('btnSave').innerText = "UPDATE SOAL";
         
         // 2. Buka Form
-        // Fungsi ini akan memicu pembuatan Quill dengan delay internal 100ms
         App.BankSoal.toggleForm(true);
 
-        // 3. GUNAKAN SETTIMEOUT (PENTING!)
-        // Kita tunggu 300ms agar Quill & DOM benar-benar siap sebelum mengisi data
+        // 3. GUNAKAN SETTIMEOUT
+        // Tunggu 300ms agar Quill & DOM benar-benar siap
         setTimeout(() => {
             
             // --- A. ISI EDITOR QUILL (PERTANYAAN) ---
             if (App.data.quill) {
-                // Bersihkan dulu isinya agar bersih
+                // Bersihkan dulu isinya
                 App.data.quill.setContents([]); 
-                // Paste HTML Pertanyaan
-                App.data.quill.clipboard.dangerouslyPasteHTML(0, s.soal);
+                
+                // [FIX UTAMA] Ubah tag video/audio preview menjadi IFRAME agar tampil di editor
+                let cleanSoal = s.soal || "";
+                
+                // 1. Ubah <video src=".../preview..."> jadi <iframe>
+                cleanSoal = cleanSoal.replace(/<video[^>]+src="([^"]+)"[^>]*>.*?<\/video>/g, function(match, url) {
+                    if(url.includes('/preview')) {
+                        return `<iframe class="ql-video" src="${url}" frameborder="0" allowfullscreen="true"></iframe>`;
+                    }
+                    return match;
+                });
+                
+                // 2. Ubah <audio src=".../preview..."> jadi <iframe> (tinggi kecil)
+                cleanSoal = cleanSoal.replace(/<audio[^>]+src="([^"]+)"[^>]*>.*?<\/audio>/g, function(match, url) {
+                    if(url.includes('/preview')) {
+                        return `<iframe class="ql-video" src="${url}" frameborder="0" allowfullscreen="true" style="height:100px;"></iframe>`;
+                    }
+                    return match;
+                });
+
+                // Paste HTML yang sudah diperbaiki ke Quill
+                App.data.quill.clipboard.dangerouslyPasteHTML(0, cleanSoal);
             }
 
             // --- B. LOGIKA MAPEL (SMART SELECT) ---
@@ -429,15 +542,12 @@
                  App.BankSoal.renderOptionsMapel(App.Cache.get('mapel_opts'));
             }
 
-            // Strategi 1: Exact Match
             selMapel.value = s.mapel;
             
-            // Strategi 2: Trim Spasi
+            // Fallback trim/case-insensitive
             if (!selMapel.value && s.mapel) {
                 selMapel.value = s.mapel.trim();
             }
-
-            // Strategi 3: Case Insensitive Loop
             if (!selMapel.value && s.mapel) {
                 const target = s.mapel.trim().toUpperCase();
                 for (let i = 0; i < selMapel.options.length; i++) {
@@ -450,13 +560,11 @@
 
             // --- C. ISI TIPE & BOBOT ---
             document.getElementById('tipe-soal').value = s.tipe;
-            
-            // Isi Bobot (Jika elemen ada)
             if(document.getElementById('soal-bobot')) {
                 document.getElementById('soal-bobot').value = s.bobot || ""; 
             }
 
-            // PENTING: Panggil ini agar area opsi yang sesuai (PG/Essay/dll) dimunculkan
+            // Panggil ini agar area opsi yang sesuai muncul
             App.BankSoal.changeType();
 
             // --- D. ISI OPSI JAWABAN ---
@@ -465,41 +573,29 @@
             
             if (s.tipe === 'PG') {
                ['A','B','C','D','E'].forEach(h => {
-                 // Isi Text Input
+                 // 1. Isi Text Input
                  const inputEl = document.getElementById('pg-'+h.toLowerCase());
                  if(inputEl) inputEl.value = opsi[h] || "";
                  
-                 // Reset Preview
+                 // 2. Reset Preview Box
                  App.BankSoal.removeMedia(h); 
 
-                 // Cek apakah ada media (support key lama 'img_' dan baru 'media_')
+                 // 3. Cek Media (Legacy 'img_' atau Baru 'media_')
                  const mediaVal = opsi['media_'+h] || opsi['img_'+h];
 
                  if(mediaVal) { 
-                   // Simpan ke memory (walaupun URL, simpan saja agar tidak hilang saat save ulang tanpa edit)
-                   // Note: Jika user tidak mengganti file, kita kirim URL lama, backend harus handle (biasanya aman)
-                   // TAPI untuk aman, kita set null di memory App.data.opsiImages agar tidak terkirim ulang sebagai base64,
-                   // kecuali user upload baru. Namun untuk Preview kita butuh.
-                   
+                   // [FIX] Simpan URL lama ke Hidden Input (Wajib agar tidak hilang saat save)
+                   const hiddenInp = document.getElementById('existing-media-'+h.toLowerCase());
+                   if(hiddenInp) hiddenInp.value = mediaVal;
+
+                   // Tampilkan Preview (DI FORM EDIT)
                    const box = document.getElementById('prev-box-'+h);
                    const content = document.getElementById('media-content-A'.replace('A', h));
                    
                    if(box && content) {
                       box.classList.remove('hidden'); 
-                      
-                      // Deteksi Tipe File dari URL string
-                      let htmlTag = '';
-                      const urlLower = mediaVal.toLowerCase();
-                      
-                      if(urlLower.includes('.mp3') || urlLower.includes('audio')) {
-                          htmlTag = `<audio controls src="${mediaVal}" class="w-full h-8"></audio>`;
-                      } else if(urlLower.includes('.mp4') || urlLower.includes('video')) {
-                          htmlTag = `<video controls src="${mediaVal}" class="w-full max-h-32 rounded bg-black"></video>`;
-                      } else {
-                          // Default Image
-                          htmlTag = `<img src="${mediaVal}" class="img-opsi-preview" onclick="App.UI.zoomImg(this)">`;
-                      }
-                      content.innerHTML = htmlTag;
+                      // Gunakan Helper Baru
+                      content.innerHTML = App.Util.renderMediaHtml(mediaVal, "img-opsi-preview");
                    }
                  }
                });
@@ -518,12 +614,138 @@
                const container = document.getElementById('container-cocok'); 
                container.innerHTML = "";
                if(Array.isArray(opsi)) {
-                   // Pass parameter ke-3 yaitu score (p.s)
                    opsi.forEach(p => App.BankSoal.addRowCocok(p.k, p.v, p.s));
                }
             }
 
-        }, 300); // <-- Delay 300 milidetik (0.3 detik)
+        }, 300); 
+      },
+
+      // --- FUNGSI PREVIEW SOAL (DOM PARSER VERSION) ---
+      preview: function(str) {
+        const s = JSON.parse(decodeURIComponent(str));
+        App.UI.openModal('modal-preview-soal');
+        
+        const container = document.getElementById('container-preview-content');
+        container.innerHTML = ''; 
+
+        // 1. Render Pertanyaan (Gunakan DOM Parser untuk akurasi)
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = s.soal || "";
+
+        // A. Fix Video/Audio di Pertanyaan
+        const medias = tempDiv.querySelectorAll('iframe, video, audio');
+        medias.forEach(el => {
+            const src = el.getAttribute('src');
+            if(src) {
+                // Ganti elemen lama dengan HTML baru dari Helper
+                const wrapper = document.createElement('div');
+                wrapper.innerHTML = App.Util.renderMediaHtml(src);
+                el.parentNode.replaceChild(wrapper.firstElementChild, el);
+            }
+        });
+
+        // B. Fix Gambar
+        tempDiv.querySelectorAll('img').forEach(img => {
+            img.classList.add('max-w-full', 'h-auto', 'rounded-lg', 'border', 'shadow-sm', 'my-4');
+        });
+
+        // Badge & Header
+        let metaHtml = `
+            <div class="flex flex-wrap gap-2 mb-4">
+                <span class="bg-indigo-100 text-indigo-800 text-xs font-bold px-3 py-1 rounded-full border border-indigo-200 uppercase tracking-wide">${s.tipe}</span>
+                <span class="bg-yellow-100 text-yellow-800 text-xs font-bold px-3 py-1 rounded-full border border-yellow-200"><i class="fas fa-weight-hanging"></i> Bobot: ${s.bobot || 1}</span>
+                <span class="bg-green-100 text-green-800 text-xs font-bold px-3 py-1 rounded-full border border-green-200"><i class="fas fa-key"></i> Kunci: ${s.kunci}</span>
+            </div>`;
+
+        let html = `
+           <div class="bg-white p-6 md:p-8 rounded-xl shadow-sm border border-gray-200">
+               ${metaHtml}
+               <div class="text-gray-800 text-base md:text-lg leading-loose font-medium ql-editor" style="padding:0;">
+                   ${tempDiv.innerHTML}
+               </div>
+           </div>`;
+
+        // 2. Render Opsi Jawaban
+        let opsi = {}; try { opsi = JSON.parse(s.opsi); } catch(e){}
+        html += '<div class="mt-4 space-y-3">';
+
+        if (s.tipe === 'PG') {
+            ['A','B','C','D','E'].forEach(k => {
+                const hasText = opsi[k] && opsi[k].trim() !== "";
+                const mediaVal = opsi['media_' + k] || opsi['img_' + k];
+                
+                if (hasText || mediaVal) {
+                    const isKey = (String(s.kunci) === k);
+                    let baseClass = isKey ? "bg-green-50 border-green-500 ring-1 ring-green-400 shadow-md" : "border-gray-200 hover:bg-gray-50";
+                    let circleClass = isKey ? "bg-green-600 text-white border-green-600" : "bg-gray-100 text-gray-500 border-gray-200";
+                    
+                    // RENDER MEDIA OPSI VIA HELPER
+                    let mediaHtml = mediaVal ? `<div class="mt-2 w-full">${App.Util.renderMediaHtml(mediaVal, "h-32")}</div>` : '';
+
+                    html += `
+                      <div class="relative p-4 rounded-xl border-2 flex items-start gap-4 transition ${baseClass}">
+                          <div class="w-10 h-10 flex items-center justify-center rounded-full font-bold border-2 text-lg shrink-0 ${circleClass}">${k}</div>
+                          <div class="flex-1 min-w-0 pt-1">
+                              <div class="text-gray-800 font-medium text-base break-words">${opsi[k] || ''}</div>
+                              ${mediaHtml}
+                          </div>
+                          ${isKey ? '<div class="absolute top-3 right-3 text-green-600 bg-white rounded-full p-1 shadow"><i class="fas fa-check-circle text-2xl"></i></div>' : ''}
+                      </div>`;
+                }
+            });
+        }
+        else if (s.tipe === 'BS') {
+             ['BENAR','SALAH'].forEach(val => {
+                 const isKey = (s.kunci === val);
+                 const color = val === 'BENAR' ? 'green' : 'red';
+                 const active = isKey 
+                    ? `bg-${color}-600 text-white border-${color}-600 shadow-lg scale-105 ring-2 ring-${color}-200` 
+                    : `bg-white text-gray-400 border-gray-200 grayscale opacity-60`;
+                 
+                 html += `
+                    <div class="p-5 rounded-xl border-2 font-bold text-center text-xl transition transform ${active}">
+                        ${val} ${isKey ? '<i class="fas fa-check-circle ml-2"></i>' : ''}
+                    </div>`;
+             });
+        }
+        else if (s.tipe === 'COCOK') {
+             if(Array.isArray(opsi)) {
+                 html += `
+                 <div class="bg-white p-5 rounded-xl border shadow-sm">
+                    <h4 class="font-bold text-gray-600 mb-3 border-b pb-2">Pasangan Jawaban (Kunci)</h4>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm">
+                            <thead class="bg-gray-50 text-gray-500 uppercase text-xs">
+                                <tr><th class="p-2 text-left">Pernyataan (Kiri)</th><th class="p-2 text-left">Pasangan (Kanan)</th><th class="p-2 text-center">Skor</th></tr>
+                            </thead>
+                            <tbody class="divide-y">`;
+                 opsi.forEach(p => {
+                     html += `
+                        <tr>
+                            <td class="p-3 font-medium text-gray-800">${p.k}</td>
+                            <td class="p-3 font-bold text-indigo-600"><i class="fas fa-arrow-right text-gray-300 mr-2"></i> ${p.v}</td>
+                            <td class="p-3 text-center text-gray-500 bg-gray-50 font-mono">${p.s}</td>
+                        </tr>`;
+                 });
+                 html += `</tbody></table></div></div>`;
+             }
+        }
+        else {
+             // Essay
+             html += `
+                <div class="bg-blue-50 p-5 rounded-xl border border-blue-200">
+                    <p class="text-xs font-bold text-blue-500 uppercase tracking-wider mb-2">Kunci Jawaban Guru:</p>
+                    <div class="text-blue-900 font-mono text-lg font-bold bg-white p-3 rounded border border-blue-100 shadow-inner">
+                        ${s.kunci || '-'}
+                    </div>
+                    <p class="text-xs text-blue-400 mt-2 italic">* Siswa akan melihat kotak input teks kosong.</p>
+                </div>
+             `;
+        }
+
+        html += '</div>';
+        container.innerHTML = html;
       },
 
       // --- IMPORT EXCEL & MEDIA ---
@@ -624,6 +846,11 @@
         document.getElementById('form-soal-title').innerText = "Input Soal Baru";
         document.getElementById('btnSave').innerText = "SIMPAN SOAL";
         if(App.data.quill) App.data.quill.setContents([]);
+        // [BARU] Reset semua hidden input
+        ['a','b','c','d','e'].forEach(h => {
+            const el = document.getElementById('existing-media-'+h);
+            if(el) el.value = "";
+        });
         App.BankSoal.changeType();
         ['A','B','C','D','E'].forEach(h => App.BankSoal.removeMedia(h)); // Ganti removeImage jadi removeMedia
       },
@@ -675,6 +902,10 @@
         App.data.opsiImages[hur] = null; 
         document.getElementById('file-'+hur.toLowerCase()).value = ""; 
         
+        // [BARU] Kosongkan juga hidden input URL lama
+        const hiddenInp = document.getElementById('existing-media-'+hur.toLowerCase());
+        if(hiddenInp) hiddenInp.value = "";
+
         const box = document.getElementById('prev-box-'+hur);
         const content = document.getElementById('media-content-'+hur);
         
@@ -1285,30 +1516,51 @@
             if(s.tipe === 'PG') {
                 let visualIndex = 0; 
                 s.shuffledKeys.forEach((realKey) => {
-                  if(s.opsi[realKey]) {
+                  // Cek Opsi Teks
+                  const textVal = s.opsi[realKey];
+                  // Cek Opsi Media (Legacy 'img_' atau Baru 'media_')
+                  const mediaVal = s.opsi['media_'+realKey] || s.opsi['img_'+realKey];
+
+                  // Tampilkan jika ada Teks ATAU Media
+                  if(textVal || mediaVal) {
                     const visualLabel = labelUrut[visualIndex]; 
                     visualIndex++; 
 
                     const isSelected = App.data.jawabanSiswa[s.id] === realKey;
-                    // Styling dinamis
-                    const baseClass = "cursor-pointer border-2 rounded-xl p-3 flex gap-4 items-center transition-all duration-200 shadow-sm mb-2 group";
+                    
+                    // Styling
+                    const baseClass = "cursor-pointer border-2 rounded-xl p-3 flex gap-4 items-start transition-all duration-200 shadow-sm mb-3 group bg-white";
                     const activeClass = isSelected 
                         ? 'bg-indigo-50 border-indigo-600 ring-1 ring-indigo-500' 
-                        : 'bg-white border-gray-200 hover:border-indigo-300 hover:bg-gray-50';
+                        : 'border-gray-200 hover:border-indigo-300 hover:bg-gray-50';
                     
                     const circleClass = isSelected
                         ? 'bg-indigo-600 text-white border-indigo-600'
                         : 'bg-gray-100 text-gray-500 border-gray-200 group-hover:border-indigo-300 group-hover:text-indigo-600';
 
+                    // HTML Media Opsi (TAMPILAN SISWA)
+                    let htmlMedia = '';
+                    if(mediaVal) {
+                        // Gunakan Helper App.Util yang sudah diperbarui
+                        // Class gambar di parameter kedua bisa disesuaikan
+                        const rendered = App.Util.renderMediaHtml(mediaVal, "h-40 w-auto rounded-lg border shadow-sm bg-white object-contain");
+                        
+                        // Bungkus agar rapi
+                        htmlMedia = `<div class="mt-3 w-full">${rendered}</div>`;
+                    }
+
                     ops.insertAdjacentHTML('beforeend', `
                       <div onclick="App.Exam.pilih('${s.id}','${realKey}')" class="${baseClass} ${activeClass}">
-                          <div class="w-10 h-10 flex items-center justify-center rounded-full font-bold border-2 text-lg shrink-0 transition-colors ${circleClass}">
+                          <div class="w-10 h-10 flex items-center justify-center rounded-full font-bold border-2 text-lg shrink-0 transition-colors mt-1 ${circleClass}">
                               ${visualLabel}
                           </div>
-                          <div class="flex-1 text-gray-700 text-sm md:text-base leading-snug">
-                              ${s.opsi[realKey]}
+                          <div class="flex-1 min-w-0">
+                              <div class="text-gray-700 text-sm md:text-base leading-snug pt-2">
+                                  ${textVal || ''}
+                              </div>
+                              ${htmlMedia}
                           </div>
-                          ${isSelected ? '<div class="text-indigo-600"><i class="fas fa-check-circle text-xl"></i></div>' : ''}
+                          ${isSelected ? '<div class="text-indigo-600 mt-2"><i class="fas fa-check-circle text-xl"></i></div>' : ''}
                       </div>
                     `);
                   }
@@ -2992,9 +3244,107 @@
       resetGlobals: function() {
         App.data = { role: '', user: null, soalList: [], userList: [], mapelList: [], jawabanSiswa: {}, raguSiswa: {}, opsiImages: { A:null, B:null, C:null, D:null, E:null }, examRunning: false, timer: null, timeLeft: 0, currentSoalIdx: 0, quill: null };
         document.getElementById('tbody-users').innerHTML = ''; document.getElementById('tbody-mapel').innerHTML = ''; document.getElementById('tbody-soal').innerHTML = ''; document.querySelectorAll('.fixed.z-50').forEach(el => el.classList.add('hidden'));
+      },
+
+      // [BARU] Helper Render Media Keren & Fix Loading
+      renderMediaHtml: function(urlRaw, styleClass = "") {
+         if (!urlRaw) return "";
+         
+         // 1. Bersihkan URL dari Hash (#video, #audio) agar tidak loading terus
+         const url = urlRaw.split('#')[0]; 
+         
+         // 2. Deteksi Tipe dari URL Raw atau Hash sebelumnya
+         const isAudio = urlRaw.includes('audio') || urlRaw.includes('.mp3') || urlRaw.includes('#audio');
+         const isVideo = urlRaw.includes('video') || urlRaw.includes('.mp4') || urlRaw.includes('#video');
+         
+         // Cek apakah ini Link Google Drive (Preview/View)
+         if (url.includes('drive.google.com') || url.includes('/preview')) {
+             
+             if (isAudio) {
+                 // STYLE AUDIO: "Fake Bar Player"
+                 // Kita set tinggi iframe kecil (54px) agar hanya kontrolernya yang muncul
+                 return `
+                   <div class="w-full max-w-md bg-gray-100 rounded-full border border-gray-300 overflow-hidden shadow-sm flex items-center" style="height: 54px;">
+                      <iframe src="${url}" 
+                              style="width: 100%; height: 100%; border: none;" 
+                              scrolling="no" 
+                              sandbox="allow-scripts allow-same-origin allow-popups allow-forms">
+                      </iframe>
+                   </div>`;
+             } 
+             else {
+                 // STYLE VIDEO: "Cinema Look"
+                 // Rasio 16:9, Rounded, Shadow
+                 return `
+                   <div class="w-full max-w-lg mt-3 mb-3">
+                       <div class="relative w-full overflow-hidden rounded-xl shadow-lg border border-gray-200 bg-black" style="padding-top: 56.25%;">
+                          <iframe src="${url}" 
+                                  class="absolute top-0 left-0 w-full h-full" 
+                                  frameborder="0" 
+                                  allow="autoplay; fullscreen" 
+                                  sandbox="allow-scripts allow-same-origin allow-popups allow-forms">
+                          </iframe>
+                       </div>
+                   </div>`;
+             }
+         } 
+         // Jika Gambar Biasa
+         else {
+             return `<img src="${url}" class="${styleClass} rounded-lg shadow-sm border border-gray-200 cursor-zoom-in hover:opacity-95 transition" onclick="App.UI.zoomImg(this)">`;
+         }
       }
     }
   };
+
+  // --- [TAMBAHAN] REGISTER CUSTOM BLOTS UNTUK AUDIO & VIDEO ---
+  // Letakkan kode ini DI LUAR object App, di bagian atas script
+
+  // Cek apakah Quill sudah dimuat
+  if (typeof Quill !== 'undefined') {
+    const BlockEmbed = Quill.import('blots/block/embed');
+
+    // 1. Definisikan Audio Blot
+    class AudioBlot extends BlockEmbed {
+      static create(value) {
+        let node = super.create();
+        node.setAttribute('src', value);
+        node.setAttribute('controls', '');
+        node.setAttribute('style', 'width: 100%; margin: 10px 0;');
+        // Mencegah audio diputar otomatis saat loading
+        node.setAttribute('preload', 'metadata');
+        return node;
+      }
+      
+      static value(node) {
+        return node.getAttribute('src');
+      }
+    }
+    AudioBlot.blotName = 'audio';
+    AudioBlot.tagName = 'audio';
+
+    // 2. Definisikan Video Blot (HTML5 Video)
+    class VideoBlot extends BlockEmbed {
+      static create(value) {
+        let node = super.create();
+        node.setAttribute('src', value);
+        node.setAttribute('controls', '');
+        node.setAttribute('style', 'max-width: 100%; max-height: 400px; display: block; margin: 10px auto; background: #000;');
+        node.setAttribute('preload', 'metadata');
+        return node;
+      }
+      
+      static value(node) {
+        return node.getAttribute('src');
+      }
+    }
+    // Kita namakan 'videoFile' agar tidak bentrok dengan modul 'video' bawaan (iframe youtube)
+    VideoBlot.blotName = 'videoFile'; 
+    VideoBlot.tagName = 'video';
+
+    // Daftarkan ke Quill
+    Quill.register(AudioBlot);
+    Quill.register(VideoBlot);
+  }
 
   // ===========================================
   // INITIALIZATION & EVENT LISTENERS
