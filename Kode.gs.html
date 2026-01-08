@@ -168,46 +168,67 @@ function simpanSoal(data) {
 
 // --- FUNGSI BANTUAN (HELPER) ---
 
-// A. Fungsi Upload Base64 ke Drive
+// A. Fungsi Upload Base64 ke Drive (SOLUSI IFRAME PREVIEW)
 function saveBase64ToDrive(base64Str, namePrefix) {
   try {
-    // Cek folder
     const folderName = "CBT_Assets";
     const folders = DriveApp.getFoldersByName(folderName);
     let folder = folders.hasNext() ? folders.next() : DriveApp.createFolder(folderName);
     
-    // Decode Base64
-    const contentType = base64Str.substring(5, base64Str.indexOf(';'));
+    // Deteksi MIME Type
+    const mimeType = base64Str.substring(5, base64Str.indexOf(';'));
     const cleanBase64 = base64Str.substring(base64Str.indexOf(',') + 1);
     const decoded = Utilities.base64Decode(cleanBase64);
-    const blob = Utilities.newBlob(decoded, contentType, namePrefix + "_" + Date.now());
     
-    // Create File & Set Permission
+    // Tentukan Ekstensi
+    let ext = "";
+    let typeTag = "#file"; // Hash tag untuk penanda di frontend
+    
+    if(mimeType.includes("image")) { ext = ".jpg"; typeTag = "#image"; }
+    else if(mimeType.includes("audio")) { ext = ".mp3"; typeTag = "#audio"; }
+    else if(mimeType.includes("video")) { ext = ".mp4"; typeTag = "#video"; }
+    
+    const fileName = namePrefix + "_" + Date.now() + ext;
+    const blob = Utilities.newBlob(decoded, mimeType, fileName);
+    
     const file = folder.createFile(blob);
     file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
     
-    // Return Download URL (agar bisa tampil di HTML <img src="...">)
-    // Menggunakan 'https://lh3.googleusercontent.com/d/ID' lebih cepat loadingnya dibanding getDownloadUrl standar
-    return "https://lh3.googleusercontent.com/d/" + file.getId();
+    // OUTPUT URL
+    // 1. Jika Gambar: Gunakan link thumbnail (tetap cepat)
+    if (mimeType.startsWith('image/')) {
+        return "https://lh3.googleusercontent.com/d/" + file.getId();
+    } 
+    // 2. Jika Audio/Video: Gunakan LINK PREVIEW + Hash Tag Penanda
+    else {
+        // Link ini akan membuka player bawaan Google Drive di dalam Iframe
+        return "https://drive.google.com/file/d/" + file.getId() + "/preview" + typeTag;
+    }
     
   } catch(e) {
-    // Jika gagal upload, kembalikan string asli (resiko error 50k char tetap ada, tapi minimal tidak crash script)
     return base64Str; 
   }
 }
 
-// B. Fungsi Scan & Replace Image di HTML Quill
 function processHtmlImages(htmlContent) {
   if (!htmlContent) return "";
   
-  // Regex untuk mencari src="data:image/..."
-  // Pola: src="(data:image/[^;]+;base64,[^"]+)"
-  const regex = /src="(data:image\/[^;]+;base64,[^"]+)"/g;
+  // Regex yang menangkap src="data:..." pada tag img, audio, atau video
+  // Menangkap format: src="data:(tipe)/(ext);base64,(kode)"
+  const regex = /src="(data:(image|audio|video)\/[a-zA-Z0-9.-]+;base64,[^"]+)"/g;
   
-  return htmlContent.replace(regex, function(match, base64Data) {
-    // Setiap ketemu gambar base64, upload ke drive
-    const newUrl = saveBase64ToDrive(base64Data, "SOAL-IMG");
-    return 'src="' + newUrl + '"'; // Ganti src dengan URL Drive
+  return htmlContent.replace(regex, function(match, fullBase64, type) {
+    // Tentukan prefix nama file berdasarkan tipe
+    let prefix = "FILE";
+    if (type === 'image') prefix = "SOAL-IMG";
+    else if (type === 'audio') prefix = "SOAL-AUDIO";
+    else if (type === 'video') prefix = "SOAL-VIDEO";
+    
+    // Upload ke Drive
+    const newUrl = saveBase64ToDrive(fullBase64, prefix);
+    
+    // Kembalikan src baru
+    return 'src="' + newUrl + '"';
   });
 }
 
