@@ -3215,40 +3215,51 @@
         document.getElementById('tbody-users').innerHTML = ''; document.getElementById('tbody-mapel').innerHTML = ''; document.getElementById('tbody-soal').innerHTML = ''; document.querySelectorAll('.fixed.z-50').forEach(el => el.classList.add('hidden'));
       },
 
-      // [BARU] Fungsi Ajaib untuk Memperbaiki Video/Audio Google Drive
+      // [UPDATE] Fungsi untuk Memperbaiki Video/Audio Google Drive menjadi Iframe
       fixMediaTags: function(htmlContent) {
          if (!htmlContent) return "";
 
-         // 1. Ubah <video src="...preview"> menjadi <iframe>
-         // Regex ini mencari tag video yang src-nya mengandung 'drive.google.com' dan '/preview'
-         htmlContent = htmlContent.replace(/<video[^>]+src="([^"]+)"[^>]*>.*?<\/video>/g, function(match, url) {
+         // 1. Ubah <video> atau <audio> yang src-nya mengandung '/preview' menjadi <iframe>
+         // Regex ini menangkap tag audio/video yang src-nya adalah link preview Google Drive
+         
+         const regex = /<(?:audio|video)[^>]+src="([^"]+)"[^>]*>.*?<\/(?:audio|video)>/g;
+         
+         htmlContent = htmlContent.replace(regex, function(match, url) {
+             // Bersihkan URL dari encode HTML entity jika ada (misal &amp;)
+             url = url.replace(/&amp;/g, '&');
+
              if (url.includes('drive.google.com') && url.includes('/preview')) {
-                 return `
-                 <div class="w-full max-w-lg mt-3 mb-3 mx-auto">
-                    <div class="relative w-full overflow-hidden rounded-xl shadow-lg border border-gray-200 bg-black" style="padding-top: 56.25%;">
+                 // Player Audio/Video Drive via Iframe
+                 // Height 54px cukup untuk player audio saja, 56.25% padding-top untuk video aspect ratio
+                 
+                 const isAudio = url.includes('#audio_preview');
+                 
+                 if (isAudio) {
+                    // Tampilan Player Audio Minimalis
+                    return `
+                     <div class="w-full max-w-md mt-2 mb-2 mx-auto bg-gray-100 rounded-full border border-gray-300 overflow-hidden shadow-sm flex items-center justify-center relative" style="height: 54px;">
                         <iframe src="${url}" 
-                                class="absolute top-0 left-0 w-full h-full" 
-                                frameborder="0" 
-                                allow="autoplay; fullscreen" 
+                                style="width: 100%; height: 100%; border: none;" 
+                                frameborder="0"
+                                scrolling="no" 
+                                allow="autoplay"
                                 sandbox="allow-scripts allow-same-origin allow-popups allow-forms">
                         </iframe>
-                    </div>
-                 </div>`;
-             }
-             return match;
-         });
-
-         // 2. Ubah <audio src="...preview"> menjadi <iframe> (Player Audio Drive)
-         htmlContent = htmlContent.replace(/<audio[^>]+src="([^"]+)"[^>]*>.*?<\/audio>/g, function(match, url) {
-             if (url.includes('drive.google.com') && url.includes('/preview')) {
-                 return `
-                 <div class="w-full max-w-md mt-2 mb-2 bg-gray-100 rounded-full border border-gray-300 overflow-hidden shadow-sm flex items-center" style="height: 54px;">
-                    <iframe src="${url}" 
-                            style="width: 100%; height: 100%; border: none;" 
-                            scrolling="no" 
-                            sandbox="allow-scripts allow-same-origin allow-popups allow-forms">
-                    </iframe>
-                 </div>`;
+                     </div>`;
+                 } else {
+                    // Tampilan Video Responsif
+                    return `
+                     <div class="w-full max-w-lg mt-3 mb-3 mx-auto">
+                        <div class="relative w-full overflow-hidden rounded-xl shadow-lg border border-gray-200 bg-black" style="padding-top: 56.25%;">
+                            <iframe src="${url}" 
+                                    class="absolute top-0 left-0 w-full h-full" 
+                                    frameborder="0" 
+                                    allow="autoplay; fullscreen" 
+                                    sandbox="allow-scripts allow-same-origin allow-popups allow-forms">
+                            </iframe>
+                        </div>
+                     </div>`;
+                 }
              }
              return match;
          });
@@ -3262,38 +3273,28 @@
         
         let url = urlRaw.split('#')[0]; 
         
-        // DETEKSI LEBIH KUAT
-        // 1. Cek ada kata 'audio' atau .mp3
-        // 2. ATAU cek jika linknya format 'export=download' (Ciri khas audio stream Drive yg kita buat)
-        const isAudio = urlRaw.toLowerCase().includes('audio') || 
-                        urlRaw.toLowerCase().endsWith('.mp3') || 
-                        urlRaw.includes('export=download');
+        // Deteksi apakah ini Audio (dari tanda #audio_preview atau format file)
+        const isAudioTag = urlRaw.includes('#audio_preview') || urlRaw.toLowerCase().endsWith('.mp3');
+        const isDrivePreview = urlRaw.includes('drive.google.com') && urlRaw.includes('/preview');
         
-        if (isAudio) {
-            // Pastikan link bersih untuk player
-            // Jika link drive belum format download, kita konversi (jaga-jaga)
-            let fileId = null;
-            const match1 = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
-            if (match1 && match1[1]) fileId = match1[1];
+        if (isAudioTag || (isDrivePreview && !urlRaw.includes('image'))) {
+            // Jika link adalah Preview Drive, gunakan Iframe
+            if (isDrivePreview) {
+                 return `
+                  <div class="w-full mt-2 mb-2 h-[54px] bg-gray-50 rounded border border-gray-200 overflow-hidden">
+                      <iframe src="${urlRaw}" class="w-full h-full border-none" scrolling="no" frameborder="0"></iframe>
+                  </div>`;
+            } 
+            // Jika link download langsung (Legacy/Lama), coba pakai Audio Tag
             else {
-                const match2 = url.match(/id=([a-zA-Z0-9_-]+)/);
-                if(match2 && match2[1]) fileId = match2[1];
+                return `
+                  <div class="w-full mt-2 mb-2 p-1 bg-gray-50 rounded border border-gray-200">
+                      <audio controls preload="metadata" class="w-full h-10">
+                        <source src="${url}" type="audio/mpeg">
+                        Browser tidak support audio.
+                      </audio>
+                  </div>`;
             }
-      
-            if (fileId) {
-                // Paksa jadi link stream yang valid
-                url = "https://drive.google.com/uc?export=download&confirm=t&id=" + fileId;
-            }
-      
-            // RENDER PLAYER
-            return `
-              <div class="w-full mt-2 mb-2 p-1 bg-gray-50 rounded border border-gray-200">
-                  <audio controls preload="metadata" class="w-full h-10">
-                    <source src="${url}" type="audio/mpeg">
-                    <source src="${url}" type="audio/mp3">
-                    Browser tidak support audio.
-                  </audio>
-              </div>`;
         } 
         // Render Gambar
         else {
