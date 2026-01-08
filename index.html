@@ -190,7 +190,21 @@
                   </div>
                   <div>
                     <label class="block font-semibold mb-1 text-sm text-gray-600">Pertanyaan</label>
-                    <div id="editor-container" class="bg-white"></div>
+                    
+                    <div class="flex gap-2 mb-2">
+                      <button type="button" onclick="App.BankSoal.triggerMedia('image')" class="px-3 py-1.5 bg-gray-100 border border-gray-300 rounded text-gray-600 hover:bg-indigo-50 hover:text-indigo-600 text-sm font-bold flex items-center gap-2 transition">
+                        <i class="fas fa-image"></i> Gambar
+                      </button>
+                      <button type="button" onclick="App.BankSoal.triggerMedia('audio')" class="px-3 py-1.5 bg-gray-100 border border-gray-300 rounded text-gray-600 hover:bg-pink-50 hover:text-pink-600 text-sm font-bold flex items-center gap-2 transition">
+                        <i class="fas fa-microphone"></i> Audio
+                      </button>
+                      <button type="button" onclick="App.BankSoal.triggerMedia('video')" class="px-3 py-1.5 bg-gray-100 border border-gray-300 rounded text-gray-600 hover:bg-blue-50 hover:text-blue-600 text-sm font-bold flex items-center gap-2 transition">
+                        <i class="fas fa-video"></i> Video
+                      </button>
+                      <input type="file" id="q-media-input" class="hidden" accept="image/*,audio/*,video/*" onchange="App.BankSoal.handleEditorMedia(this)">
+                    </div>
+
+                    <div id="editor-container" class="bg-white rounded-b-lg"></div>
                   </div>
                   <div class="bg-slate-50 p-4 rounded-lg border border-slate-200">
                     <div id="area-pg" class="opsi-area">
@@ -198,6 +212,7 @@
                       <div class="space-y-4">
                          <div class="flex flex-col gap-2 p-3 border rounded-lg bg-gray-50">
                             <div class="flex gap-2 items-center">
+                               <input type="hidden" id="existing-media-a">
                                <span class="w-6 font-bold text-center shrink-0">A</span>
                                <input type="text" id="pg-a" class="input-std text-sm" placeholder="Teks Jawaban A">
                                <input type="file" id="file-a" accept="image/*,audio/*,video/*" class="hidden" onchange="App.BankSoal.handleMedia(this, 'A')">
@@ -211,6 +226,7 @@
 
                          <div class="flex flex-col gap-2 p-3 border rounded-lg bg-gray-50">
                             <div class="flex gap-2 items-center">
+                               <input type="hidden" id="existing-media-b">
                                <span class="w-6 font-bold text-center shrink-0">B</span>
                                <input type="text" id="pg-b" class="input-std text-sm" placeholder="Teks Jawaban B">
                                <input type="file" id="file-b" accept="image/*,audio/*,video/*" class="hidden" onchange="App.BankSoal.handleMedia(this, 'B')">
@@ -224,6 +240,7 @@
 
                          <div class="flex flex-col gap-2 p-3 border rounded-lg bg-gray-50">
                             <div class="flex gap-2 items-center">
+                               <input type="hidden" id="existing-media-c">
                                <span class="w-6 font-bold text-center shrink-0">C</span>
                                <input type="text" id="pg-c" class="input-std text-sm" placeholder="Teks Jawaban C">
                                <input type="file" id="file-c" accept="image/*,audio/*,video/*" class="hidden" onchange="App.BankSoal.handleMedia(this, 'C')">
@@ -237,6 +254,7 @@
 
                          <div class="flex flex-col gap-2 p-3 border rounded-lg bg-gray-50">
                             <div class="flex gap-2 items-center">
+                               <input type="hidden" id="existing-media-d">
                                <span class="w-6 font-bold text-center shrink-0">D</span>
                                <input type="text" id="pg-d" class="input-std text-sm" placeholder="Teks Jawaban D">
                                <input type="file" id="file-d" accept="image/*,audio/*,video/*" class="hidden" onchange="App.BankSoal.handleMedia(this, 'D')">
@@ -250,6 +268,7 @@
 
                          <div class="flex flex-col gap-2 p-3 border rounded-lg bg-gray-50">
                             <div class="flex gap-2 items-center">
+                               <input type="hidden" id="existing-media-e">
                                <span class="w-6 font-bold text-center shrink-0 text-gray-400">E</span>
                                <input type="text" id="pg-e" class="input-std text-sm" placeholder="Opsional">
                                <input type="file" id="file-e" accept="image/*,audio/*,video/*" class="hidden" onchange="App.BankSoal.handleMedia(this, 'E')">
@@ -861,6 +880,34 @@
                 <button onclick="App.UI.closeModal('modal-detail-jawaban')" class="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg shadow transition">
                     Tutup
                 </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-preview-soal" class="hidden fixed inset-0 z-[70] flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm p-4">
+        <div class="bg-white w-full max-w-3xl rounded-xl shadow-2xl flex flex-col max-h-[90vh] animate__animated animate__zoomIn">
+            <div class="p-4 border-b flex justify-between items-center bg-white rounded-t-xl z-10 shrink-0">
+                 <div class="flex items-center gap-2">
+                     <div class="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600">
+                         <i class="fas fa-eye"></i>
+                     </div>
+                     <div>
+                         <h3 class="font-bold text-lg text-gray-800">Preview Soal</h3>
+                         <p class="text-xs text-gray-500">Tampilan simulasi ujian siswa</p>
+                     </div>
+                 </div>
+                 <button onclick="App.UI.closeModal('modal-preview-soal')" class="w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-500 flex items-center justify-center transition">
+                     <i class="fas fa-times"></i>
+                 </button>
+            </div>
+            
+            <div class="flex-1 overflow-y-auto p-4 md:p-8 bg-gray-100" id="container-preview-content">
+                 </div>
+            
+            <div class="p-4 border-t bg-white rounded-b-xl text-right shrink-0">
+                 <button onclick="App.UI.closeModal('modal-preview-soal')" class="px-6 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg font-bold shadow-sm transition">
+                    Tutup Preview
+                 </button>
             </div>
         </div>
     </div>
