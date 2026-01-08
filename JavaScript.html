@@ -3260,46 +3260,44 @@
       renderMediaHtml: function(urlRaw, styleClass = "") {
         if (!urlRaw) return "";
         
-        // 1. Ambil URL bersih
         let url = urlRaw.split('#')[0]; 
         
-        // 2. Deteksi Audio
-        const isAudio = urlRaw.toLowerCase().includes('audio') || urlRaw.toLowerCase().endsWith('.mp3') || urlRaw.includes('#audio');
+        // DETEKSI LEBIH KUAT
+        // 1. Cek ada kata 'audio' atau .mp3
+        // 2. ATAU cek jika linknya format 'export=download' (Ciri khas audio stream Drive yg kita buat)
+        const isAudio = urlRaw.toLowerCase().includes('audio') || 
+                        urlRaw.toLowerCase().endsWith('.mp3') || 
+                        urlRaw.includes('export=download');
         
         if (isAudio) {
-            // --- AUTO FIX LINK AUDIO ---
-            // Jika link masih format 'view' atau 'preview', ubah ke 'export=download' agar bisa di-stream
-            // Contoh: drive.google.com/file/d/XXX/preview -> drive.google.com/uc?export=download&id=XXX
-            
+            // Pastikan link bersih untuk player
+            // Jika link drive belum format download, kita konversi (jaga-jaga)
             let fileId = null;
-            // Cek pola /d/FILEID
             const match1 = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
             if (match1 && match1[1]) fileId = match1[1];
-            
-            // Cek pola id=FILEID
-            if (!fileId) {
+            else {
                 const match2 = url.match(/id=([a-zA-Z0-9_-]+)/);
                 if(match2 && match2[1]) fileId = match2[1];
             }
-
-            // Jika ID ketemu, gunakan link streaming direct
+      
             if (fileId) {
+                // Paksa jadi link stream yang valid
                 url = "https://drive.google.com/uc?export=download&confirm=t&id=" + fileId;
             }
-
-            // --- RENDER AUDIO BAR STANDAR ---
-            // preload="auto" membantu memuat durasi
+      
+            // RENDER PLAYER
             return `
-              <div class="w-full mt-2 mb-2">
-                  <audio controls preload="auto" class="w-full h-10 shadow-sm rounded border border-gray-200 bg-gray-50">
+              <div class="w-full mt-2 mb-2 p-1 bg-gray-50 rounded border border-gray-200">
+                  <audio controls preload="metadata" class="w-full h-10">
                     <source src="${url}" type="audio/mpeg">
-                    Browser Anda tidak mendukung audio player.
+                    <source src="${url}" type="audio/mp3">
+                    Browser tidak support audio.
                   </audio>
               </div>`;
         } 
         // Render Gambar
         else {
-            return `<img src="${url}" class="${styleClass} rounded-lg shadow-sm border border-gray-200 cursor-zoom-in hover:opacity-95 transition" onclick="App.UI.zoomImg(this)">`;
+            return `<img src="${url}" class="${styleClass} rounded-lg shadow-sm border border-gray-200 cursor-zoom-in hover:opacity-95 transition" onclick="App.UI.zoomImg(this)" onerror="this.style.display='none';">`;
         }
       }
     }
