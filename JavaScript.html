@@ -358,56 +358,39 @@
 
       // [BARU] Handler setelah file dipilih
       handleEditorMedia: function(input) {
-         if (input.files && input.files[0]) {
+        if (input.files && input.files[0]) {
             const file = input.files[0];
             const type = input.dataset.uploadType || 'image';
             
-            // Validasi Ukuran (Max 25MB agar kuat upload video pendek)
-            if(file.size > 25 * 1024 * 1024) return Swal.fire('Terlalu Besar', 'Maksimal ukuran file 25MB', 'warning');
+            // Limit 15MB cukup untuk audio/img
+            if(file.size > 15 * 1024 * 1024) return Swal.fire('Terlalu Besar', 'Maksimal ukuran file 15MB', 'warning');
 
-            // Tampilkan Loading
             const loadingMsg = Swal.fire({
-               title: 'Memproses Media...',
-               text: 'Mohon tunggu sebentar',
-               allowOutsideClick: false,
-               didOpen: () => Swal.showLoading()
+              title: 'Memproses Media...', text: 'Mohon tunggu sebentar',
+              allowOutsideClick: false, didOpen: () => Swal.showLoading()
             });
 
             const reader = new FileReader();
             reader.onload = (e) => {
-               const b64 = e.target.result;
-               
-               // Pastikan editor fokus
-               App.data.quill.focus();
-               
-               // Ambil posisi kursor terakhir, jika null taruh di akhir
-               const range = App.data.quill.getSelection(true);
-               let index = range ? range.index : App.data.quill.getLength();
+              const b64 = e.target.result;
+              App.data.quill.focus();
+              const range = App.data.quill.getSelection(true);
+              let index = range ? range.index : App.data.quill.getLength();
 
-               if (type === 'image') {
-                   // Gambar (Bawaan)
-                   App.data.quill.insertEmbed(index, 'image', b64);
-               } else if (type === 'audio') {
-                   // Panggil Custom Blot 'audio'
-                   App.data.quill.insertEmbed(index, 'audio', b64);
-               } else if (type === 'video') {
-                   // Panggil Custom Blot 'videoFile'
-                   App.data.quill.insertEmbed(index, 'videoFile', b64);
-               }
-               
-               // Geser kursor ke setelah media
-               App.data.quill.setSelection(index + 1);
-               
-               Swal.close(); // Tutup loading
+              if (type === 'image') {
+                  App.data.quill.insertEmbed(index, 'image', b64);
+              } else if (type === 'audio') {
+                  App.data.quill.insertEmbed(index, 'audio', b64);
+              }
+              // Logika VIDEO dihapus
+              
+              App.data.quill.setSelection(index + 1);
+              Swal.close();
             };
-            
-            // Handle error baca file
             reader.onerror = () => { Swal.fire('Error', 'Gagal membaca file', 'error'); };
-            
             reader.readAsDataURL(file);
-         }
-         // Reset input
-         input.value = '';
+        }
+        input.value = '';
       },
 
       submit: function(e) {
@@ -508,29 +491,17 @@
             
             // --- A. ISI EDITOR QUILL (PERTANYAAN) ---
             if (App.data.quill) {
-                // Bersihkan dulu isinya
                 App.data.quill.setContents([]); 
                 
-                // [FIX UTAMA] Ubah tag video/audio preview menjadi IFRAME agar tampil di editor
                 let cleanSoal = s.soal || "";
                 
-                // 1. Ubah <video src=".../preview..."> jadi <iframe>
-                cleanSoal = cleanSoal.replace(/<video[^>]+src="([^"]+)"[^>]*>.*?<\/video>/g, function(match, url) {
-                    if(url.includes('/preview')) {
-                        return `<iframe class="ql-video" src="${url}" frameborder="0" allowfullscreen="true"></iframe>`;
-                    }
-                    return match;
-                });
+                // HAPUS PERGANTIAN VIDEO MENJADI IFRAME (VIDEO REMOVAL)
                 
-                // 2. Ubah <audio src=".../preview..."> jadi <iframe> (tinggi kecil)
-                cleanSoal = cleanSoal.replace(/<audio[^>]+src="([^"]+)"[^>]*>.*?<\/audio>/g, function(match, url) {
-                    if(url.includes('/preview')) {
-                        return `<iframe class="ql-video" src="${url}" frameborder="0" allowfullscreen="true" style="height:100px;"></iframe>`;
-                    }
-                    return match;
-                });
-
-                // Paste HTML yang sudah diperbaiki ke Quill
+                // UBAH AUDIO AGAR MENJADI TAG AUDIO BIASA (BUKAN IFRAME LAGI)
+                // Regex ini menghapus tag audio lama dan menggantinya dengan tag audio HTML5 standar jika perlu,
+                // atau biarkan Quill menanganinya jika format sudah benar.
+                // Namun untuk amannya kita bersihkan replace iframe video.
+                
                 App.data.quill.clipboard.dangerouslyPasteHTML(0, cleanSoal);
             }
 
@@ -629,9 +600,11 @@
         const container = document.getElementById('container-preview-content');
         container.innerHTML = ''; 
 
+        let cleanSoal = App.Util.fixMediaTags(s.soal || "");
+
         // 1. Render Pertanyaan (Gunakan DOM Parser untuk akurasi)
         const tempDiv = document.createElement('div');
-        tempDiv.innerHTML = s.soal || "";
+        tempDiv.innerHTML = cleanSoal;
 
         // A. Fix Video/Audio di Pertanyaan
         const medias = tempDiv.querySelectorAll('iframe, video, audio');
@@ -868,30 +841,25 @@
       handleMedia: function(input, hur) {
         if (input.files && input.files[0]) {
           const file = input.files[0];
-          // UPDATE LIMIT: Naikkan jadi 10MB untuk support Video/Audio
-          if(file.size > 10 * 1024 * 1024) return Swal.fire('File Terlalu Besar', 'Maksimal 10MB', 'warning');
+          if(file.size > 15 * 1024 * 1024) return Swal.fire('File Terlalu Besar', 'Maksimal 15MB', 'warning');
           
           const reader = new FileReader();
           reader.onload = (e) => { 
               const b64 = e.target.result; 
-              App.data.opsiImages[hur] = b64; // Simpan Base64
+              App.data.opsiImages[hur] = b64; 
               
               const box = document.getElementById('prev-box-'+hur);
               const content = document.getElementById('media-content-'+hur);
               
               if(box && content) {
                   box.classList.remove('hidden');
-                  
-                  // Render Preview Berdasarkan Tipe File
                   if (file.type.startsWith('image/')) {
                       content.innerHTML = `<img src="${b64}" class="img-opsi-preview" onclick="App.UI.zoomImg(this)">`;
                   } else if (file.type.startsWith('audio/')) {
-                      content.innerHTML = `<audio controls src="${b64}" class="w-full h-8"></audio>`;
-                  } else if (file.type.startsWith('video/')) {
-                      content.innerHTML = `<video controls src="${b64}" class="w-full max-h-32 rounded bg-black"></video>`;
-                  } else {
-                      content.innerHTML = `<p class="text-xs text-gray-500">${file.name}</p>`;
-                  }
+                      // Tampilan Audio Bar Standar (Preview saat upload)
+                      content.innerHTML = `<audio controls src="${b64}" class="w-full h-10 mt-1"></audio>`;
+                  } 
+                  else { content.innerHTML = `<p class="text-xs text-gray-500">${file.name}</p>`; }
               }
           }
           reader.readAsDataURL(file);
@@ -1482,7 +1450,8 @@
             const totalSoal = App.data.soalList.length;
             
             document.getElementById('disp-no').innerText = idx + 1;
-            document.getElementById('disp-pertanyaan').innerHTML = s.pertanyaan; 
+            const fixedPertanyaan = App.Util.fixMediaTags(s.pertanyaan);
+            document.getElementById('disp-pertanyaan').innerHTML = fixedPertanyaan;
 
             // --- UPDATE LOGIKA ICON STATUS (KUNING/HIJAU) ---
             const iconContainer = document.getElementById('soal-status-icon');
@@ -3246,52 +3215,92 @@
         document.getElementById('tbody-users').innerHTML = ''; document.getElementById('tbody-mapel').innerHTML = ''; document.getElementById('tbody-soal').innerHTML = ''; document.querySelectorAll('.fixed.z-50').forEach(el => el.classList.add('hidden'));
       },
 
-      // [BARU] Helper Render Media Keren & Fix Loading
-      renderMediaHtml: function(urlRaw, styleClass = "") {
-         if (!urlRaw) return "";
-         
-         // 1. Bersihkan URL dari Hash (#video, #audio) agar tidak loading terus
-         const url = urlRaw.split('#')[0]; 
-         
-         // 2. Deteksi Tipe dari URL Raw atau Hash sebelumnya
-         const isAudio = urlRaw.includes('audio') || urlRaw.includes('.mp3') || urlRaw.includes('#audio');
-         const isVideo = urlRaw.includes('video') || urlRaw.includes('.mp4') || urlRaw.includes('#video');
-         
-         // Cek apakah ini Link Google Drive (Preview/View)
-         if (url.includes('drive.google.com') || url.includes('/preview')) {
-             
-             if (isAudio) {
-                 // STYLE AUDIO: "Fake Bar Player"
-                 // Kita set tinggi iframe kecil (54px) agar hanya kontrolernya yang muncul
+      // [BARU] Fungsi Ajaib untuk Memperbaiki Video/Audio Google Drive
+      fixMediaTags: function(htmlContent) {
+         if (!htmlContent) return "";
+
+         // 1. Ubah <video src="...preview"> menjadi <iframe>
+         // Regex ini mencari tag video yang src-nya mengandung 'drive.google.com' dan '/preview'
+         htmlContent = htmlContent.replace(/<video[^>]+src="([^"]+)"[^>]*>.*?<\/video>/g, function(match, url) {
+             if (url.includes('drive.google.com') && url.includes('/preview')) {
                  return `
-                   <div class="w-full max-w-md bg-gray-100 rounded-full border border-gray-300 overflow-hidden shadow-sm flex items-center" style="height: 54px;">
-                      <iframe src="${url}" 
-                              style="width: 100%; height: 100%; border: none;" 
-                              scrolling="no" 
-                              sandbox="allow-scripts allow-same-origin allow-popups allow-forms">
-                      </iframe>
-                   </div>`;
-             } 
-             else {
-                 // STYLE VIDEO: "Cinema Look"
-                 // Rasio 16:9, Rounded, Shadow
-                 return `
-                   <div class="w-full max-w-lg mt-3 mb-3">
-                       <div class="relative w-full overflow-hidden rounded-xl shadow-lg border border-gray-200 bg-black" style="padding-top: 56.25%;">
-                          <iframe src="${url}" 
-                                  class="absolute top-0 left-0 w-full h-full" 
-                                  frameborder="0" 
-                                  allow="autoplay; fullscreen" 
-                                  sandbox="allow-scripts allow-same-origin allow-popups allow-forms">
-                          </iframe>
-                       </div>
-                   </div>`;
+                 <div class="w-full max-w-lg mt-3 mb-3 mx-auto">
+                    <div class="relative w-full overflow-hidden rounded-xl shadow-lg border border-gray-200 bg-black" style="padding-top: 56.25%;">
+                        <iframe src="${url}" 
+                                class="absolute top-0 left-0 w-full h-full" 
+                                frameborder="0" 
+                                allow="autoplay; fullscreen" 
+                                sandbox="allow-scripts allow-same-origin allow-popups allow-forms">
+                        </iframe>
+                    </div>
+                 </div>`;
              }
-         } 
-         // Jika Gambar Biasa
-         else {
-             return `<img src="${url}" class="${styleClass} rounded-lg shadow-sm border border-gray-200 cursor-zoom-in hover:opacity-95 transition" onclick="App.UI.zoomImg(this)">`;
-         }
+             return match;
+         });
+
+         // 2. Ubah <audio src="...preview"> menjadi <iframe> (Player Audio Drive)
+         htmlContent = htmlContent.replace(/<audio[^>]+src="([^"]+)"[^>]*>.*?<\/audio>/g, function(match, url) {
+             if (url.includes('drive.google.com') && url.includes('/preview')) {
+                 return `
+                 <div class="w-full max-w-md mt-2 mb-2 bg-gray-100 rounded-full border border-gray-300 overflow-hidden shadow-sm flex items-center" style="height: 54px;">
+                    <iframe src="${url}" 
+                            style="width: 100%; height: 100%; border: none;" 
+                            scrolling="no" 
+                            sandbox="allow-scripts allow-same-origin allow-popups allow-forms">
+                    </iframe>
+                 </div>`;
+             }
+             return match;
+         });
+
+         return htmlContent;
+      },
+
+      // Helper Render Media untuk Opsi Jawaban (Updated)
+      renderMediaHtml: function(urlRaw, styleClass = "") {
+        if (!urlRaw) return "";
+        
+        // 1. Ambil URL bersih
+        let url = urlRaw.split('#')[0]; 
+        
+        // 2. Deteksi Audio
+        const isAudio = urlRaw.toLowerCase().includes('audio') || urlRaw.toLowerCase().endsWith('.mp3') || urlRaw.includes('#audio');
+        
+        if (isAudio) {
+            // --- AUTO FIX LINK AUDIO ---
+            // Jika link masih format 'view' atau 'preview', ubah ke 'export=download' agar bisa di-stream
+            // Contoh: drive.google.com/file/d/XXX/preview -> drive.google.com/uc?export=download&id=XXX
+            
+            let fileId = null;
+            // Cek pola /d/FILEID
+            const match1 = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
+            if (match1 && match1[1]) fileId = match1[1];
+            
+            // Cek pola id=FILEID
+            if (!fileId) {
+                const match2 = url.match(/id=([a-zA-Z0-9_-]+)/);
+                if(match2 && match2[1]) fileId = match2[1];
+            }
+
+            // Jika ID ketemu, gunakan link streaming direct
+            if (fileId) {
+                url = "https://drive.google.com/uc?export=download&confirm=t&id=" + fileId;
+            }
+
+            // --- RENDER AUDIO BAR STANDAR ---
+            // preload="auto" membantu memuat durasi
+            return `
+              <div class="w-full mt-2 mb-2">
+                  <audio controls preload="auto" class="w-full h-10 shadow-sm rounded border border-gray-200 bg-gray-50">
+                    <source src="${url}" type="audio/mpeg">
+                    Browser Anda tidak mendukung audio player.
+                  </audio>
+              </div>`;
+        } 
+        // Render Gambar
+        else {
+            return `<img src="${url}" class="${styleClass} rounded-lg shadow-sm border border-gray-200 cursor-zoom-in hover:opacity-95 transition" onclick="App.UI.zoomImg(this)">`;
+        }
       }
     }
   };
@@ -3303,47 +3312,23 @@
   if (typeof Quill !== 'undefined') {
     const BlockEmbed = Quill.import('blots/block/embed');
 
-    // 1. Definisikan Audio Blot
     class AudioBlot extends BlockEmbed {
       static create(value) {
         let node = super.create();
         node.setAttribute('src', value);
         node.setAttribute('controls', '');
-        node.setAttribute('style', 'width: 100%; margin: 10px 0;');
-        // Mencegah audio diputar otomatis saat loading
-        node.setAttribute('preload', 'metadata');
+        // Style agar bar panjang
+        node.setAttribute('style', 'width: 100%; height: 40px; margin: 10px 0; display: block;');
+        node.setAttribute('preload', 'auto');
         return node;
       }
-      
-      static value(node) {
-        return node.getAttribute('src');
-      }
+      static value(node) { return node.getAttribute('src'); }
     }
     AudioBlot.blotName = 'audio';
     AudioBlot.tagName = 'audio';
 
-    // 2. Definisikan Video Blot (HTML5 Video)
-    class VideoBlot extends BlockEmbed {
-      static create(value) {
-        let node = super.create();
-        node.setAttribute('src', value);
-        node.setAttribute('controls', '');
-        node.setAttribute('style', 'max-width: 100%; max-height: 400px; display: block; margin: 10px auto; background: #000;');
-        node.setAttribute('preload', 'metadata');
-        return node;
-      }
-      
-      static value(node) {
-        return node.getAttribute('src');
-      }
-    }
-    // Kita namakan 'videoFile' agar tidak bentrok dengan modul 'video' bawaan (iframe youtube)
-    VideoBlot.blotName = 'videoFile'; 
-    VideoBlot.tagName = 'video';
-
-    // Daftarkan ke Quill
     Quill.register(AudioBlot);
-    Quill.register(VideoBlot);
+    // VideoBlot DIHAPUS
   }
 
   // ===========================================
