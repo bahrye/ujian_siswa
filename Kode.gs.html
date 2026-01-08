@@ -168,7 +168,6 @@ function simpanSoal(data) {
 
 // --- FUNGSI BANTUAN (HELPER) ---
 
-// A. Fungsi Upload Base64 ke Drive
 function saveBase64ToDrive(base64Str, namePrefix) {
   try {
     const folderName = "CBT_Assets";
@@ -180,12 +179,9 @@ function saveBase64ToDrive(base64Str, namePrefix) {
     const cleanBase64 = base64Str.substring(base64Str.indexOf(',') + 1);
     const decoded = Utilities.base64Decode(cleanBase64);
     
-    // Tentukan Ekstensi
     let ext = "";
-    
     if(mimeType.includes("image")) { ext = ".jpg"; }
     else if(mimeType.includes("audio")) { ext = ".mp3"; }
-    // Video dihapus
     
     const fileName = namePrefix + "_" + Date.now() + ext;
     const blob = Utilities.newBlob(decoded, mimeType, fileName);
@@ -193,20 +189,19 @@ function saveBase64ToDrive(base64Str, namePrefix) {
     const file = folder.createFile(blob);
     file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
     
-    // OUTPUT URL
     const fileId = file.getId();
 
-    // 1. Jika Gambar: Gunakan link thumbnail (cepat & stabil)
+    // OUTPUT URL
     if (mimeType.startsWith('image/')) {
         return "https://lh3.googleusercontent.com/d/" + fileId;
     } 
-    // 2. Jika Audio: Gunakan LINK DOWNLOAD/STREAM (PENTING AGAR BISA DIPLAY)
-    // Ditambahkan parameter &confirm=t agar lebih stabil
     else if (mimeType.startsWith('audio/')) {
-        return "https://drive.google.com/uc?export=download&confirm=t&id=" + fileId + "#audio";
+        // PERBAIKAN: Tambahkan '#audio' di akhir link!
+        // Ini kuncinya agar tidak dianggap gambar rusak.
+        return "https://drive.google.com/uc?export=download&confirm=t&id=" + fileId + "&type=.mp3#audio";
     }
     
-    return "https://drive.google.com/open?id=" + fileId; // Fallback
+    return "https://drive.google.com/open?id=" + fileId; 
     
   } catch(e) {
     return base64Str; 
