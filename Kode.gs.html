@@ -2051,9 +2051,9 @@ function getHasilUjianGuru() {
   })).reverse(); // Urutkan dari yang terbaru
 }
 
-// [UPDATE PERBAIKAN LOGIKA SKOR PENCOCOKAN]
-// Ganti isi fungsi getDataKoreksi di Kode.gs dengan versi ini:
-
+// ==========================================
+// FIX: KOREKSI GURU (LOGIKA COCOK & BOBOT DINAMIS)
+// ==========================================
 function getDataKoreksi(idJadwal, username, rowIndex) {
   const ss = SpreadsheetApp.openById(SS_ID);
   
@@ -2061,6 +2061,7 @@ function getDataKoreksi(idJadwal, username, rowIndex) {
   const sheetNilai = ss.getSheetByName("DB_Nilai");
   const rowData = sheetNilai.getRange(rowIndex, 1, 1, 11).getValues()[0];
   
+  // Validasi data sinkron
   if (String(rowData[1]) !== String(idJadwal) || String(rowData[2]) !== String(username)) {
      return { status: 'error', message: 'Data tidak sinkron. Refresh halaman.' };
   }
@@ -2084,7 +2085,7 @@ function getDataKoreksi(idJadwal, username, rowIndex) {
   dataSoal.shift();
 
   let listSoal = [];
-  let totalBobot = 0;
+  let totalBobotSeluruhSoal = 0; // Akumulasi bobot semua soal
 
   dataSoal.forEach(r => {
      if(String(r[1]).toLowerCase() === String(kodeMapel).toLowerCase()) {
@@ -2092,32 +2093,48 @@ function getDataKoreksi(idJadwal, username, rowIndex) {
         const tipe = r[2];
         const opsiRaw = r[5]; 
         const kunci = r[6];
-        const bobot = (r[7] && !isNaN(r[7])) ? parseFloat(r[7]) : 1;
         
-        totalBobot += bobot;
-        
+        // Bobot Default dari Database (Global)
+        let bobotGlobal = (r[7] && !isNaN(r[7])) ? parseFloat(r[7]) : 1;
+        let finalBobotSoal = bobotGlobal; // Ini yang akan dipakai sebagai penyebut (denominator)
+
         // --- LOGIKA SKOR ---
         let skorItem = 0;
         
-        // 1. Cek Draft Manual Guru
+        // 1. Cek Draft Manual Guru (Jika sudah pernah dikoreksi dan disimpan)
         if (draftSkor[idSoal] !== undefined) {
             skorItem = parseFloat(draftSkor[idSoal]);
+            
+            // Khusus COCOK: Kita perlu hitung ulang Total Bobot jika guru pakai bobot item
+            if (tipe === 'COCOK') {
+                let pairsConfig = [];
+                try { pairsConfig = JSON.parse(opsiRaw); } catch(e){}
+                let totalDefinedWeight = 0;
+                if(Array.isArray(pairsConfig)) {
+                    pairsConfig.forEach(p => {
+                       if(p.s && !isNaN(p.s)) totalDefinedWeight += parseFloat(p.s);
+                    });
+                }
+                // Jika total bobot item > 0, gunakan itu sebagai Final Bobot
+                if(totalDefinedWeight > 0) finalBobotSoal = totalDefinedWeight;
+            }
+
         } 
         else {
-            // 2. Hitung Otomatis
+            // 2. Hitung Otomatis (Belum ada draft)
             const jwb = jawabanSiswa[idSoal];
 
             if (tipe === 'PG' || tipe === 'BS') {
                if(String(jwb).trim().toUpperCase() === String(kunci).trim().toUpperCase()) {
-                   skorItem = bobot;
+                   skorItem = bobotGlobal;
                }
             } 
             else if (tipe === 'COCOK') {
-               // --- PERBAIKAN LOGIKA COCOK ---
+               // --- PERBAIKAN LOGIKA COCOK (ADVANCED) ---
                let pairsConfig = [];
                try { pairsConfig = JSON.parse(opsiRaw); } catch(e){} 
 
-               if(Array.isArray(pairsConfig) && typeof jwb === 'object' && jwb !== null) {
+               if(Array.isArray(pairsConfig)) {
                   
                   // Hitung total bobot item yang didefinisikan guru
                   let totalDefinedWeight = 0;
@@ -2125,49 +2142,56 @@ function getDataKoreksi(idJadwal, username, rowIndex) {
                       if(p.s && !isNaN(p.s)) totalDefinedWeight += parseFloat(p.s);
                   });
 
-                  // Mode Penilaian:
-                  // A. Jika Guru mengisi bobot kecil di tiap item -> Gunakan bobot item (p.s)
-                  // B. Jika Guru TIDAK mengisi bobot item (total 0) -> Bagi rata Bobot Soal Utama
-                  
+                  // Jika Guru mengisi bobot per item, maka Bobot Soal ini = Total Bobot Item
+                  // Jika tidak (total 0), maka Bobot Soal ini = Bobot Global DB
                   const useItemWeight = totalDefinedWeight > 0;
-                  const weightPerItem = useItemWeight ? 0 : (bobot / pairsConfig.length);
+                  finalBobotSoal = useItemWeight ? totalDefinedWeight : bobotGlobal;
+
+                  // Hitung nilai per item jika fallback ke bobot global
+                  const weightPerItem = useItemWeight ? 0 : (bobotGlobal / pairsConfig.length);
 
                   let currentScore = 0;
+                  
+                  // Pastikan jawaban siswa adalah object valid
+                  if (typeof jwb === 'object' && jwb !== null) {
+                      
+                      pairsConfig.forEach(p => {
+                          // Kunci Kiri (Database)
+                          const dbKeyRaw = String(p.k).trim().toLowerCase(); 
+                          const dbValRight = String(p.v).trim().toLowerCase();
 
-                  pairsConfig.forEach(p => {
-                      // Kunci Kiri & Kanan
-                      const kLeft = String(p.k).trim(); 
-                      const kRight = String(p.v).trim().toLowerCase(); // Lowercase kunci kanan
-
-                      // Jawaban Siswa
-                      const ansRaw = jwb[kLeft]; // Ambil jawaban berdasarkan kunci kiri
-
-                      if (ansRaw) {
-                          const ansRight = String(ansRaw).trim().toLowerCase(); // Lowercase jawaban siswa
+                          // Cari Jawaban Siswa yang kuncinya COCOK (Fuzzy Match Key)
+                          // Kita loop keys jawaban siswa untuk mencari yang sama text-nya
+                          let siswaKeyMatched = Object.keys(jwb).find(k => String(k).trim().toLowerCase() === dbKeyRaw);
                           
-                          // Bandingkan
-                          if (ansRight === kRight) {
-                              // BENAR
-                              if (useItemWeight) {
-                                  currentScore += parseFloat(p.s || 0);
-                              } else {
-                                  currentScore += weightPerItem;
+                          if (siswaKeyMatched) {
+                              const siswaValRaw = jwb[siswaKeyMatched]; // Jawaban kanan siswa
+                              const siswaValRight = String(siswaValRaw).trim().toLowerCase();
+                              
+                              // Bandingkan Nilai Kanan
+                              if (siswaValRight === dbValRight) {
+                                  // BENAR
+                                  if (useItemWeight) {
+                                      currentScore += parseFloat(p.s || 0);
+                                  } else {
+                                      currentScore += weightPerItem;
+                                  }
                               }
                           }
-                      }
-                  });
+                      });
+                  }
                   
-                  // Pastikan tidak minus dan tidak lebih dari bobot soal (jika pakai item weight kadang bisa lebih kalau salah input)
-                  if(currentScore < 0) currentScore = 0;
-                  // Opsi: Cap score at Question Weight? 
-                  // Jika useItemWeight, kita percayakan pada totalDefinedWeight. 
-                  // Jika fallback, pasti pas.
-                  
-                  skorItem = currentScore;
+                  // Pembulatan agar rapi
+                  skorItem = parseFloat(currentScore.toFixed(2));
+                  // Safety: jangan melebihi bobot total
+                  if(skorItem > finalBobotSoal) skorItem = finalBobotSoal;
                }
             }
         }
         
+        // Akumulasi Bobot Total Seluruh Ujian (Untuk penyebut nilai akhir)
+        totalBobotSeluruhSoal += finalBobotSoal;
+
         let opsiParsed = {};
         try { opsiParsed = JSON.parse(opsiRaw); } catch(e){}
 
@@ -2177,9 +2201,9 @@ function getDataKoreksi(idJadwal, username, rowIndex) {
            soal: r[3],
            opsi: opsiParsed,
            kunci: kunci,
-           bobot: bobot,
+           bobot: finalBobotSoal, // Kirim bobot yang sudah diperbaiki (Total Item atau Global)
            jawabanSiswa: jawabanSiswa[idSoal], 
-           skor: parseFloat(skorItem.toFixed(2)) 
+           skor: parseFloat(skorItem)
         });
      }
   });
@@ -2187,7 +2211,7 @@ function getDataKoreksi(idJadwal, username, rowIndex) {
   return { 
      status: 'success', 
      soal: listSoal, 
-     totalBobot: totalBobot,
+     totalBobot: parseFloat(totalBobotSeluruhSoal.toFixed(2)),
      nilaiAkhir: rowData[9],
      rowIndex: rowIndex
   };
