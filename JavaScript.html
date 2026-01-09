@@ -1327,6 +1327,176 @@
       }
     },
 
+    // --- Module 9: Attendance (BARU) ---
+    Attendance: {
+       canvas: null,
+       ctx: null,
+       isDrawing: false,
+       examConfig: null, // Menyimpan config ujian sementara
+       examMeta: null,   // Menyimpan metadata ujian (id, mapel)
+       timerInterval: null,
+       hasSigned: false, // Flag apakah sudah corat-coret
+
+       init: function(kodeMapel, idJadwal, config) {
+           App.Attendance.examMeta = { kode: kodeMapel, id: idJadwal };
+           App.Attendance.examConfig = config;
+           
+           // Tampilkan Halaman
+           document.getElementById('dashboard-container').classList.add('hidden');
+           document.getElementById('page-attendance').classList.remove('hidden');
+           
+           document.getElementById('att-subtitle').innerText = "Mapel: " + kodeMapel;
+           
+           // Init Clock
+           App.Attendance.startClock();
+           
+           // Init Canvas (Delay sedikit agar render size benar)
+           setTimeout(() => {
+              App.Attendance.setupCanvas();
+           }, 300);
+       },
+
+       startClock: function() {
+           const update = () => {
+              const now = new Date();
+              document.getElementById('att-clock').innerText = now.toLocaleTimeString('id-ID', {hour12:false});
+              document.getElementById('att-date').innerText = now.toLocaleDateString('id-ID', {weekday:'long', day:'numeric', month:'long', year:'numeric'});
+           };
+           update();
+           if(App.Attendance.timerInterval) clearInterval(App.Attendance.timerInterval);
+           App.Attendance.timerInterval = setInterval(update, 1000);
+       },
+
+       setupCanvas: function() {
+           const canvas = document.getElementById('signature-pad');
+           const container = document.getElementById('canvas-container');
+           
+           // Set resolusi canvas sesuai ukuran CSS
+           canvas.width = container.offsetWidth;
+           canvas.height = container.offsetHeight;
+           
+           const ctx = canvas.getContext('2d');
+           ctx.lineWidth = 2;
+           ctx.lineCap = 'round';
+           ctx.strokeStyle = '#000';
+           
+           App.Attendance.canvas = canvas;
+           App.Attendance.ctx = ctx;
+           App.Attendance.hasSigned = false;
+           document.getElementById('sign-placeholder').classList.remove('hidden');
+
+           // Event Listeners (Mouse & Touch)
+           const startDraw = (e) => {
+               App.Attendance.isDrawing = true;
+               App.Attendance.hasSigned = true;
+               document.getElementById('sign-placeholder').classList.add('hidden');
+               ctx.beginPath();
+               
+               const {x, y} = App.Attendance.getPos(e);
+               ctx.moveTo(x, y);
+           };
+
+           const draw = (e) => {
+               if (!App.Attendance.isDrawing) return;
+               e.preventDefault(); // Mencegah scroll saat tanda tangan di HP
+               const {x, y} = App.Attendance.getPos(e);
+               ctx.lineTo(x, y);
+               ctx.stroke();
+           };
+
+           const stopDraw = () => {
+               App.Attendance.isDrawing = false;
+               ctx.beginPath();
+           };
+
+           // Mouse Events
+           canvas.onmousedown = startDraw;
+           canvas.onmousemove = draw;
+           canvas.onmouseup = stopDraw;
+           canvas.onmouseleave = stopDraw;
+
+           // Touch Events
+           canvas.ontouchstart = startDraw;
+           canvas.ontouchmove = draw;
+           canvas.ontouchend = stopDraw;
+       },
+
+       getPos: function(e) {
+           const rect = App.Attendance.canvas.getBoundingClientRect();
+           let clientX, clientY;
+           
+           if(e.touches && e.touches.length > 0) {
+               clientX = e.touches[0].clientX;
+               clientY = e.touches[0].clientY;
+           } else {
+               clientX = e.clientX;
+               clientY = e.clientY;
+           }
+           
+           return {
+               x: clientX - rect.left,
+               y: clientY - rect.top
+           };
+       },
+
+       clearCanvas: function() {
+           const canvas = App.Attendance.canvas;
+           App.Attendance.ctx.clearRect(0, 0, canvas.width, canvas.height);
+           App.Attendance.hasSigned = false;
+           document.getElementById('sign-placeholder').classList.remove('hidden');
+       },
+
+       submit: function() {
+           if(!App.Attendance.hasSigned) {
+               Swal.fire('Belum Tanda Tangan', 'Silakan tanda tangan terlebih dahulu pada kotak yang disediakan.', 'warning');
+               return;
+           }
+
+           const btn = document.getElementById('btn-submit-att');
+           App.UI.setLoading(btn, true, 'Menyimpan Absensi...');
+
+           // Ambil data
+           const base64Img = App.Attendance.canvas.toDataURL("image/png");
+           const user = App.data.user || JSON.parse(sessionStorage.getItem('cbt_session')).data;
+           
+           const payload = {
+               username: user.username,
+               nama: user.nama,
+               idJadwal: App.Attendance.examMeta.id,
+               mapel: App.Attendance.examMeta.kode,
+               signature: base64Img
+           };
+
+           google.script.run.withSuccessHandler(res => {
+               App.UI.setLoading(btn, false, 'SUBMIT & MULAI');
+               
+               if(res.status === 'success') {
+                   // Tutup halaman absensi
+                   document.getElementById('page-attendance').classList.add('hidden');
+                   clearInterval(App.Attendance.timerInterval);
+                   
+                   // LANJUT KE UJIAN (Panggil fungsi asli)
+                   // Kita set dulu activeJadwalId karena App.Exam.start membutuhkannya
+                   App.data.activeJadwalId = payload.idJadwal;
+                   
+                   // Jalankan logika start session & load soal
+                   // Panggil logic yang sebelumnya ada di actionMulai bagian executeStart
+                   google.script.run.startExamSession(payload.username, payload.idJadwal);
+                   App.Exam.start(payload.mapel, App.Attendance.examConfig);
+
+               } else {
+                   Swal.fire('Gagal', res.message, 'error');
+               }
+           }).simpanAbsensi(payload);
+       },
+
+       close: function() {
+           document.getElementById('page-attendance').classList.add('hidden');
+           document.getElementById('dashboard-container').classList.remove('hidden');
+           clearInterval(App.Attendance.timerInterval);
+       }
+    },
+
     // --- Module 6: Exam Logic ---
     Exam: {
       initSiswa: function(user) { /* Deprecated by Dashboard logic but kept for safety */ },
@@ -2471,24 +2641,39 @@
        actionMulai: function(kodeMapel, idJadwal, configStr, needToken) {
            App.data.activeJadwalId = idJadwal;
            if(App.Siswa.dashboardTimer) clearInterval(App.Siswa.dashboardTimer);
+           
+           const config = JSON.parse(decodeURIComponent(configStr));
+           const username = App.data.user ? App.data.user.username : JSON.parse(sessionStorage.getItem('cbt_session')).data.username;
 
-           const executeStart = () => {
-               try {
-                   const config = JSON.parse(decodeURIComponent(configStr));
-                   let username = App.data.user ? App.data.user.username : JSON.parse(sessionStorage.getItem('cbt_session')).data.username;
-                   google.script.run.startExamSession(username, idJadwal);
-                   App.Exam.start(kodeMapel, config);
-               } catch (e) {
-                   Swal.fire('Error Sistem', 'Gagal memproses konfigurasi: ' + e.message, 'error');
-               }
+           // LOGIKA BARU: STEP-BY-STEP
+           const processEntry = () => {
+               Swal.fire({title: 'Memeriksa Data...', didOpen: () => Swal.showLoading()});
+               
+               // 1. Cek Status Absensi di Server
+               google.script.run.withSuccessHandler(res => {
+                   Swal.close();
+                   
+                   if (res.status === 'sudah') {
+                       // Jika sudah absen, langsung masuk ujian
+                       google.script.run.startExamSession(username, idJadwal);
+                       App.Exam.start(kodeMapel, config);
+                   } else {
+                       // Jika belum absen, arahkan ke halaman Tanda Tangan
+                       App.Attendance.init(kodeMapel, idJadwal, config);
+                   }
+               }).cekStatusAbsensi(username, idJadwal);
            };
 
-           if(!needToken) { executeStart(); return; }
+           // CEK TOKEN DULU (JIKA DIPERLUKAN)
+           if(!needToken) { 
+               processEntry(); 
+               return; 
+           }
 
            Swal.fire({
             title: 'Token Ujian', text: 'Minta token kepada Pengawas',
             input: 'text', inputAttributes: { autocapitalize: 'off', autocomplete: 'off' },
-            showCancelButton: true, confirmButtonText: 'Mulai', confirmButtonColor: '#4f46e5',
+            showCancelButton: true, confirmButtonText: 'Lanjut', confirmButtonColor: '#4f46e5',
             showLoaderOnConfirm: true,
             preConfirm: (token) => {
                return new Promise((resolve) => {
@@ -2498,7 +2683,11 @@
                   }).withFailureHandler(err => { Swal.showValidationMessage("Error Koneksi"); resolve(); }).verifikasiTokenUjian(token.toUpperCase(), idJadwal);
                });
             }
-          }).then((result) => { if (result.isConfirmed && result.value === true) executeStart(); });
+          }).then((result) => { 
+              if (result.isConfirmed && result.value === true) {
+                  processEntry(); // Lanjut ke cek absensi
+              }
+          });
        },
 
        actionUnlock: function(kodeMapel, idJadwal, configStr) {
