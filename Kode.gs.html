@@ -107,7 +107,7 @@ function simpanSoal(data) {
     const sheet = ss.getSheetByName("DB_Soal");
     
     // Proses Gambar HTML & Opsi (Sama seperti sebelumnya)
-    let processedSoal = processHtmlMedia(data.soal);
+    let processedSoal = processHtmlImages(data.soal);
     let opsis = {};
     try { opsis = JSON.parse(data.opsiJson); } catch(e) {}
     // Proses Opsi (Gambar / Audio / Video)
@@ -177,23 +177,17 @@ function saveBase64ToDrive(base64Str, namePrefix) {
     // Deteksi MIME Type
     const mimeType = base64Str.substring(5, base64Str.indexOf(';'));
     
-    // VALIDASI: IZINKAN IMAGE DAN AUDIO
-    // Hapus validasi lama yang hanya membolehkan image
-    if (!mimeType.includes("image") && !mimeType.includes("audio")) {
-      return base64Str; 
+    // VALIDASI: HANYA GAMBAR
+    if (!mimeType.includes("image")) {
+      return base64Str; // Kembalikan string asli jika bukan gambar (abaikan upload)
     }
 
     const cleanBase64 = base64Str.substring(base64Str.indexOf(',') + 1);
     const decoded = Utilities.base64Decode(cleanBase64);
     
-    // Tentukan Ekstensi
-    let ext = ".bin";
-    if(mimeType.includes("image/png")) ext = ".png";
-    else if(mimeType.includes("image/jpeg")) ext = ".jpg";
-    else if(mimeType.includes("audio/mpeg")) ext = ".mp3"; // Support MP3
-    else if(mimeType.includes("audio/wav")) ext = ".wav";  // Support WAV
-    else if(mimeType.includes("audio/ogg")) ext = ".ogg";
-    else if(mimeType.includes("audio/x-m4a")) ext = ".m4a";
+    // Extensi default jpg, jika png sesuaikan (tapi jpg aman untuk umum)
+    let ext = ".jpg"; 
+    if(mimeType.includes("png")) ext = ".png";
     
     const fileName = namePrefix + "_" + Date.now() + ext;
     const blob = Utilities.newBlob(decoded, mimeType, fileName);
@@ -203,39 +197,25 @@ function saveBase64ToDrive(base64Str, namePrefix) {
     
     const fileId = file.getId();
 
-    // PENTING: BEDAKAN URL OUTPUT
-    // Gambar bisa pakai googleusercontent, tapi Audio LEBIH STABIL pakai docs.google.com/uc
-    if (mimeType.includes("image")) {
-       return "https://lh3.googleusercontent.com/d/" + fileId;
-    } else {
-       // URL untuk Audio Stream
-       return "https://docs.google.com/uc?export=download&id=" + fileId;
-    }
+    // OUTPUT URL GAMBAR
+    return "https://lh3.googleusercontent.com/d/" + fileId;
     
   } catch(e) {
     return base64Str; 
   }
 }
 
-// UPDATE NAMA FUNGSI JADI processHtmlMedia
-function processHtmlMedia(htmlContent) {
+function processHtmlImages(htmlContent) {
   if (!htmlContent) return "";
   
-  // 1. Regex untuk Gambar (src="data:image/...")
-  const regexImg = /src="(data:image\/[a-zA-Z0-9.-]+;base64,[^"]+)"/g;
-  htmlContent = htmlContent.replace(regexImg, function(match, fullBase64) {
-    return 'src="' + saveBase64ToDrive(fullBase64, "SOAL-IMG") + '"';
-  });
-
-  // 2. Regex untuk Audio (src="data:audio/...")
-  // Ini menangani jika audio dimasukkan langsung ke editor (opsional), 
-  // tapi fitur utama kita nanti append manual.
-  const regexAudio = /src="(data:audio\/[a-zA-Z0-9.-]+;base64,[^"]+)"/g;
-  htmlContent = htmlContent.replace(regexAudio, function(match, fullBase64) {
-    return 'src="' + saveBase64ToDrive(fullBase64, "SOAL-AUDIO") + '"';
-  });
+  // HAPUS 'audio' dari regex, HANYA PROSES IMAGE
+  const regex = /src="(data:image\/[a-zA-Z0-9.-]+;base64,[^"]+)"/g;
   
-  return htmlContent;
+  return htmlContent.replace(regex, function(match, fullBase64) {
+    let prefix = "SOAL-IMG";
+    const newUrl = saveBase64ToDrive(fullBase64, prefix);
+    return 'src="' + newUrl + '"';
+  });
 }
 
 // ==========================================
