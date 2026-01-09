@@ -203,10 +203,20 @@
         const container = document.getElementById('editor-container');
         if (container && container.previousElementSibling?.classList.contains('ql-toolbar')) container.previousElementSibling.remove();
         
-        let modulesConfig = { toolbar: [['bold', 'italic', 'underline'], [{ 'list': 'ordered'}, { 'list': 'bullet' }], ['image', 'formula']] };
+        // UPDATE: Tambahkan 'video' ke toolbar agar user bisa masukkan Link Youtube/Video URL
+        // Hapus 'image' dari toolbar bawaan Quill jika ingin memaksa pakai tombol upload kita sendiri, 
+        // tapi membiarkannya juga tidak masalah.
+        let modulesConfig = { 
+            toolbar: [
+                ['bold', 'italic', 'underline'], 
+                [{ 'list': 'ordered'}, { 'list': 'bullet' }], 
+                ['image', 'video', 'link', 'formula'] // Tambahkan 'video' & 'link'
+            ] 
+        };
+        
         if (window.Quill && window.ImageResize) { Quill.register('modules/imageResize', window.ImageResize.default || window.ImageResize); modulesConfig.imageResize = { displaySize: true }; }
         
-        App.data.quill = new Quill('#editor-container', { theme: 'snow', placeholder: 'Tulis pertanyaan...', modules: modulesConfig });
+        App.data.quill = new Quill('#editor-container', { theme: 'snow', placeholder: 'Tulis pertanyaan atau tempel link video/audio...', modules: modulesConfig });
       },
 
       loadOptionsMapel: function() {
@@ -346,13 +356,7 @@
       // [BARU] Trigger Klik Input File
       triggerMedia: function(type) {
         const input = document.getElementById('q-media-input');
-        // Set accept attribute sesuai tipe tombol yang diklik
-        if(type === 'image') input.accept = "image/*";
-        if(type === 'audio') input.accept = "audio/*";
-        if(type === 'video') input.accept = "video/*";
-        
-        // Simpan tipe yang sedang diupload ke dataset agar bisa dibaca nanti
-        input.dataset.uploadType = type;
+        input.accept = "image/*"; // Paksa Image
         input.click();
       },
 
@@ -360,13 +364,15 @@
       handleEditorMedia: function(input) {
         if (input.files && input.files[0]) {
             const file = input.files[0];
-            const type = input.dataset.uploadType || 'image';
             
-            // Limit 15MB cukup untuk audio/img
-            if(file.size > 15 * 1024 * 1024) return Swal.fire('Terlalu Besar', 'Maksimal ukuran file 15MB', 'warning');
+            // Limit 5MB untuk gambar
+            if(file.size > 5 * 1024 * 1024) return Swal.fire('Terlalu Besar', 'Maksimal ukuran gambar 5MB', 'warning');
+            
+            // Validasi Tipe File
+            if(!file.type.startsWith('image/')) return Swal.fire('Salah Format', 'Hanya boleh upload gambar.', 'error');
 
             const loadingMsg = Swal.fire({
-              title: 'Memproses Media...', text: 'Mohon tunggu sebentar',
+              title: 'Memproses Gambar...', text: 'Mohon tunggu sebentar',
               allowOutsideClick: false, didOpen: () => Swal.showLoading()
             });
 
@@ -377,12 +383,8 @@
               const range = App.data.quill.getSelection(true);
               let index = range ? range.index : App.data.quill.getLength();
 
-              if (type === 'image') {
-                  App.data.quill.insertEmbed(index, 'image', b64);
-              } else if (type === 'audio') {
-                  App.data.quill.insertEmbed(index, 'audio', b64);
-              }
-              // Logika VIDEO dihapus
+              // HANYA INSERT IMAGE
+              App.data.quill.insertEmbed(index, 'image', b64);
               
               App.data.quill.setSelection(index + 1);
               Swal.close();
@@ -841,7 +843,9 @@
       handleMedia: function(input, hur) {
         if (input.files && input.files[0]) {
           const file = input.files[0];
-          if(file.size > 15 * 1024 * 1024) return Swal.fire('File Terlalu Besar', 'Maksimal 15MB', 'warning');
+          
+          if(file.size > 5 * 1024 * 1024) return Swal.fire('File Terlalu Besar', 'Maksimal 5MB', 'warning');
+          if(!file.type.startsWith('image/')) return Swal.fire('Salah Format', 'Hanya boleh upload gambar.', 'error');
           
           const reader = new FileReader();
           reader.onload = (e) => { 
@@ -853,13 +857,8 @@
               
               if(box && content) {
                   box.classList.remove('hidden');
-                  if (file.type.startsWith('image/')) {
-                      content.innerHTML = `<img src="${b64}" class="img-opsi-preview" onclick="App.UI.zoomImg(this)">`;
-                  } else if (file.type.startsWith('audio/')) {
-                      // Tampilan Audio Bar Standar (Preview saat upload)
-                      content.innerHTML = `<audio controls src="${b64}" class="w-full h-10 mt-1"></audio>`;
-                  } 
-                  else { content.innerHTML = `<p class="text-xs text-gray-500">${file.name}</p>`; }
+                  // HANYA RENDER IMAGE
+                  content.innerHTML = `<img src="${b64}" class="img-opsi-preview" onclick="App.UI.zoomImg(this)">`;
               }
           }
           reader.readAsDataURL(file);
@@ -3181,13 +3180,27 @@
          }).verifikasiTokenUnlock(t, username); 
       },
 
-      // 4. Anti Copy Paste (Event Handler)
+      // 4. Anti Copy Paste (Event Handler) - UPDATED
       preventCopyPaste: function() {
-          // Blokir Klik Kanan
-          document.addEventListener('contextmenu', event => event.preventDefault());
+          // Helper: Cek apakah sedang di halaman ujian siswa (Halaman Ujian AKTIF)
+          const isExamMode = () => {
+              const pageSiswa = document.getElementById('page-siswa');
+              // Blokir hanya jika elemen page-siswa ada dan TIDAK memiliki class 'hidden'
+              return pageSiswa && !pageSiswa.classList.contains('hidden');
+          };
+
+          // Blokir Klik Kanan (Hanya saat ujian)
+          document.addEventListener('contextmenu', event => {
+              if (isExamMode()) {
+                  event.preventDefault();
+              }
+          });
           
-          // Blokir Tombol Keyboard (Ctrl+C, Ctrl+V, Ctrl+U, F12, PrintScreen)
+          // Blokir Tombol Keyboard (Ctrl+C, V, U, F12, PrintScreen) - Hanya saat ujian
           document.addEventListener('keydown', function(e) {
+              // Jika TIDAK sedang ujian, biarkan fungsi normal (agar guru bisa edit/paste)
+              if (!isExamMode()) return;
+
               if (
                   (e.ctrlKey && (e.key === 'c' || e.key === 'v' || e.key === 'u' || e.key === 'p')) || 
                   e.key === 'F12' || 
@@ -3199,11 +3212,13 @@
               }
           });
 
-          // Blokir Event Copy/Cut/Paste di level DOM
+          // Blokir Event Copy/Cut/Paste/Drag/Drop di level DOM - Hanya saat ujian
           ['copy', 'cut', 'paste', 'dragstart', 'drop'].forEach(evt => {
               document.addEventListener(evt, e => {
-                  e.preventDefault();
-                  return false;
+                  if (isExamMode()) {
+                      e.preventDefault();
+                      return false;
+                  }
               });
           });
       }
