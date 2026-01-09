@@ -176,12 +176,18 @@ function saveBase64ToDrive(base64Str, namePrefix) {
     
     // Deteksi MIME Type
     const mimeType = base64Str.substring(5, base64Str.indexOf(';'));
+    
+    // VALIDASI: HANYA GAMBAR
+    if (!mimeType.includes("image")) {
+      return base64Str; // Kembalikan string asli jika bukan gambar (abaikan upload)
+    }
+
     const cleanBase64 = base64Str.substring(base64Str.indexOf(',') + 1);
     const decoded = Utilities.base64Decode(cleanBase64);
     
-    let ext = "";
-    if(mimeType.includes("image")) { ext = ".jpg"; }
-    else if(mimeType.includes("audio")) { ext = ".mp3"; }
+    // Extensi default jpg, jika png sesuaikan (tapi jpg aman untuk umum)
+    let ext = ".jpg"; 
+    if(mimeType.includes("png")) ext = ".png";
     
     const fileName = namePrefix + "_" + Date.now() + ext;
     const blob = Utilities.newBlob(decoded, mimeType, fileName);
@@ -191,18 +197,8 @@ function saveBase64ToDrive(base64Str, namePrefix) {
     
     const fileId = file.getId();
 
-    // OUTPUT URL
-    if (mimeType.startsWith('image/')) {
-        // Link gambar tetap sama (karena googleusercontent lebih cepat)
-        return "https://lh3.googleusercontent.com/d/" + fileId;
-    } 
-    else if (mimeType.startsWith('audio/')) {
-        // GANTI INI: Gunakan link PREVIEW agar player Google Drive yang menangani
-        // Kita tambahkan #audio_preview sebagai penanda untuk Frontend
-        return "https://drive.google.com/file/d/" + fileId + "/preview#audio_preview";
-    }
-    
-    return "https://drive.google.com/open?id=" + fileId; 
+    // OUTPUT URL GAMBAR
+    return "https://lh3.googleusercontent.com/d/" + fileId;
     
   } catch(e) {
     return base64Str; 
@@ -212,14 +208,11 @@ function saveBase64ToDrive(base64Str, namePrefix) {
 function processHtmlImages(htmlContent) {
   if (!htmlContent) return "";
   
-  // HAPUS 'video' dari regex, hanya image dan audio
-  const regex = /src="(data:(image|audio)\/[a-zA-Z0-9.-]+;base64,[^"]+)"/g;
+  // HAPUS 'audio' dari regex, HANYA PROSES IMAGE
+  const regex = /src="(data:image\/[a-zA-Z0-9.-]+;base64,[^"]+)"/g;
   
-  return htmlContent.replace(regex, function(match, fullBase64, type) {
-    let prefix = "FILE";
-    if (type === 'image') prefix = "SOAL-IMG";
-    else if (type === 'audio') prefix = "SOAL-AUDIO";
-    
+  return htmlContent.replace(regex, function(match, fullBase64) {
+    let prefix = "SOAL-IMG";
     const newUrl = saveBase64ToDrive(fullBase64, prefix);
     return 'src="' + newUrl + '"';
   });
