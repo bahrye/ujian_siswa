@@ -191,32 +191,16 @@
                   <div>
                     <label class="block font-semibold mb-1 text-sm text-gray-600">Pertanyaan</label>
                     
-                    <div class="flex gap-2 mb-2 flex-wrap">
+                    <div class="flex gap-2 mb-2">
                       <button type="button" onclick="App.BankSoal.triggerMedia('image')" class="px-3 py-1.5 bg-gray-100 border border-gray-300 rounded text-gray-600 hover:bg-indigo-50 hover:text-indigo-600 text-sm font-bold flex items-center gap-2 transition">
-                        <i class="fas fa-image"></i> Gambar
+                        <i class="fas fa-image"></i> Upload Gambar
                       </button>
                       
-                      <button type="button" onclick="App.BankSoal.triggerAudioSoal()" class="px-3 py-1.5 bg-indigo-50 border border-indigo-200 rounded text-indigo-700 hover:bg-indigo-100 text-sm font-bold flex items-center gap-2 transition">
-                        <i class="fas fa-microphone"></i> Upload Audio Soal
-                      </button>
+                      <input type="file" id="q-media-input" class="hidden" accept="image/*" onchange="App.BankSoal.handleEditorMedia(this)">
                       
-                      <input type="file" id="q-media-input" class="hidden" accept="image/*,audio/*" onchange="App.BankSoal.handleEditorMedia(this)">
-                      <input type="file" id="q-audio-input" class="hidden" accept="audio/*" onchange="App.BankSoal.handleAudioSoalInput(this)">
-                    </div>
-
-                    <div id="preview-audio-soal" class="hidden mb-3 p-3 bg-indigo-50 border border-indigo-100 rounded-lg flex items-center justify-between">
-                        <div class="flex items-center gap-3 w-full">
-                            <div class="w-10 h-10 rounded-full bg-indigo-600 text-white flex items-center justify-center shrink-0">
-                              <i class="fas fa-music"></i>
-                            </div>
-                            <div class="w-full">
-                              <p class="text-xs text-indigo-800 font-bold mb-1">Audio Terlampir</p>
-                              <audio id="player-audio-soal" controls class="w-full h-8"></audio>
-                            </div>
-                        </div>
-                        <button type="button" onclick="App.BankSoal.hapusAudioSoal()" class="ml-3 text-red-500 hover:text-red-700" title="Hapus Audio">
-                          <i class="fas fa-times"></i>
-                        </button>
+                      <div class="text-xs text-gray-400 flex items-center ml-2">
+                        *Untuk Audio/Video, gunakan tombol Link/Video di toolbar editor.
+                      </div>
                     </div>
 
                     <div id="editor-container" class="bg-white rounded-b-lg"></div>
@@ -230,7 +214,7 @@
                                <input type="hidden" id="existing-media-a">
                                <span class="w-6 font-bold text-center shrink-0">A</span>
                                <input type="text" id="pg-a" class="input-std text-sm" placeholder="Teks Jawaban A">
-                               <input type="file" id="file-a" accept="image/*,audio/*" class="hidden" onchange="App.BankSoal.handleMedia(this, 'A')">
+                               <input type="file" id="file-a" accept="image/*" class="hidden" onchange="App.BankSoal.handleMedia(this, 'A')">
                                <label for="file-a" class="btn-upload-opsi shrink-0" title="Upload Media"><i class="fas fa-paperclip"></i></label>
                             </div>
                             <div id="prev-box-A" class="hidden pl-8 flex flex-col gap-2">
@@ -244,7 +228,7 @@
                                <input type="hidden" id="existing-media-b">
                                <span class="w-6 font-bold text-center shrink-0">B</span>
                                <input type="text" id="pg-b" class="input-std text-sm" placeholder="Teks Jawaban B">
-                               <input type="file" id="file-b" accept="image/*,audio/*" class="hidden" onchange="App.BankSoal.handleMedia(this, 'B')">
+                               <input type="file" id="file-b" accept="image/*" class="hidden" onchange="App.BankSoal.handleMedia(this, 'B')">
                                <label for="file-b" class="btn-upload-opsi shrink-0"><i class="fas fa-paperclip"></i></label>
                             </div>
                             <div id="prev-box-B" class="hidden pl-8 flex flex-col gap-2">
@@ -258,7 +242,7 @@
                                <input type="hidden" id="existing-media-c">
                                <span class="w-6 font-bold text-center shrink-0">C</span>
                                <input type="text" id="pg-c" class="input-std text-sm" placeholder="Teks Jawaban C">
-                               <input type="file" id="file-c" accept="image/*,audio/*" class="hidden" onchange="App.BankSoal.handleMedia(this, 'C')">
+                               <input type="file" id="file-c" accept="image/*" class="hidden" onchange="App.BankSoal.handleMedia(this, 'C')">
                                <label for="file-c" class="btn-upload-opsi shrink-0"><i class="fas fa-paperclip"></i></label>
                             </div>
                             <div id="prev-box-C" class="hidden pl-8 flex flex-col gap-2">
@@ -272,7 +256,7 @@
                                <input type="hidden" id="existing-media-d">
                                <span class="w-6 font-bold text-center shrink-0">D</span>
                                <input type="text" id="pg-d" class="input-std text-sm" placeholder="Teks Jawaban D">
-                               <input type="file" id="file-d" accept="image/*,audio/*" class="hidden" onchange="App.BankSoal.handleMedia(this, 'D')">
+                               <input type="file" id="file-d" accept="image/*" class="hidden" onchange="App.BankSoal.handleMedia(this, 'D')">
                                <label for="file-d" class="btn-upload-opsi shrink-0"><i class="fas fa-paperclip"></i></label>
                             </div>
                             <div id="prev-box-D" class="hidden pl-8 flex flex-col gap-2">
@@ -286,7 +270,7 @@
                                <input type="hidden" id="existing-media-e">
                                <span class="w-6 font-bold text-center shrink-0 text-gray-400">E</span>
                                <input type="text" id="pg-e" class="input-std text-sm" placeholder="Opsional">
-                               <input type="file" id="file-e" accept="image/*,audio/*" class="hidden" onchange="App.BankSoal.handleMedia(this, 'E')">
+                               <input type="file" id="file-e" accept="image/*" class="hidden" onchange="App.BankSoal.handleMedia(this, 'E')">
                                <label for="file-e" class="btn-upload-opsi shrink-0"><i class="fas fa-paperclip"></i></label>
                             </div>
                             <div id="prev-box-E" class="hidden pl-8 flex flex-col gap-2">
