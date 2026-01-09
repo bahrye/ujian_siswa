@@ -2254,3 +2254,140 @@ function batalkanNilaiAkhir(rowIndex) {
      return { status: 'error', message: e.toString() };
    }
 }
+
+// ==========================================
+// API BARU: DETAIL PERHITUNGAN NILAI (TRANSPARANSI)
+// ==========================================
+function getDetailPerhitungan(idJadwal, username) {
+  const ss = SpreadsheetApp.openById(SS_ID);
+  
+  // 1. Ambil Data Nilai dari DB_Nilai
+  const sheetNilai = ss.getSheetByName("DB_Nilai");
+  const dataNilai = sheetNilai.getDataRange().getValues();
+  let rowNilai = null;
+  
+  // Cari baris berdasarkan ID Jadwal & Username
+  for(let i=1; i<dataNilai.length; i++) {
+     if(String(dataNilai[i][1]) === String(idJadwal) && String(dataNilai[i][2]) === String(username)) {
+        rowNilai = dataNilai[i];
+        break;
+     }
+  }
+  
+  if(!rowNilai) return { status: 'error', message: 'Data nilai tidak ditemukan.' };
+
+  // Ambil Data Jawaban & Skor Manual (jika ada)
+  let jawabanSiswa = {};
+  try { jawabanSiswa = JSON.parse(rowNilai[7]); } catch(e){} // Kolom 8: Jawaban JSON
+  
+  let skorManual = {}; 
+  try { skorManual = JSON.parse(rowNilai[10]); } catch(e){} // Kolom 11: Skor JSON (Hasil Koreksi Guru)
+
+  const nilaiAkhirDb = rowNilai[9]; // Kolom 10: Nilai Akhir
+
+  // 2. Ambil Data Mapel & Soal
+  const sheetJadwal = ss.getSheetByName("DB_Jadwal");
+  const dataJadwal = sheetJadwal.getDataRange().getValues();
+  let kodeMapel = "";
+  for(let j=1; j<dataJadwal.length; j++) {
+     if(String(dataJadwal[j][0]) === String(idJadwal)) { kodeMapel = dataJadwal[j][2]; break; }
+  }
+
+  const sheetSoal = ss.getSheetByName("DB_Soal");
+  const dataSoal = sheetSoal.getDataRange().getValues();
+  dataSoal.shift();
+
+  let details = [];
+  let totalBobot = 0;
+  let totalSkor = 0;
+
+  dataSoal.forEach((r, idx) => {
+     if(String(r[1]).toLowerCase() === String(kodeMapel).toLowerCase()) {
+        const idSoal = r[0];
+        const tipe = r[2];
+        const kunci = r[6];
+        const opsiRaw = r[5];
+        
+        // --- 1. Tentukan Bobot Maksimal Soal ---
+        let bobotMaks = (r[7] && !isNaN(r[7])) ? parseFloat(r[7]) : 1;
+        
+        // Khusus COCOK: Jika guru set bobot per item di JSON Opsi, hitung totalnya
+        if (tipe === 'COCOK') {
+            let pairs = []; try { pairs = JSON.parse(opsiRaw); } catch(e){}
+            let sumItemWeight = 0;
+            if(Array.isArray(pairs)) {
+               pairs.forEach(p => { if(p.s && !isNaN(p.s)) sumItemWeight += parseFloat(p.s); });
+            }
+            if(sumItemWeight > 0) bobotMaks = sumItemWeight; 
+        }
+
+        totalBobot += bobotMaks;
+
+        // --- 2. Tentukan Skor Perolehan Siswa ---
+        let skorSiswa = 0;
+
+        // A. Jika ada Skor Manual dari Guru (Prioritas Utama untuk Essay/Koreksi)
+        if (skorManual[idSoal] !== undefined) {
+            skorSiswa = parseFloat(skorManual[idSoal]);
+        } 
+        // B. Jika tidak ada manual, hitung otomatis (Logika PG/BS/COCOK)
+        else {
+            const jwb = jawabanSiswa[idSoal];
+            
+            if (tipe === 'PG' || tipe === 'BS') {
+               if (String(jwb).trim().toUpperCase() === String(kunci).trim().toUpperCase()) {
+                   skorSiswa = bobotMaks;
+               }
+            }
+            else if (tipe === 'COCOK') {
+               // Hitung parsial untuk cocok
+               let pairs = []; try { pairs = JSON.parse(opsiRaw); } catch(e){}
+               if(Array.isArray(pairs) && typeof jwb === 'object' && jwb !== null) {
+                  // Normalisasi jawaban siswa
+                  let mapJwb = {};
+                  Object.keys(jwb).forEach(k => mapJwb[k.trim().toLowerCase()] = String(jwb[k]).trim().toLowerCase());
+                  
+                  // Hitung per item
+                  const weightPerItem = (bobotMaks / pairs.length); // Default rata
+                  
+                  pairs.forEach(p => {
+                     let itemW = (p.s && !isNaN(p.s)) ? parseFloat(p.s) : weightPerItem;
+                     // Jika bobot total diambil dari item (sumItemWeight > 0), maka p.s pasti ada.
+                     // Jika tidak, pakai rata-rata.
+                     
+                     const dbKey = String(p.k).trim().toLowerCase();
+                     const dbVal = String(p.v).trim().toLowerCase();
+                     
+                     if (mapJwb[dbKey] === dbVal) {
+                        skorSiswa += itemW;
+                     }
+                  });
+               }
+            }
+        }
+        
+        // Pembulatan Skor Siswa agar rapi
+        skorSiswa = parseFloat(skorSiswa.toFixed(2));
+        totalSkor += skorSiswa;
+
+        details.push({
+           no: details.length + 1,
+           tipe: tipe,
+           bobot: parseFloat(bobotMaks.toFixed(2)),
+           skor: skorSiswa
+        });
+     }
+  });
+
+  return {
+     status: 'success',
+     data: {
+        nama: rowNilai[3],
+        mapel: rowNilai[4],
+        details: details,
+        totalBobot: parseFloat(totalBobot.toFixed(2)),
+        totalSkor: parseFloat(totalSkor.toFixed(2)),
+        nilaiAkhir: nilaiAkhirDb
+     }
+  };
+}
