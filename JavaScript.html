@@ -2564,12 +2564,19 @@
                    // Cek apakah ada Nilai Akhir
                    if (r.nilaiAkhir !== "" && r.nilaiAkhir !== null && r.nilaiAkhir !== undefined) {
                        // KASUS: SUDAH DINILAI GURU
-                       displaySementara = '<span class="text-gray-300">-</span>'; // Dihapus/Strip
+                       displaySementara = '<span class="text-gray-300">-</span>'; 
                        
                        let color = 'text-gray-800';
                        if(r.nilaiAkhir < 70) color = 'text-red-600';
                        if(r.nilaiAkhir >= 85) color = 'text-green-600';
-                       displayAkhir = `<span class="text-lg font-black ${color}">${r.nilaiAkhir}</span>`;
+                       
+                       // [PERUBAHAN DISINI] Ubah jadi Tombol Link
+                       displayAkhir = `
+                         <button onclick="App.Nilai.showDetail('${r.idJadwal}', '${sess.data.username}')" 
+                                 class="text-lg font-black ${color} hover:underline decoration-dotted underline-offset-4" 
+                                 title="Klik untuk lihat perhitungan">
+                             ${r.nilaiAkhir}
+                         </button>`;
                    } else {
                        // KASUS: BELUM DINILAI GURU (Tampilkan Sementara)
                        displaySementara = `<span class="text-base font-bold text-gray-600 bg-gray-100 px-2 py-1 rounded">${r.nilaiSementara}</span>`;
@@ -2958,8 +2965,16 @@
                 if (r.nilaiAkhir !== "" && r.nilaiAkhir !== null) {
                     const val = parseFloat(r.nilaiAkhir);
                     const color = val < 70 ? 'text-red-600' : 'text-green-600';
-                    labelAkhir = `<span class="text-lg font-bold ${color}">${val}</span>`;
-                    rowClass = "bg-green-50/30"; // Highlight rows that are done
+                    
+                    // [PERUBAHAN DISINI]
+                    labelAkhir = `
+                        <button onclick="App.Nilai.showDetail('${r.idJadwal}', '${r.username}')" 
+                                class="text-lg font-bold ${color} hover:underline decoration-dotted underline-offset-4" 
+                                title="Lihat detail perhitungan">
+                           ${val}
+                        </button>`;
+                    
+                    rowClass = "bg-green-50/30"; 
                 }
 
                 tbody.insertAdjacentHTML('beforeend', `
@@ -3472,6 +3487,60 @@
         document.getElementById('dashboard-container').classList.add('hidden'); document.getElementById('page-siswa').classList.add('hidden'); document.getElementById('lock-screen').classList.add('hidden');
         document.getElementById('login-container').classList.remove('hidden'); document.getElementById('login-container').classList.add('flex');
       }
+    },
+
+    // --- Module Baru: Detail Nilai ---
+    Nilai: {
+        showDetail: function(idJadwal, username) {
+            App.UI.openModal('modal-kalkulasi');
+            const tbody = document.getElementById('tbody-kalkulasi');
+            tbody.innerHTML = '<tr><td colspan="4" class="p-6 text-center"><i class="fas fa-spinner fa-spin text-indigo-500"></i> Menghitung...</td></tr>';
+            
+            // Reset Angka
+            document.getElementById('calc-tot-bobot').innerText = "-";
+            document.getElementById('calc-tot-skor').innerText = "-";
+            document.getElementById('rumus-skor').innerText = "-";
+            document.getElementById('rumus-bobot').innerText = "-";
+            document.getElementById('rumus-hasil').innerText = "-";
+
+            google.script.run.withSuccessHandler(res => {
+                if(res.status === 'error') {
+                    tbody.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-red-500">${res.message}</td></tr>`;
+                    return;
+                }
+
+                const d = res.data;
+                document.getElementById('calc-subtitle').innerText = `Siswa: ${d.nama} | Mapel: ${d.mapel}`;
+                tbody.innerHTML = '';
+
+                d.details.forEach(item => {
+                    // Warna skor: Hijau jika full, Kuning jika sebagian, Merah jika 0
+                    let color = 'text-red-600';
+                    if (item.skor === item.bobot) color = 'text-green-600';
+                    else if (item.skor > 0) color = 'text-yellow-600';
+
+                    tbody.insertAdjacentHTML('beforeend', `
+                        <tr class="border-b hover:bg-slate-50">
+                            <td class="p-3 text-center text-gray-500 text-xs font-mono">${item.no}</td>
+                            <td class="p-3">
+                                <span class="bg-gray-100 text-gray-600 px-2 py-0.5 rounded text-[10px] font-bold uppercase border">${item.tipe}</span>
+                            </td>
+                            <td class="p-3 text-right font-mono font-medium text-gray-500">${item.bobot}</td>
+                            <td class="p-3 text-right font-mono font-bold ${color}">${item.skor}</td>
+                        </tr>
+                    `);
+                });
+
+                // Update Footer & Rumus
+                document.getElementById('calc-tot-bobot').innerText = d.totalBobot;
+                document.getElementById('calc-tot-skor').innerText = d.totalSkor;
+                
+                document.getElementById('rumus-skor').innerText = d.totalSkor;
+                document.getElementById('rumus-bobot').innerText = d.totalBobot;
+                document.getElementById('rumus-hasil').innerText = d.nilaiAkhir || "0";
+
+            }).getDetailPerhitungan(idJadwal, username);
+        }
     },
 
     // --- Module 8: Security (REFINED) ---
