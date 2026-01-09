@@ -2016,3 +2016,165 @@ function getMapelByGuru(namaGuru) {
   
   return result;
 }
+
+// ==========================================
+// API KHUSUS GURU: HASIL & KOREKSI
+// ==========================================
+
+// 1. Ambil Daftar Hasil Ujian (Format Baru untuk Guru)
+function getHasilUjianGuru() {
+  const ss = SpreadsheetApp.openById(SS_ID);
+  const sheet = ss.getSheetByName("DB_Nilai");
+  if (!sheet) return [];
+  
+  const data = sheet.getDataRange().getValues();
+  data.shift(); // Skip Header
+  
+  // [0:Time, 1:ID_Jadwal, 2:Username, 3:Nama, 4:Mapel, 5:NilaiSmt, 6:Detail, 7:Jawaban, 8:Sisa, 9:NilaiAkhir]
+  
+  // Format Tanggal
+  const formatTgl = (d) => {
+      try { return Utilities.formatDate(new Date(d), "Asia/Jakarta", "dd MMM yyyy HH:mm"); } catch(e){return "-";}
+  };
+  
+  // Helper Format Sisa Waktu
+  const formatSisa = (detik) => {
+      if(!detik || detik <= 0) return "0m 0d";
+      const m = Math.floor(detik / 60);
+      const s = detik % 60;
+      return `${m}m ${s}d`;
+  };
+
+  return data.map((row, i) => ({
+    rowIndex: i + 2, // Simpan index baris (Excel row) untuk update cepat
+    waktu: formatTgl(row[0]),
+    idJadwal: row[1],
+    username: row[2],
+    nama: row[3],
+    mapel: row[4],
+    nilaiSementara: row[5], // Nilai Sistem (PG/Otomatis)
+    sisaWaktu: formatSisa(row[8]),
+    nilaiAkhir: row[9], // Nilai Rapor (Bisa kosong)
+    status: (row[9] !== "" && row[9] !== null) ? "Published" : "Draft"
+  })).reverse(); // Urutkan dari yang terbaru
+}
+
+// 2. Ambil Data Detail untuk Koreksi (Gabungan Soal + Jawaban + Skor Lama)
+function getDataKoreksi(idJadwal, username, rowIndex) {
+  const ss = SpreadsheetApp.openById(SS_ID);
+  
+  // A. Ambil Data Nilai Siswa
+  const sheetNilai = ss.getSheetByName("DB_Nilai");
+  // Pastikan row index valid
+  const rowData = sheetNilai.getRange(rowIndex, 1, 1, 11).getValues()[0];
+  
+  // Validasi ID dan Username agar tidak salah edit
+  if (String(rowData[1]) !== String(idJadwal) || String(rowData[2]) !== String(username)) {
+     return { status: 'error', message: 'Data tidak sinkron. Refresh halaman.' };
+  }
+
+  const jawabanSiswa = JSON.parse(rowData[7] || "{}"); // Kolom 8 (Index 7)
+  const draftSkor = JSON.parse(rowData[10] || "{}"); // Kolom 11 (Index 10) - NEW: Simpan skor per soal
+
+  // B. Ambil Soal
+  const sheetJadwal = ss.getSheetByName("DB_Jadwal");
+  const dataJadwal = sheetJadwal.getDataRange().getValues();
+  let kodeMapel = "";
+  for(let j=1; j<dataJadwal.length; j++) {
+     if(String(dataJadwal[j][0]) === String(idJadwal)) {
+        kodeMapel = dataJadwal[j][2];
+        break;
+     }
+  }
+
+  const sheetSoal = ss.getSheetByName("DB_Soal");
+  const dataSoal = sheetSoal.getDataRange().getValues();
+  dataSoal.shift();
+
+  let listSoal = [];
+  let totalBobot = 0;
+
+  dataSoal.forEach(r => {
+     if(String(r[1]).toLowerCase() === String(kodeMapel).toLowerCase()) {
+        const idSoal = r[0];
+        const bobot = (r[7] && !isNaN(r[7])) ? parseFloat(r[7]) : 1;
+        totalBobot += bobot;
+        
+        // Cek skor tersimpan (draft) atau hitung otomatis jika PG
+        let skorItem = 0;
+        
+        // Logika Skor Awal
+        if (draftSkor[idSoal] !== undefined) {
+            // Jika sudah ada draft manual/edit guru, pakai itu
+            skorItem = parseFloat(draftSkor[idSoal]);
+        } else {
+            // Jika belum ada draft, hitung default sistem (Untuk PG/BS)
+            // Essay default 0
+            if (r[2] === 'PG' || r[2] === 'BS') {
+               if(String(jawabanSiswa[idSoal]) === String(r[6])) skorItem = bobot;
+            } else if (r[2] === 'COCOK') {
+               // Logika cocok sederhana (bisa disesuaikan dengan submitUjian)
+               // Disini kita defaultkan 0 agar guru cek, atau hitung ulang jika mau kompleks
+               skorItem = 0; 
+            }
+        }
+
+        listSoal.push({
+           id: idSoal,
+           tipe: r[2],
+           soal: r[3],
+           kunci: r[6],
+           bobot: bobot,
+           jawabanSiswa: jawabanSiswa[idSoal] || "",
+           skor: skorItem
+        });
+     }
+  });
+
+  return { 
+     status: 'success', 
+     soal: listSoal, 
+     totalBobot: totalBobot,
+     nilaiAkhir: rowData[9],
+     rowIndex: rowIndex
+  };
+}
+
+// 3. Simpan Nilai Koreksi (Draft / Publish)
+function simpanNilaiGuru(payload) {
+  try {
+     const ss = SpreadsheetApp.openById(SS_ID);
+     const sheet = ss.getSheetByName("DB_Nilai");
+     const rowIndex = parseInt(payload.rowIndex);
+     
+     // Payload: { rowIndex, skorJson (String), nilaiAkhir (Number/Null), action: 'save'|'publish' }
+
+     // 1. Simpan Draft Skor Per Soal (Kolom 11 / Index 10)
+     // Jika kolom belum ada, sheet akan otomatis handle set value di range
+     sheet.getRange(rowIndex, 11).setValue(payload.skorJson);
+
+     // 2. Simpan Nilai Akhir (Kolom 10 / Index 9)
+     if (payload.action === 'publish') {
+        sheet.getRange(rowIndex, 10).setValue(payload.nilaiAkhir);
+        return { status: 'success', message: 'Nilai berhasil dipublikasikan ke siswa!' };
+     } else {
+        return { status: 'success', message: 'Koreksi disimpan sementara.' };
+     }
+
+  } catch(e) {
+     return { status: 'error', message: e.toString() };
+  }
+}
+
+// 4. Batalkan Kirim (Hapus Nilai Akhir)
+function batalkanNilaiAkhir(rowIndex) {
+   try {
+     const ss = SpreadsheetApp.openById(SS_ID);
+     const sheet = ss.getSheetByName("DB_Nilai");
+     // Kosongkan Kolom 10 (Nilai Akhir)
+     sheet.getRange(rowIndex, 10).setValue(""); 
+     return { status: 'success', message: 'Nilai Akhir dibatalkan. Status kembali ke Draft.' };
+   } catch(e) {
+     return { status: 'error', message: e.toString() };
+   }
+}
