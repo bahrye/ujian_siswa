@@ -137,7 +137,7 @@
            menus = [
              { id: 'dashboard', icon: 'fa-home', label: 'Dashboard' },
              { id: 'bank-soal', icon: 'fa-file-alt', label: 'Bank Soal' },
-             { id: 'hasil', icon: 'fa-poll', label: 'Hasil Ujian' },
+             { id: 'hasil', icon: 'fa-poll', label: 'Hasil & Koreksi' },
            ];
         } else if (role === 'pengawas') {
            menus = [
@@ -2913,6 +2913,287 @@
        }
     },
 
+    // --- MODULE: GURU HASIL & KOREKSI ---
+    GuruHasil: {
+       load: function(force=false) {
+          const tbody = document.getElementById('tbody-hasil-guru');
+          tbody.innerHTML = '<tr><td colspan="7" class="p-10 text-center"><i class="fas fa-spinner fa-spin text-2xl text-indigo-500"></i><p class="mt-2 text-gray-500">Memuat Data Ujian Siswa...</p></td></tr>';
+
+          google.script.run.withSuccessHandler(data => {
+             tbody.innerHTML = '';
+             if(data.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7" class="p-10 text-center text-gray-400 italic">Belum ada siswa yang mengumpulkan ujian.</td></tr>';
+                return;
+             }
+
+             data.forEach(r => {
+                // Tampilan Nilai Akhir
+                let labelAkhir = '<span class="text-xs text-gray-400 italic">Belum Dikirim</span>';
+                let rowClass = "";
+                
+                if (r.nilaiAkhir !== "" && r.nilaiAkhir !== null) {
+                    const val = parseFloat(r.nilaiAkhir);
+                    const color = val < 70 ? 'text-red-600' : 'text-green-600';
+                    labelAkhir = `<span class="text-lg font-bold ${color}">${val}</span>`;
+                    rowClass = "bg-green-50/30"; // Highlight rows that are done
+                }
+
+                tbody.insertAdjacentHTML('beforeend', `
+                   <tr class="hover:bg-slate-50 border-b transition ${rowClass}">
+                      <td class="p-4">
+                         <div class="font-bold text-gray-700">${r.nama}</div>
+                         <div class="text-[10px] text-gray-400 font-mono">${r.username}</div>
+                      </td>
+                      <td class="p-4 text-sm text-gray-600">${r.waktu}</td>
+                      <td class="p-4"><span class="bg-indigo-50 text-indigo-700 px-2 py-1 rounded text-xs font-bold border border-indigo-100">${r.mapel}</span></td>
+                      <td class="p-4 text-center text-xs font-mono text-gray-500">${r.sisaWaktu}</td>
+                      <td class="p-4 text-center">
+                         <span class="bg-gray-100 text-gray-600 px-2 py-1 rounded font-bold text-sm">${r.nilaiSementara}</span>
+                      </td>
+                      <td class="p-4 text-center border-l border-r border-gray-100 bg-white">
+                         ${labelAkhir}
+                      </td>
+                      <td class="p-4 text-center">
+                         <div class="flex justify-center gap-2">
+                             <button onclick="App.Siswa.lihatDetail('${r.idJadwal}')" class="p-2 text-gray-500 hover:text-indigo-600 hover:bg-gray-100 rounded transition" title="Lihat Detail Jawaban">
+                                 <i class="fas fa-eye"></i>
+                             </button>
+                             <button onclick="App.GuruKoreksi.bukaKoreksi('${r.idJadwal}', '${r.username}', '${r.rowIndex}', '${r.nama}', '${r.mapel}')" class="px-3 py-1.5 bg-indigo-600 text-white rounded shadow hover:bg-indigo-700 transition font-bold text-xs flex items-center gap-2">
+                                 <i class="fas fa-pen-nib"></i> Koreksi
+                             </button>
+                         </div>
+                      </td>
+                   </tr>
+                `);
+             });
+          }).getHasilUjianGuru();
+       }
+    },
+
+    GuruKoreksi: {
+       currentData: null,
+       currentRowIndex: null,
+
+       bukaKoreksi: function(idJadwal, username, rowIndex, namaSiswa, mapel) {
+           App.GuruKoreksi.currentRowIndex = rowIndex;
+           App.UI.openModal('modal-koreksi');
+           
+           document.getElementById('kor-subtitle').innerText = `Siswa: ${namaSiswa} | Mapel: ${mapel}`;
+           document.getElementById('container-koreksi-soal').innerHTML = '<div class="text-center py-20"><i class="fas fa-spinner fa-spin text-4xl text-indigo-500"></i><p class="mt-4 text-gray-500">Mengambil Lembar Jawaban...</p></div>';
+           
+           // Reset Stats
+           document.getElementById('kor-total-bobot').innerText = "0";
+           document.getElementById('kor-total-skor').innerText = "0";
+           document.getElementById('kor-nilai-akhir').innerText = "0";
+           document.getElementById('btn-batal-publish').classList.add('hidden');
+
+           google.script.run.withSuccessHandler(res => {
+               if(res.status === 'error') {
+                   Swal.fire('Error', res.message, 'error');
+                   App.UI.closeModal('modal-koreksi');
+                   return;
+               }
+               
+               App.GuruKoreksi.currentData = res;
+               App.GuruKoreksi.renderSoal(res.soal);
+               App.GuruKoreksi.hitungTotal();
+
+               // Tampilkan tombol batal jika sudah publish
+               if (res.nilaiAkhir !== "" && res.nilaiAkhir !== null) {
+                   document.getElementById('btn-batal-publish').classList.remove('hidden');
+               }
+
+           }).getDataKoreksi(idJadwal, username, rowIndex);
+       },
+
+       renderSoal: function(listSoal) {
+           const container = document.getElementById('container-koreksi-soal');
+           container.innerHTML = '';
+           
+           listSoal.forEach((s, idx) => {
+               // Styling untuk tipe soal
+               let headerBadge = `<span class="bg-gray-200 text-gray-600 px-2 py-0.5 rounded text-[10px] font-bold uppercase">${s.tipe}</span>`;
+               let inputArea = '';
+
+               // Perbaiki tampilan gambar
+               let fixedSoal = App.Util.fixMediaTags(s.soal);
+               fixedSoal = fixedSoal.replace(/<img /g, '<img class="block max-w-full h-auto rounded border my-2 shadow-sm" ');
+
+               // Logika Input Skor
+               if (s.tipe === 'ESSAY' || s.tipe === 'ISIAN') {
+                   headerBadge = `<span class="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-[10px] font-bold uppercase border border-blue-200"><i class="fas fa-pen"></i> ${s.tipe}</span>`;
+                   
+                   inputArea = `
+                     <div class="mt-4 p-4 bg-yellow-50 rounded-lg border border-yellow-200">
+                        <label class="text-xs font-bold text-yellow-800 uppercase mb-1 block">Input Skor (Max: ${s.bobot})</label>
+                        <input type="number" id="skor-${s.id}" value="${s.skor}" max="${s.bobot}" min="0" step="0.1" 
+                               class="w-full p-2 text-lg font-bold text-gray-800 border-2 border-yellow-300 rounded focus:border-yellow-500 outline-none"
+                               oninput="App.GuruKoreksi.updateSkor('${s.id}', this.value, ${s.bobot})">
+                     </div>
+                   `;
+               } else {
+                   // PG / BS / COCOK (Read Only skor)
+                   let statusClass = s.skor > 0 ? "bg-green-100 text-green-700 border-green-200" : "bg-red-100 text-red-700 border-red-200";
+                   let statusIcon = s.skor > 0 ? "check" : "times";
+                   
+                   inputArea = `
+                     <div class="mt-4 p-3 ${statusClass} rounded border flex justify-between items-center">
+                        <span class="text-xs font-bold uppercase"><i class="fas fa-${statusIcon}"></i> Auto Score</span>
+                        <span class="font-bold text-lg">${s.skor} <span class="text-xs font-normal opacity-70">/ ${s.bobot}</span></span>
+                        <input type="hidden" id="skor-${s.id}" value="${s.skor}">
+                     </div>
+                   `;
+               }
+
+               // Render Jawaban Siswa
+               let jawabanDisplay = `<div class="p-3 bg-white border rounded text-gray-800 font-medium min-h-[40px]">${s.jawabanSiswa || '<em class="text-gray-400">Tidak dijawab</em>'}</div>`;
+               
+               // Render Kunci (Helper)
+               let kunciDisplay = `<div class="mt-2 text-xs text-gray-500"><strong>Kunci:</strong> <span class="font-mono bg-gray-200 px-1 rounded">${s.kunci}</span></div>`;
+
+               const html = `
+                   <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-200">
+                       <div class="flex justify-between items-start mb-3 border-b pb-2">
+                           <div class="flex items-center gap-2">
+                               <span class="font-bold text-gray-400">#${idx+1}</span>
+                               ${headerBadge}
+                           </div>
+                           <span class="text-xs font-bold text-gray-400">Bobot: ${s.bobot}</span>
+                       </div>
+                       
+                       <div class="mb-4 text-gray-800 leading-relaxed">${fixedSoal}</div>
+                       
+                       <div class="bg-slate-50 p-3 rounded-lg border border-slate-200">
+                           <div class="text-[10px] uppercase font-bold text-slate-400 mb-1">Jawaban Siswa</div>
+                           ${jawabanDisplay}
+                           ${(s.tipe === 'ESSAY' || s.tipe === 'ISIAN') ? kunciDisplay : ''}
+                       </div>
+
+                       ${inputArea}
+                   </div>
+               `;
+               container.insertAdjacentHTML('beforeend', html);
+           });
+       },
+
+       updateSkor: function(idSoal, val, maxBobot) {
+           let num = parseFloat(val);
+           if (isNaN(num)) num = 0;
+           if (num > maxBobot) {
+               num = maxBobot; // Cap at max
+               document.getElementById(`skor-${idSoal}`).value = num;
+           }
+           if (num < 0) num = 0;
+
+           // Update local data
+           const target = App.GuruKoreksi.currentData.soal.find(s => s.id === idSoal);
+           if(target) target.skor = num;
+
+           App.GuruKoreksi.hitungTotal();
+       },
+
+       hitungTotal: function() {
+           const data = App.GuruKoreksi.currentData;
+           let totalSkor = 0;
+           
+           data.soal.forEach(s => {
+               totalSkor += parseFloat(s.skor || 0);
+           });
+
+           // Hitung Nilai Akhir Skala 100
+           // Rumus: (Total Skor / Total Bobot) * 100
+           let nilaiAkhir = 0;
+           if (data.totalBobot > 0) {
+               nilaiAkhir = (totalSkor / data.totalBobot) * 100;
+           }
+           
+           // Rounding
+           nilaiAkhir = Math.round(nilaiAkhir * 100) / 100; // 2 decimal
+
+           // Update UI Sidebar
+           document.getElementById('kor-total-bobot').innerText = data.totalBobot;
+           document.getElementById('kor-total-skor').innerText = parseFloat(totalSkor.toFixed(2)); // Fix floating point
+           document.getElementById('kor-nilai-akhir').innerText = nilaiAkhir;
+       },
+
+       simpan: function(action) {
+           const data = App.GuruKoreksi.currentData;
+           if (!data) return;
+
+           // 1. Prepare JSON Draft (ID Soal : Skor)
+           let draftJson = {};
+           let totalSkor = 0;
+           data.soal.forEach(s => {
+               draftJson[s.id] = s.skor;
+               totalSkor += s.skor;
+           });
+
+           // 2. Hitung Nilai Akhir
+           let nilaiAkhir = 0;
+           if (data.totalBobot > 0) nilaiAkhir = (totalSkor / data.totalBobot) * 100;
+           nilaiAkhir = Math.round(nilaiAkhir * 100) / 100;
+
+           // 3. Konfirmasi jika Publish
+           if (action === 'publish') {
+               Swal.fire({
+                   title: 'Kirim Nilai Akhir?',
+                   text: `Nilai ${nilaiAkhir} akan ditampilkan ke siswa di menu Riwayat.`,
+                   icon: 'question',
+                   showCancelButton: true,
+                   confirmButtonText: 'Ya, Kirim',
+                   confirmButtonColor: '#059669'
+               }).then(r => {
+                   if(r.isConfirmed) App.GuruKoreksi.executeSave(action, JSON.stringify(draftJson), nilaiAkhir);
+               });
+           } else {
+               App.GuruKoreksi.executeSave(action, JSON.stringify(draftJson), nilaiAkhir);
+           }
+       },
+
+       executeSave: function(action, jsonStr, nilaiVal) {
+           const btnText = action === 'publish' ? 'Mengirim...' : 'Menyimpan...';
+           Swal.fire({title: btnText, didOpen: () => Swal.showLoading()});
+           
+           const payload = {
+               rowIndex: App.GuruKoreksi.currentRowIndex,
+               skorJson: jsonStr,
+               nilaiAkhir: nilaiVal,
+               action: action
+           };
+
+           google.script.run.withSuccessHandler(res => {
+               Swal.close();
+               if(res.status === 'success') {
+                   Swal.fire('Sukses', res.message, 'success');
+                   App.UI.closeModal('modal-koreksi');
+                   App.GuruHasil.load(true); // Refresh tabel utama
+               } else {
+                   Swal.fire('Gagal', res.message, 'error');
+               }
+           }).simpanNilaiGuru(payload);
+       },
+
+       batal: function() {
+           Swal.fire({
+               title: 'Batalkan Nilai Akhir?',
+               text: "Status akan kembali menjadi Draft. Siswa tidak akan melihat nilai akhir.",
+               icon: 'warning',
+               showCancelButton: true,
+               confirmButtonColor: '#d33',
+               confirmButtonText: 'Ya, Batalkan'
+           }).then(r => {
+               if(r.isConfirmed) {
+                   Swal.fire({didOpen: () => Swal.showLoading()});
+                   google.script.run.withSuccessHandler(res => {
+                       Swal.fire('Info', res.message, 'success');
+                       App.UI.closeModal('modal-koreksi');
+                       App.GuruHasil.load(true);
+                   }).batalkanNilaiAkhir(App.GuruKoreksi.currentRowIndex);
+               }
+           });
+       }
+    },
+
     // --- Module 7: UI Utilities ---
     UI: {
       setLoading: function(btn, isLoading, text) {
@@ -3018,7 +3299,8 @@
 
         if (viewId === 'hasil') {
             document.getElementById('view-hasil-ujian').classList.remove('hidden');
-            // Logic load hasil ujian guru (jika ada) bisa ditambahkan di sini
+            // INI PENTING: Panggil fungsi load Guru
+            App.GuruHasil.load(); 
         }
         else if (viewId === 'bank-soal') {
             document.getElementById('view-bank-soal').classList.remove('hidden');
