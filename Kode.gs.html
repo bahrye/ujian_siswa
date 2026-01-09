@@ -2130,60 +2130,59 @@ function getDataKoreksi(idJadwal, username, rowIndex) {
                }
             } 
             else if (tipe === 'COCOK') {
-               // --- PERBAIKAN LOGIKA COCOK (ADVANCED) ---
+               // --- PERBAIKAN LOGIKA COCOK (ROBUST MATCHING) ---
                let pairsConfig = [];
                try { pairsConfig = JSON.parse(opsiRaw); } catch(e){} 
 
                if(Array.isArray(pairsConfig)) {
                   
-                  // Hitung total bobot item yang didefinisikan guru
+                  // 1. Hitung Total Bobot Item (Jika guru mengisi bobot per pasang)
                   let totalDefinedWeight = 0;
                   pairsConfig.forEach(p => {
                       if(p.s && !isNaN(p.s)) totalDefinedWeight += parseFloat(p.s);
                   });
 
-                  // Jika Guru mengisi bobot per item, maka Bobot Soal ini = Total Bobot Item
-                  // Jika tidak (total 0), maka Bobot Soal ini = Bobot Global DB
+                  // Tentukan Bobot Akhir Soal & Bobot Per Item
                   const useItemWeight = totalDefinedWeight > 0;
                   finalBobotSoal = useItemWeight ? totalDefinedWeight : bobotGlobal;
-
-                  // Hitung nilai per item jika fallback ke bobot global
                   const weightPerItem = useItemWeight ? 0 : (bobotGlobal / pairsConfig.length);
 
                   let currentScore = 0;
                   
-                  // Pastikan jawaban siswa adalah object valid
+                  // 2. LOGIKA PENCOCOKAN: ABAIKAN URUTAN
                   if (typeof jwb === 'object' && jwb !== null) {
                       
-                      pairsConfig.forEach(p => {
-                          // Kunci Kiri (Database)
-                          const dbKeyRaw = String(p.k).trim().toLowerCase(); 
-                          const dbValRight = String(p.v).trim().toLowerCase();
+                      // Langkah A: Buat Kamus Jawaban Siswa yang Dinormalisasi
+                      // Format: { "kunci_huruf_kecil": "nilai_huruf_kecil" }
+                      let studentMap = {};
+                      Object.keys(jwb).forEach(studentKey => {
+                          const cleanKey = String(studentKey).trim().toLowerCase();
+                          const cleanVal = String(jwb[studentKey]).trim().toLowerCase();
+                          studentMap[cleanKey] = cleanVal;
+                      });
 
-                          // Cari Jawaban Siswa yang kuncinya COCOK (Fuzzy Match Key)
-                          // Kita loop keys jawaban siswa untuk mencari yang sama text-nya
-                          let siswaKeyMatched = Object.keys(jwb).find(k => String(k).trim().toLowerCase() === dbKeyRaw);
-                          
-                          if (siswaKeyMatched) {
-                              const siswaValRaw = jwb[siswaKeyMatched]; // Jawaban kanan siswa
-                              const siswaValRight = String(siswaValRaw).trim().toLowerCase();
-                              
-                              // Bandingkan Nilai Kanan
-                              if (siswaValRight === dbValRight) {
-                                  // BENAR
-                                  if (useItemWeight) {
-                                      currentScore += parseFloat(p.s || 0);
-                                  } else {
-                                      currentScore += weightPerItem;
-                                  }
+                      // Langkah B: Loop Kunci Jawaban (Database)
+                      pairsConfig.forEach(p => {
+                          // Ambil pasangan Benar dari DB
+                          const dbKey = String(p.k).trim().toLowerCase(); 
+                          const dbValRight = String(p.v).trim().toLowerCase();
+                          const itemScore = useItemWeight ? parseFloat(p.s || 0) : weightPerItem;
+
+                          // Cek apakah siswa punya jawaban untuk Kunci Kiri ini?
+                          if (studentMap.hasOwnProperty(dbKey)) {
+                              // Cek apakah Nilai Kanannya cocok?
+                              if (studentMap[dbKey] === dbValRight) {
+                                  // BENAR (Match!)
+                                  currentScore += itemScore;
                               }
                           }
                       });
                   }
                   
-                  // Pembulatan agar rapi
+                  // Pembulatan score agar rapi (2 desimal)
                   skorItem = parseFloat(currentScore.toFixed(2));
-                  // Safety: jangan melebihi bobot total
+                  
+                  // Safety: Skor tidak boleh melebihi bobot total soal (misal karena pembulatan)
                   if(skorItem > finalBobotSoal) skorItem = finalBobotSoal;
                }
             }
