@@ -2601,14 +2601,15 @@
            }).getRiwayatNilaiSiswa(sess.data.username); 
        },
 
-       // [BARU] FUNGSI LIHAT DETAIL JAWABAN
-       lihatDetail: function(idJadwal) {
+       // [UPDATE] FUNGSI LIHAT DETAIL JAWABAN (Support Guru & Siswa)
+       lihatDetail: function(idJadwal, usernameOverride = null) {
            App.UI.openModal('modal-detail-jawaban');
            const container = document.getElementById('container-detail-soal');
            container.innerHTML = '<div class="text-center py-20"><i class="fas fa-circle-notch fa-spin text-4xl text-indigo-500"></i><p class="mt-4 text-gray-500 font-medium">Mengambil lembar jawaban...</p></div>';
 
            const sess = JSON.parse(sessionStorage.getItem('cbt_session'));
-           const username = sess.data.username;
+           // Jika override ada (dari Guru), pakai itu. Jika tidak, pakai session (Siswa lihat diri sendiri)
+           const targetUser = usernameOverride || sess.data.username;
 
            google.script.run.withSuccessHandler(res => {
                if(res.status === 'error') {
@@ -2629,7 +2630,7 @@
                    let cardBorder = '';
                    let kunciDisplay = '';
 
-                   // 1. Tampilan Status Benar/Salah
+                   // --- 1. LOGIKA BADGE STATUS ---
                    if (item.tipe === 'PG' || item.tipe === 'BS') {
                        if (item.isCorrect) {
                            statusBadge = '<span class="bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-bold border border-green-200"><i class="fas fa-check"></i> BENAR</span>';
@@ -2638,59 +2639,82 @@
                            statusBadge = '<span class="bg-red-100 text-red-700 px-2 py-1 rounded text-xs font-bold border border-red-200"><i class="fas fa-times"></i> SALAH</span>';
                            cardBorder = 'border-l-4 border-red-500';
                        }
-                       // Tampilkan Kunci
-                       kunciDisplay = `
-                           <div class="mt-3 p-3 bg-yellow-50 rounded-lg border border-yellow-200 text-sm flex gap-2 items-center">
-                               <i class="fas fa-key text-yellow-600"></i>
-                               <span class="font-bold text-yellow-800">Kunci Jawaban:</span> 
-                               <span class="font-mono font-bold text-gray-900 bg-white px-2 rounded border">${item.kunci}</span>
-                           </div>`;
+                       kunciDisplay = `<div class="mt-3 p-3 bg-yellow-50 rounded-lg border border-yellow-200 text-sm flex gap-2 items-center"><i class="fas fa-key text-yellow-600"></i><span class="font-bold text-yellow-800">Kunci Jawaban:</span> <span class="font-mono font-bold text-gray-900 bg-white px-2 rounded border">${item.kunci}</span></div>`;
+                   
+                   } else if (item.tipe === 'COCOK') {
+                       statusBadge = '<span class="bg-purple-100 text-purple-700 px-2 py-1 rounded text-xs font-bold border border-purple-200"><i class="fas fa-random"></i> PENCOCOKAN</span>';
+                       cardBorder = 'border-l-4 border-purple-500';
+                       
+                       // Render Kunci Cocok
+                       let pairs = [];
+                       try { pairs = Array.isArray(item.opsi) ? item.opsi : JSON.parse(item.opsi); } catch(e){}
+                       let listKunci = '<ul class="list-disc pl-4 text-xs mt-1 space-y-1">';
+                       if(Array.isArray(pairs)) pairs.forEach(p => listKunci += `<li>${p.k} &rarr; <b>${p.v}</b></li>`);
+                       listKunci += '</ul>';
+                       
+                       kunciDisplay = `<div class="mt-3 p-3 bg-purple-50 rounded-lg border border-purple-100 text-sm"><div class="font-bold text-purple-800 mb-1"><i class="fas fa-key"></i> Kunci Pasangan:</div>${listKunci}</div>`;
+
                    } else {
-                       // Essay / Isian / Lainnya
+                       // Essay
                        statusBadge = '<span class="bg-blue-100 text-blue-700 px-2 py-1 rounded text-xs font-bold border border-blue-200"><i class="fas fa-user-edit"></i> URAIAN/ISIAN</span>';
                        cardBorder = 'border-l-4 border-blue-500';
-                       kunciDisplay = `
-                           <div class="mt-3 p-3 bg-blue-50 rounded-lg border border-blue-100 text-xs italic text-blue-600">
-                               *Jawaban tipe ini dikoreksi manual oleh Guru. Nilai di atas adalah nilai sementara (hanya PG).
-                           </div>`;
+                       kunciDisplay = `<div class="mt-3 p-3 bg-blue-50 rounded-lg border border-blue-100 text-xs italic text-blue-600">Jawaban dikoreksi manual oleh Guru.</div>`;
                    }
 
-                   // 2. Render Opsi (Jika PG)
+                   // --- 2. RENDER JAWABAN SISWA ---
+                   let jawabanHtml = '';
+                   if (item.tipe === 'COCOK') {
+                        if (item.jawabanSiswa && typeof item.jawabanSiswa === 'object') {
+                            jawabanHtml = '<div class="space-y-1">';
+                            for (const [k, v] of Object.entries(item.jawabanSiswa)) {
+                                jawabanHtml += `<div class="flex items-center text-sm gap-2"><span class="bg-white px-2 py-1 rounded border text-gray-700">${k}</span> <i class="fas fa-arrow-right text-gray-400 text-xs"></i> <span class="bg-indigo-50 px-2 py-1 rounded border border-indigo-100 text-indigo-700 font-bold">${v}</span></div>`;
+                            }
+                            jawabanHtml += '</div>';
+                        } else {
+                            jawabanHtml = '<span class="italic text-gray-400">Tidak ada pasangan dipilih</span>';
+                        }
+                   } else {
+                        jawabanHtml = item.jawabanSiswa || '<span class="italic text-gray-400">Tidak Dijawab</span>';
+                   }
+
+                   // --- 3. RENDER OPSI PG ---
                    let opsiHtml = '';
                    if(item.tipe === 'PG' && item.opsi) {
                        opsiHtml = '<div class="mt-3 space-y-1">';
                        ['A','B','C','D','E'].forEach(k => {
-                           if(item.opsi[k]) {
-                               let cls = 'p-2 rounded border border-gray-200 text-sm text-gray-600 bg-white flex gap-3 items-center';
+                           const txt = item.opsi[k];
+                           const img = item.opsi['media_'+k] || item.opsi['img_'+k];
+                           
+                           if(txt || img) {
+                               let cls = 'p-2 rounded border border-gray-200 text-sm text-gray-600 bg-white flex flex-col gap-1';
                                let icon = '';
 
-                               // Highlight Jawaban Siswa
                                if(k === item.jawabanSiswa) {
                                    if(item.isCorrect) {
-                                      cls = 'p-2 rounded border border-green-300 bg-green-50 text-green-800 font-bold flex gap-3 items-center ring-1 ring-green-400';
-                                      icon = '<i class="fas fa-check-circle text-green-600"></i>';
+                                      cls = 'p-2 rounded border border-green-300 bg-green-50 text-green-800 font-bold ring-1 ring-green-400';
+                                      icon = '<i class="fas fa-check-circle text-green-600 float-right"></i>';
                                    } else {
-                                      cls = 'p-2 rounded border border-red-300 bg-red-50 text-red-800 font-bold flex gap-3 items-center ring-1 ring-red-400';
-                                      icon = '<i class="fas fa-times-circle text-red-600"></i>';
+                                      cls = 'p-2 rounded border border-red-300 bg-red-50 text-red-800 font-bold ring-1 ring-red-400';
+                                      icon = '<i class="fas fa-times-circle text-red-600 float-right"></i>';
                                    }
+                               } else if(!item.isCorrect && k === item.kunci) {
+                                   cls = 'p-2 rounded border border-green-300 bg-green-50 text-green-800 font-bold ring-1 ring-green-400 opacity-75';
+                                   icon = '<i class="fas fa-check text-green-600 float-right"></i>';
                                }
-                               // Highlight Kunci (Jika siswa salah, beri tahu yang benar)
-                               else if(!item.isCorrect && k === item.kunci) {
-                                   cls = 'p-2 rounded border border-green-300 bg-green-50 text-green-800 font-bold flex gap-3 items-center ring-1 ring-green-400 opacity-75';
-                                   icon = '<i class="fas fa-check text-green-600"></i>';
-                               }
+                               
+                               let mediaHtml = img ? `<div class="mt-1">${App.Util.renderMediaHtml(img, "h-20")}</div>` : '';
 
-                               opsiHtml += `<div class="${cls}"><div class="w-6 shrink-0 text-center">${k}.</div> <div class="grow">${item.opsi[k]}</div> ${icon}</div>`;
+                               opsiHtml += `<div class="${cls}">
+                                   <div class="flex justify-between"><div><span class="w-5 inline-block font-bold">${k}.</span> ${txt || ''}</div> ${icon}</div>
+                                   ${mediaHtml}
+                               </div>`;
                            }
                        });
                        opsiHtml += '</div>';
                    }
 
-                   // 1. PERBAIKAN STYLING GAMBAR
-                   let soalContent = item.pertanyaan;
-                   // Tambahkan class 'block' agar gambar turun baris sendiri
-                   // Tambahkan 'clear-both' untuk mencegah elemen lain naik ke sampingnya
-                   soalContent = soalContent.replace(/<img /g, '<img class="block max-w-full h-auto rounded border border-gray-200 my-4 shadow-sm clear-both" ');
+                   // Render Soal Image Fix
+                   let soalContent = item.pertanyaan.replace(/<img /g, '<img class="block max-w-full h-auto rounded border border-gray-200 my-4 shadow-sm clear-both" ');
 
                    const html = `
                        <div class="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-gray-200 mb-6 ${cardBorder}">
@@ -2706,8 +2730,8 @@
                            <div class="bg-slate-50 p-4 rounded-lg border border-slate-200 mt-4 clear-both">
                                <div class="flex flex-col gap-1 mb-2">
                                    <span class="text-xs font-bold text-gray-500 uppercase tracking-wider">Jawaban Kamu:</span>
-                                   <div class="font-bold text-gray-800 p-2 bg-white rounded border border-gray-300 shadow-sm min-h-[40px] flex items-center">
-                                      ${item.jawabanSiswa || '<span class="italic text-gray-400">Tidak Dijawab</span>'}
+                                   <div class="font-bold text-gray-800 p-3 bg-white rounded border border-gray-300 shadow-sm min-h-[40px]">
+                                      ${jawabanHtml}
                                    </div>
                                </div>
                                ${opsiHtml}
@@ -2718,7 +2742,7 @@
                    container.insertAdjacentHTML('beforeend', html);
                });
 
-           }).getDetailJawabanSiswa(idJadwal, username);
+           }).getDetailJawabanSiswa(idJadwal, targetUser);
        }
     },
 
@@ -2955,7 +2979,7 @@
                       </td>
                       <td class="p-4 text-center">
                          <div class="flex justify-center gap-2">
-                             <button onclick="App.Siswa.lihatDetail('${r.idJadwal}')" class="p-2 text-gray-500 hover:text-indigo-600 hover:bg-gray-100 rounded transition" title="Lihat Detail Jawaban">
+                             <button onclick="App.Siswa.lihatDetail('${r.idJadwal}', '${r.username}')" class="p-2 text-gray-500 hover:text-indigo-600 hover:bg-gray-100 rounded transition" title="Lihat Detail Jawaban">
                                  <i class="fas fa-eye"></i>
                              </button>
                              <button onclick="App.GuruKoreksi.bukaKoreksi('${r.idJadwal}', '${r.username}', '${r.rowIndex}', '${r.nama}', '${r.mapel}')" class="px-3 py-1.5 bg-indigo-600 text-white rounded shadow hover:bg-indigo-700 transition font-bold text-xs flex items-center gap-2">
@@ -3011,46 +3035,138 @@
            container.innerHTML = '';
            
            listSoal.forEach((s, idx) => {
-               // Styling untuk tipe soal
+               // 1. SETUP HEADER BADGE
                let headerBadge = `<span class="bg-gray-200 text-gray-600 px-2 py-0.5 rounded text-[10px] font-bold uppercase">${s.tipe}</span>`;
-               let inputArea = '';
+               if (s.tipe === 'ESSAY' || s.tipe === 'ISIAN') headerBadge = `<span class="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-[10px] font-bold uppercase border border-blue-200"><i class="fas fa-pen"></i> ${s.tipe}</span>`;
+               if (s.tipe === 'COCOK') headerBadge = `<span class="bg-purple-100 text-purple-700 px-2 py-0.5 rounded text-[10px] font-bold uppercase border border-purple-200"><i class="fas fa-random"></i> COCOK</span>`;
 
-               // Perbaiki tampilan gambar
+               // 2. FIX MEDIA TAGS
                let fixedSoal = App.Util.fixMediaTags(s.soal);
                fixedSoal = fixedSoal.replace(/<img /g, '<img class="block max-w-full h-auto rounded border my-2 shadow-sm" ');
 
-               // Logika Input Skor
+               // 3. RENDER JAWABAN SISWA (HANDLE OBJECT OBJECT)
+               let jawabanDisplay = '';
+               
+               if (s.tipe === 'COCOK') {
+                   // Handle Object {Kiri: Kanan}
+                   if (typeof s.jawabanSiswa === 'object' && s.jawabanSiswa !== null) {
+                       let htmlList = '<div class="space-y-1">';
+                       for (const [key, val] of Object.entries(s.jawabanSiswa)) {
+                           htmlList += `
+                             <div class="flex items-center text-sm gap-2">
+                                <span class="bg-gray-100 px-2 py-1 rounded border text-gray-700 font-medium">${key}</span>
+                                <i class="fas fa-arrow-right text-gray-400 text-xs"></i>
+                                <span class="bg-indigo-50 px-2 py-1 rounded border border-indigo-100 text-indigo-700 font-bold">${val}</span>
+                             </div>`;
+                       }
+                       htmlList += '</div>';
+                       jawabanDisplay = htmlList;
+                   } else {
+                       jawabanDisplay = '<em class="text-gray-400">Tidak ada pasangan yang dipilih.</em>';
+                   }
+               } else {
+                   // Handle String Biasa (PG, ESSAY, ISIAN)
+                   const jwbTeks = s.jawabanSiswa || '<em class="text-gray-400">Tidak dijawab</em>';
+                   jawabanDisplay = `<div class="p-3 bg-white border rounded text-gray-800 font-medium min-h-[40px]">${jwbTeks}</div>`;
+               }
+
+               // 4. RENDER OPSI JIKA PG (Guru perlu lihat opsi)
+               let opsiHtml = '';
+               if (s.tipe === 'PG' && s.opsi) {
+                   opsiHtml = '<div class="mt-3 grid grid-cols-1 gap-2">';
+                   ['A','B','C','D','E'].forEach(k => {
+                       const txt = s.opsi[k] || '';
+                       const img = s.opsi['media_'+k] || s.opsi['img_'+k] || ''; // Handle media
+                       
+                       if(txt || img) {
+                           // Highlight Jawaban Siswa & Kunci
+                           let cls = "border-gray-200 bg-gray-50 text-gray-500";
+                           let icon = "";
+                           
+                           // Jika ini Kunci
+                           if (k === s.kunci) { cls = "border-green-400 bg-green-50 text-green-700 font-bold ring-1 ring-green-300"; icon = '<i class="fas fa-check float-right"></i>'; }
+                           
+                           // Jika ini Jawaban Siswa
+                           if (k === s.jawabanSiswa) {
+                               if (k === s.kunci) { cls = "border-green-500 bg-green-100 text-green-800 font-bold ring-2 ring-green-500"; icon = '<i class="fas fa-check-circle float-right"></i>'; }
+                               else { cls = "border-red-400 bg-red-50 text-red-800 font-bold ring-1 ring-red-300"; icon = '<i class="fas fa-times-circle float-right"></i>'; }
+                           }
+
+                           let mediaHtml = img ? `<div class="mt-1">${App.Util.renderMediaHtml(img, "h-16")}</div>` : '';
+                           
+                           opsiHtml += `<div class="p-2 border rounded text-xs ${cls}">
+                               <span class="font-bold w-4 inline-block">${k}.</span> ${txt} ${mediaHtml} ${icon}
+                           </div>`;
+                       }
+                   });
+                   opsiHtml += '</div>';
+               }
+
+               // 5. INPUT SCORE AREA
+               let inputArea = '';
                if (s.tipe === 'ESSAY' || s.tipe === 'ISIAN') {
-                   headerBadge = `<span class="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-[10px] font-bold uppercase border border-blue-200"><i class="fas fa-pen"></i> ${s.tipe}</span>`;
-                   
                    inputArea = `
                      <div class="mt-4 p-4 bg-yellow-50 rounded-lg border border-yellow-200">
                         <label class="text-xs font-bold text-yellow-800 uppercase mb-1 block">Input Skor (Max: ${s.bobot})</label>
                         <input type="number" id="skor-${s.id}" value="${s.skor}" max="${s.bobot}" min="0" step="0.1" 
                                class="w-full p-2 text-lg font-bold text-gray-800 border-2 border-yellow-300 rounded focus:border-yellow-500 outline-none"
                                oninput="App.GuruKoreksi.updateSkor('${s.id}', this.value, ${s.bobot})">
-                     </div>
-                   `;
+                     </div>`;
                } else {
-                   // PG / BS / COCOK (Read Only skor)
-                   let statusClass = s.skor > 0 ? "bg-green-100 text-green-700 border-green-200" : "bg-red-100 text-red-700 border-red-200";
-                   let statusIcon = s.skor > 0 ? "check" : "times";
+                   // PG / COCOK / BS -> Read Only
+                   // LOGIKA BARU UNTUK STATUS WARNA
+                   let statusClass = "";
+                   let msg = "";
+                   let icon = "";
+
+                   if (s.skor >= s.bobot) {
+                       // BENAR SEMPURNA (Hijau)
+                       statusClass = "bg-green-100 text-green-700 border-green-200";
+                       msg = "BENAR";
+                       icon = "check-circle";
+                   } else if (s.skor > 0) {
+                       // SEBAGIAN BENAR (Kuning/Orange) - KHUSUS COCOK
+                       statusClass = "bg-orange-100 text-orange-700 border-orange-200";
+                       msg = "SEBAGIAN BENAR";
+                       icon = "exclamation-circle";
+                   } else {
+                       // SALAH (Merah)
+                       statusClass = "bg-red-100 text-red-700 border-red-200";
+                       msg = "SALAH";
+                       icon = "times-circle";
+                   }
                    
                    inputArea = `
-                     <div class="mt-4 p-3 ${statusClass} rounded border flex justify-between items-center">
-                        <span class="text-xs font-bold uppercase"><i class="fas fa-${statusIcon}"></i> Auto Score</span>
+                     <div class="mt-4 p-3 ${statusClass} rounded border flex justify-between items-center transition-colors">
+                        <span class="text-xs font-bold uppercase flex items-center gap-2">
+                            <i class="fas fa-${icon}"></i> ${msg}
+                        </span>
                         <span class="font-bold text-lg">${s.skor} <span class="text-xs font-normal opacity-70">/ ${s.bobot}</span></span>
                         <input type="hidden" id="skor-${s.id}" value="${s.skor}">
-                     </div>
-                   `;
+                     </div>`;
                }
 
-               // Render Jawaban Siswa
-               let jawabanDisplay = `<div class="p-3 bg-white border rounded text-gray-800 font-medium min-h-[40px]">${s.jawabanSiswa || '<em class="text-gray-400">Tidak dijawab</em>'}</div>`;
-               
-               // Render Kunci (Helper)
-               let kunciDisplay = `<div class="mt-2 text-xs text-gray-500"><strong>Kunci:</strong> <span class="font-mono bg-gray-200 px-1 rounded">${s.kunci}</span></div>`;
+               // 6. RENDER KUNCI
+               let kunciDisplay = '';
+               if (s.tipe !== 'PG') { // PG sudah ada di opsi
+                   if (s.tipe === 'COCOK') {
+                       // Render Kunci Cocok (Array of Objects)
+                       let pairs = [];
+                       try { pairs = typeof s.opsi === 'string' ? JSON.parse(s.opsi) : s.opsi; } catch(e){}
+                       
+                       let listKunci = '<ul class="list-disc pl-4 text-xs mt-1 space-y-1">';
+                       if(Array.isArray(pairs)) {
+                           pairs.forEach(p => listKunci += `<li>${p.k} &rarr; <b>${p.v}</b></li>`);
+                       }
+                       listKunci += '</ul>';
+                       kunciDisplay = `<div class="mt-3 p-2 bg-gray-100 rounded border border-gray-200 text-gray-600"><span class="text-[10px] font-bold uppercase">Kunci Jawaban:</span>${listKunci}</div>`;
 
+                   } else {
+                       kunciDisplay = `<div class="mt-2 text-xs text-gray-500"><strong>Kunci:</strong> <span class="font-mono bg-gray-200 px-1 rounded">${s.kunci}</span></div>`;
+                   }
+               }
+
+               // COMBINE HTML
                const html = `
                    <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-200">
                        <div class="flex justify-between items-start mb-3 border-b pb-2">
@@ -3062,11 +3178,12 @@
                        </div>
                        
                        <div class="mb-4 text-gray-800 leading-relaxed">${fixedSoal}</div>
+                       ${opsiHtml}
                        
-                       <div class="bg-slate-50 p-3 rounded-lg border border-slate-200">
+                       <div class="bg-slate-50 p-3 rounded-lg border border-slate-200 mt-2">
                            <div class="text-[10px] uppercase font-bold text-slate-400 mb-1">Jawaban Siswa</div>
                            ${jawabanDisplay}
-                           ${(s.tipe === 'ESSAY' || s.tipe === 'ISIAN') ? kunciDisplay : ''}
+                           ${kunciDisplay}
                        </div>
 
                        ${inputArea}
