@@ -22,7 +22,8 @@
       currentSoalIdx: 0,
       quill: null,
       saveTimeout: null,
-      activeJadwalId: null
+      activeJadwalId: null,
+      tempAudioSoal: null
     },
 
     // --- Module 0: Caching System ---
@@ -353,6 +354,39 @@
         }
       },
 
+      // 2. FUNGSI BARU: TRIGGER & HANDLE AUDIO SOAL (TERPISAH DARI EDITOR)
+      triggerAudioSoal: function() {
+        document.getElementById('q-audio-input').click();
+      },
+
+      handleAudioSoalInput: function(input) {
+        if (input.files && input.files[0]) {
+            const file = input.files[0];
+            
+            // Validasi Ukuran (Misal Max 10MB untuk audio)
+            if(file.size > 10 * 1024 * 1024) return Swal.fire('Terlalu Besar', 'Maksimal Audio 10MB', 'warning');
+            if(!file.type.startsWith('audio/')) return Swal.fire('Salah Format', 'Hanya file Audio (mp3/wav/m4a)', 'error');
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+              App.data.tempAudioSoal = e.target.result; // Simpan Base64
+              
+              // Tampilkan Preview
+              document.getElementById('preview-audio-soal').classList.remove('hidden');
+              const player = document.getElementById('player-audio-soal');
+              player.src = e.target.result;
+            }
+            reader.readAsDataURL(file);
+        }
+        input.value = '';
+      },
+
+      hapusAudioSoal: function() {
+        App.data.tempAudioSoal = null;
+        document.getElementById('preview-audio-soal').classList.add('hidden');
+        document.getElementById('player-audio-soal').src = "";
+      },
+
       // [BARU] Trigger Klik Input File
       triggerMedia: function(type) {
         const input = document.getElementById('q-media-input');
@@ -397,15 +431,46 @@
 
       submit: function(e) {
         e.preventDefault();
+        
         const idSoal = document.getElementById('soal-id').value;
         const mapel = document.getElementById('soal-mapel-select').value;
         const tipe = document.getElementById('tipe-soal').value;
         const bobot = document.getElementById('soal-bobot').value;
-        const htmlSoal = App.data.quill.root.innerHTML;
 
-        if (App.data.quill.getText().trim().length === 0 && !htmlSoal.includes('<img')) return Swal.fire('Error', 'Pertanyaan kosong!', 'warning');
+        let htmlSoal = App.data.quill.root.innerHTML;
 
-        let opsiData = {}; let kunciJawaban = "";
+        // --- LOGIKA AUDIO SOAL (PERBAIKAN) ---
+        // 1. Cek Audio Baru (Upload)
+        if (App.data.tempAudioSoal) {
+            // Bungkus rapi agar mudah dideteksi
+            const audioTag = `<div class="audio-soal-container" style="margin-bottom:10px;"><audio controls src="${App.data.tempAudioSoal}" style="width:100%"></audio></div>`;
+            htmlSoal = audioTag + htmlSoal;
+        } 
+        // 2. Cek Audio Lama (Jika User Edit tapi tidak ganti audio)
+        else {
+            const player = document.getElementById('player-audio-soal');
+            const container = document.getElementById('preview-audio-soal');
+            
+            // Syarat: Preview terlihat & SRC valid (bukan kosong/halaman ini)
+            if (player && player.src && player.src !== window.location.href && !container.classList.contains('hidden')) {
+                const oldSrc = player.src;
+                const audioTag = `<div class="audio-soal-container" style="margin-bottom:10px;"><audio controls src="${oldSrc}" style="width:100%"></audio></div>`;
+                htmlSoal = audioTag + htmlSoal;
+            }
+        }
+
+        // Validasi Input (Teks/Gambar/Audio)
+        const textOnly = App.data.quill.getText().trim();
+        const hasMedia = htmlSoal.includes('<img') || htmlSoal.includes('<audio') || htmlSoal.includes('<iframe');
+
+        if (textOnly.length === 0 && !hasMedia) {
+            return Swal.fire('Error', 'Pertanyaan tidak boleh kosong (harus ada Teks, Gambar, atau Audio)!', 'warning');
+        }
+
+        // --- LOGIKA OPSI & KIRIM DATA (SAMA SEPERTI SEBELUMNYA) ---
+        let opsiData = {}; 
+        let kunciJawaban = "";
+
         if (tipe === 'PG') {
           opsiData = { 
             A: document.getElementById('pg-a').value, 
@@ -414,184 +479,167 @@
             D: document.getElementById('pg-d').value, 
             E: document.getElementById('pg-e').value 
           };
-          
-          // [UPDATE PENTING] Logika Prioritas Media
           ['A','B','C','D','E'].forEach(h => { 
-              const newFile = App.data.opsiImages[h]; // File Baru (Base64)
-              const oldFile = document.getElementById('existing-media-'+h.toLowerCase()).value; // File Lama (URL)
-              
-              if(newFile) {
-                  // Jika user upload baru, pakai yang baru
-                  opsiData['media_'+h] = newFile; 
-              } else if(oldFile) {
-                  // Jika tidak upload baru, tapi ada file lama, pakai yang lama
-                  opsiData['media_'+h] = oldFile;
-              }
+              const newFile = App.data.opsiImages[h]; 
+              const oldFile = document.getElementById('existing-media-'+h.toLowerCase()).value; 
+              if(newFile) opsiData['media_'+h] = newFile; 
+              else if(oldFile) opsiData['media_'+h] = oldFile;
           });
-          
           kunciJawaban = document.getElementById('kunci-pg').value;
-          
-          // Validasi (Cek Teks ATAU Media)
-          // Sekarang opsiData.media_A sudah terisi URL lama, jadi validasi ini akan lolos
           if((!opsiData.A && !opsiData.media_A) || (!opsiData.B && !opsiData.media_B)) {
-              return Swal.fire('Error', 'Min. Opsi A & B (Teks atau Media)', 'warning');
+              return Swal.fire('Error', 'Min. Opsi A & B (Teks/Media) wajib diisi', 'warning');
           }
         }
         else if (tipe === 'ISIAN') kunciJawaban = document.getElementById('kunci-isian').value;
-        else if (tipe === 'BS') { const r = document.querySelector('input[name="kunci_bs"]:checked'); kunciJawaban = r ? r.value : ""; opsiData = { A: "BENAR", B: "SALAH" }; }
+        else if (tipe === 'BS') { 
+            const r = document.querySelector('input[name="kunci_bs"]:checked'); 
+            kunciJawaban = r ? r.value : ""; 
+            opsiData = { A: "BENAR", B: "SALAH" }; 
+        }
         else if (tipe === 'COCOK') {
-           const kiris = document.querySelectorAll('.cocok-kiri'); 
-           const kanans = document.querySelectorAll('.cocok-kanan');
-           const skors = document.querySelectorAll('.cocok-skor');
-           
-           let pairs = []; 
-           kiris.forEach((el, idx) => { 
-             if(el.value && kanans[idx].value) {
-                // Simpan K:Kiri, V:Kanan, S:Score
-                pairs.push({ 
-                   k: el.value, 
-                   v: kanans[idx].value, 
-                   s: skors[idx].value || 1 // Default bobot 1 jika kosong
-                }); 
-             }
-           });
-           
-           if(pairs.length < 2) return Swal.fire('Warning','Minimal buat 2 pasang pencocokan.','warning');
-           opsiData = pairs; 
-           kunciJawaban = "COCOK_AUTO";
+          const kiris = document.querySelectorAll('.cocok-kiri'); 
+          const kanans = document.querySelectorAll('.cocok-kanan');
+          const skors = document.querySelectorAll('.cocok-skor');
+          let pairs = []; 
+          kiris.forEach((el, idx) => { 
+            if(el.value && kanans[idx].value) pairs.push({ k: el.value, v: kanans[idx].value, s: skors[idx].value || 1 }); 
+          });
+          if(pairs.length < 2) return Swal.fire('Warning','Minimal 2 pasang pencocokan.','warning');
+          opsiData = pairs; 
+          kunciJawaban = "COCOK_AUTO";
         } else { kunciJawaban = "MANUAL"; }
 
         const btn = document.getElementById('btnSave');
         App.UI.setLoading(btn, true, 'MENYIMPAN...');
+        
         const payload = { id: idSoal, mapel: mapel, tipe: tipe, bobot: bobot, soal: htmlSoal, opsiJson: JSON.stringify(opsiData), kunci: kunciJawaban };
         
         google.script.run.withSuccessHandler((res) => {
-           App.UI.setLoading(btn, false, 'SIMPAN SOAL');
-           if(res.status === 'success') { 
-             Swal.fire('Sukses', res.message, 'success'); 
-             App.BankSoal.toggleForm(false); 
-             App.Cache.clearPattern('soal_'); App.Cache.remove('stats'); // Reset Cache
-             App.BankSoal.loadDaftar(true); 
-           } else Swal.fire('Gagal', res.message, 'error');
+          App.UI.setLoading(btn, false, 'SIMPAN SOAL');
+          if(res.status === 'success') { 
+            Swal.fire('Sukses', res.message, 'success'); 
+            App.BankSoal.toggleForm(false); 
+            App.Cache.clearPattern('soal_'); 
+            App.Cache.remove('stats');
+            App.BankSoal.loadDaftar(true); 
+          } else Swal.fire('Gagal', res.message, 'error');
         }).simpanSoal(payload);
       },
 
       edit: function(str) {
         const s = JSON.parse(decodeURIComponent(str));
         
-        // 1. Set ID & Judul
         document.getElementById('soal-id').value = s.id;
         document.getElementById('form-soal-title').innerText = "Edit Soal";
         document.getElementById('btnSave').innerText = "UPDATE SOAL";
         
-        // 2. Buka Form
         App.BankSoal.toggleForm(true);
 
-        // 3. GUNAKAN SETTIMEOUT
-        // Tunggu 300ms agar Quill & DOM benar-benar siap
         setTimeout(() => {
-            
-            // --- A. ISI EDITOR QUILL (PERTANYAAN) ---
+            // RESET VARIABEL GLOBAL AUDIO
+            App.data.tempAudioSoal = null; 
+
             if (App.data.quill) {
                 App.data.quill.setContents([]); 
                 
                 let cleanSoal = s.soal || "";
                 
-                // HAPUS PERGANTIAN VIDEO MENJADI IFRAME (VIDEO REMOVAL)
+                // --- LOGIKA EKSTRAKSI AUDIO ---
+                const tempDiv = document.createElement('div');
+                tempDiv.innerHTML = cleanSoal;
                 
-                // UBAH AUDIO AGAR MENJADI TAG AUDIO BIASA (BUKAN IFRAME LAGI)
-                // Regex ini menghapus tag audio lama dan menggantinya dengan tag audio HTML5 standar jika perlu,
-                // atau biarkan Quill menanganinya jika format sudah benar.
-                // Namun untuk amannya kita bersihkan replace iframe video.
+                // 1. Cari Container Audio
+                let audioSrc = null;
                 
+                // Cek pola: <div class="audio-soal-container">...<audio src="...">...</div>
+                const wrapper = tempDiv.querySelector('.audio-soal-container');
+                
+                if (wrapper) {
+                    const audioEl = wrapper.querySelector('audio');
+                    const iframeEl = wrapper.querySelector('iframe'); // Jaga-jaga jika sudah terkonversi jadi iframe preview
+                    
+                    if (audioEl) audioSrc = audioEl.getAttribute('src');
+                    else if (iframeEl) audioSrc = iframeEl.getAttribute('src');
+                    
+                    wrapper.remove(); // Hapus dari teks editor
+                } 
+                
+                // 2. Cek pola fallback: <audio src="..."> langsung (tanpa wrapper)
+                if (!audioSrc) {
+                    const rawAudio = tempDiv.querySelector('audio');
+                    if (rawAudio) {
+                        audioSrc = rawAudio.getAttribute('src');
+                        rawAudio.remove();
+                    }
+                }
+
+                // 3. SET PLAYER PREVIEW
+                App.BankSoal.hapusAudioSoal(); // Reset tampilan
+
+                if (audioSrc && audioSrc.trim() !== "") {
+                    // Decode HTML Entities (misal: &amp; jadi &) agar link valid
+                    audioSrc = audioSrc.replace(/&amp;/g, '&');
+                    
+                    document.getElementById('preview-audio-soal').classList.remove('hidden');
+                    document.getElementById('player-audio-soal').src = audioSrc;
+                }
+
+                cleanSoal = tempDiv.innerHTML; // HTML sisa (Teks & Gambar)
                 App.data.quill.clipboard.dangerouslyPasteHTML(0, cleanSoal);
             }
 
-            // --- B. LOGIKA MAPEL (SMART SELECT) ---
+            // --- LOGIKA MAPEL ---
             const selMapel = document.getElementById('soal-mapel-select');
-            
-            // Defensif: Load ulang opsi jika kosong
             if (selMapel.options.length <= 1 && App.Cache.get('mapel_opts')) {
-                 App.BankSoal.renderOptionsMapel(App.Cache.get('mapel_opts'));
+                App.BankSoal.renderOptionsMapel(App.Cache.get('mapel_opts'));
             }
-
             selMapel.value = s.mapel;
-            
-            // Fallback trim/case-insensitive
-            if (!selMapel.value && s.mapel) {
-                selMapel.value = s.mapel.trim();
-            }
             if (!selMapel.value && s.mapel) {
                 const target = s.mapel.trim().toUpperCase();
                 for (let i = 0; i < selMapel.options.length; i++) {
                     if (selMapel.options[i].value.toUpperCase() === target) {
-                        selMapel.selectedIndex = i;
-                        break;
+                        selMapel.selectedIndex = i; break;
                     }
                 }
             }
 
-            // --- C. ISI TIPE & BOBOT ---
             document.getElementById('tipe-soal').value = s.tipe;
-            if(document.getElementById('soal-bobot')) {
-                document.getElementById('soal-bobot').value = s.bobot || ""; 
-            }
-
-            // Panggil ini agar area opsi yang sesuai muncul
+            if(document.getElementById('soal-bobot')) document.getElementById('soal-bobot').value = s.bobot || ""; 
+            
             App.BankSoal.changeType();
 
-            // --- D. ISI OPSI JAWABAN ---
-            let opsi = {}; 
-            try { opsi = JSON.parse(s.opsi); } catch(e){}
+            // --- LOGIKA OPSI ---
+            let opsi = {}; try { opsi = JSON.parse(s.opsi); } catch(e){}
             
             if (s.tipe === 'PG') {
-               ['A','B','C','D','E'].forEach(h => {
-                 // 1. Isi Text Input
-                 const inputEl = document.getElementById('pg-'+h.toLowerCase());
-                 if(inputEl) inputEl.value = opsi[h] || "";
-                 
-                 // 2. Reset Preview Box
-                 App.BankSoal.removeMedia(h); 
+              ['A','B','C','D','E'].forEach(h => {
+                const inputEl = document.getElementById('pg-'+h.toLowerCase());
+                if(inputEl) inputEl.value = opsi[h] || "";
+                
+                App.BankSoal.removeMedia(h); 
 
-                 // 3. Cek Media (Legacy 'img_' atau Baru 'media_')
-                 const mediaVal = opsi['media_'+h] || opsi['img_'+h];
-
-                 if(mediaVal) { 
-                   // [FIX] Simpan URL lama ke Hidden Input (Wajib agar tidak hilang saat save)
-                   const hiddenInp = document.getElementById('existing-media-'+h.toLowerCase());
-                   if(hiddenInp) hiddenInp.value = mediaVal;
-
-                   // Tampilkan Preview (DI FORM EDIT)
-                   const box = document.getElementById('prev-box-'+h);
-                   const content = document.getElementById('media-content-A'.replace('A', h));
-                   
-                   if(box && content) {
+                const mediaVal = opsi['media_'+h] || opsi['img_'+h];
+                if(mediaVal) { 
+                  document.getElementById('existing-media-'+h.toLowerCase()).value = mediaVal;
+                  const box = document.getElementById('prev-box-'+h);
+                  const content = document.getElementById('media-content-'+h);
+                  
+                  if(box && content) {
                       box.classList.remove('hidden'); 
-                      // Gunakan Helper Baru
                       content.innerHTML = App.Util.renderMediaHtml(mediaVal, "img-opsi-preview");
-                   }
-                 }
-               });
-               document.getElementById('kunci-pg').value = s.kunci;
+                  }
+                }
+              });
+              document.getElementById('kunci-pg').value = s.kunci;
             }
-            else if (s.tipe === 'ISIAN') {
-                document.getElementById('kunci-isian').value = s.kunci;
-            }
-            else if (s.tipe === 'BS') { 
-                const radios = document.getElementsByName('kunci_bs'); 
-                for(let r of radios) { 
-                    r.checked = (r.value === s.kunci);
-                } 
-            }
+            else if (s.tipe === 'ISIAN') document.getElementById('kunci-isian').value = s.kunci;
+            else if (s.tipe === 'BS') { const radios = document.getElementsByName('kunci_bs'); for(let r of radios) r.checked = (r.value === s.kunci); }
             else if (s.tipe === 'COCOK') {
-               const container = document.getElementById('container-cocok'); 
-               container.innerHTML = "";
-               if(Array.isArray(opsi)) {
-                   opsi.forEach(p => App.BankSoal.addRowCocok(p.k, p.v, p.s));
-               }
+              const container = document.getElementById('container-cocok'); container.innerHTML = "";
+              if(Array.isArray(opsi)) opsi.forEach(p => App.BankSoal.addRowCocok(p.k, p.v, p.s));
             }
 
-        }, 300); 
+        }, 300);
       },
 
       // --- FUNGSI PREVIEW SOAL (DOM PARSER VERSION) ---
@@ -840,29 +888,41 @@
         if (tipe === 'COCOK') { document.getElementById('area-cocok').classList.remove('hidden'); if(document.getElementById('container-cocok').children.length === 0) App.BankSoal.addRowCocok(); }
       },
 
+      // 3. UPDATE FUNGSI HANDLE MEDIA OPSI (Agar support Image & Audio)
       handleMedia: function(input, hur) {
-        if (input.files && input.files[0]) {
-          const file = input.files[0];
-          
-          if(file.size > 5 * 1024 * 1024) return Swal.fire('File Terlalu Besar', 'Maksimal 5MB', 'warning');
-          if(!file.type.startsWith('image/')) return Swal.fire('Salah Format', 'Hanya boleh upload gambar.', 'error');
-          
-          const reader = new FileReader();
-          reader.onload = (e) => { 
-              const b64 = e.target.result; 
-              App.data.opsiImages[hur] = b64; 
-              
-              const box = document.getElementById('prev-box-'+hur);
-              const content = document.getElementById('media-content-'+hur);
-              
-              if(box && content) {
-                  box.classList.remove('hidden');
-                  // HANYA RENDER IMAGE
-                  content.innerHTML = `<img src="${b64}" class="img-opsi-preview" onclick="App.UI.zoomImg(this)">`;
-              }
+          if (input.files && input.files[0]) {
+            const file = input.files[0];
+            const isAudio = file.type.startsWith('audio/');
+            const isImage = file.type.startsWith('image/');
+            
+            if(!isAudio && !isImage) return Swal.fire('Error', 'Format harus Gambar atau Audio.', 'error');
+            if(file.size > 10 * 1024 * 1024) return Swal.fire('File Terlalu Besar', 'Maksimal 10MB', 'warning');
+            
+            const reader = new FileReader();
+            reader.onload = (e) => { 
+                const b64 = e.target.result; 
+                App.data.opsiImages[hur] = b64; // Kita pakai variabel yg sama (opsiImages) walau isinya audio
+                
+                const box = document.getElementById('prev-box-'+hur);
+                const content = document.getElementById('media-content-'+hur);
+                
+                if(box && content) {
+                    box.classList.remove('hidden');
+                    
+                    // RENDER SESUAI TIPE
+                    if (isAudio) {
+                        content.innerHTML = `
+                          <div class="flex items-center gap-2 bg-indigo-50 p-2 rounded border">
+                            <i class="fas fa-volume-up text-indigo-600"></i>
+                            <audio controls src="${b64}" class="h-8 w-40"></audio>
+                          </div>`;
+                    } else {
+                        content.innerHTML = `<img src="${b64}" class="img-opsi-preview" onclick="App.UI.zoomImg(this)">`;
+                    }
+                }
+            }
+            reader.readAsDataURL(file);
           }
-          reader.readAsDataURL(file);
-        }
       },
 
       removeMedia: function(hur) {
