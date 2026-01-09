@@ -2391,3 +2391,63 @@ function getDetailPerhitungan(idJadwal, username) {
      }
   };
 }
+
+// ==========================================
+// API 10: FITUR ABSENSI (BARU)
+// ==========================================
+
+// Cek apakah siswa sudah absen di ujian ini
+function cekStatusAbsensi(username, idJadwal) {
+  const ss = SpreadsheetApp.openById(SS_ID);
+  const sheet = ss.getSheetByName("DB_Absensi");
+  
+  if (!sheet) return { status: 'belum', message: 'Sheet belum ada' };
+
+  // Gunakan TextFinder untuk pencarian cepat (Format ID Unik: username_idJadwal)
+  const idUnik = username + "_" + idJadwal;
+  const finder = sheet.createTextFinder(idUnik).matchEntireCell(true);
+  const result = finder.findNext();
+
+  if (result) {
+    return { status: 'sudah' };
+  }
+  return { status: 'belum' };
+}
+
+// Simpan Absensi
+function simpanAbsensi(payload) {
+  try {
+    const ss = SpreadsheetApp.openById(SS_ID);
+    let sheet = ss.getSheetByName("DB_Absensi");
+    
+    // Buat sheet jika belum ada
+    if (!sheet) {
+      sheet = ss.insertSheet("DB_Absensi");
+      sheet.appendRow(["ID_Unik", "Waktu", "Username", "Nama", "ID_Jadwal", "Mapel", "Tanda_Tangan"]);
+    }
+
+    const idUnik = payload.username + "_" + payload.idJadwal;
+    
+    // Cek duplikasi (Double Submit Prevention)
+    const finder = sheet.createTextFinder(idUnik).matchEntireCell(true);
+    if (finder.findNext()) return { status: 'success', message: 'Data sudah ada' };
+
+    // Simpan Tanda Tangan (Bisa base64 string panjang, sheet mampu menampung 50k karakter per cell)
+    // Jika ingin disimpan ke Drive sebagai file gambar, gunakan fungsi saveBase64ToDrive yang sudah ada di kode Anda.
+    // Di sini saya simpan string base64-nya langsung agar cepat.
+    
+    sheet.appendRow([
+      idUnik,
+      new Date(),
+      payload.username,
+      payload.nama,
+      payload.idJadwal,
+      payload.mapel,
+      payload.signature // Base64 String
+    ]);
+
+    return { status: 'success' };
+  } catch (e) {
+    return { status: 'error', message: e.toString() };
+  }
+}
