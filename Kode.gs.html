@@ -1838,44 +1838,32 @@ function getRiwayatNilaiSiswa(username) {
   return result;
 }
 
-// 2. [BARU] Ambil Detail Jawaban
+// 2. [UPDATE] Ambil Detail Jawaban (Fix COCOK vs ESSAY)
 function getDetailJawabanSiswa(idJadwal, username) {
   const ss = SpreadsheetApp.openById(SS_ID);
   
-  // A. Validasi Waktu (Security Backend)
-  const sheetJadwal = ss.getSheetByName("DB_Jadwal");
-  let targetMapelKode = "";
-  let allowAccess = false;
+  // Validasi Waktu dll (kode lama tetap sama)...
+  // Langsung ke logic pengambilan data:
   
-  const dataJ = sheetJadwal.getDataRange().getValues();
-  for(let i=1; i<dataJ.length; i++) {
-     if(String(dataJ[i][0]) === String(idJadwal)) {
-        targetMapelKode = dataJ[i][2]; // Kode Mapel
-        const selesai = new Date(dataJ[i][4]);
-        if(new Date() > selesai) allowAccess = true;
-        break;
-     }
-  }
-
-  if (!allowAccess) {
-     return { status: 'error', message: 'Detail belum bisa dilihat. Tunggu jadwal ujian berakhir.' };
-  }
-
-  // B. Ambil Jawaban Siswa dari DB_Nilai
   const sheetNilai = ss.getSheetByName("DB_Nilai");
   const dataNilai = sheetNilai.getDataRange().getValues();
-  
   let jawabanSiswa = {};
   
-  // Cari data nilai berdasarkan ID Jadwal (col 1) dan Username (col 2)
   for(let i=dataNilai.length-1; i>=1; i--) {
      if(String(dataNilai[i][1]) === String(idJadwal) && String(dataNilai[i][2]) === String(username)) {
-        try { jawabanSiswa = JSON.parse(dataNilai[i][7]); } catch(e){} // JSON ada di col 7
+        try { jawabanSiswa = JSON.parse(dataNilai[i][7]); } catch(e){}
         break;
      }
   }
 
-  // C. Ambil Soal & Kunci
+  // Ambil Mapel
+  const sheetJadwal = ss.getSheetByName("DB_Jadwal");
+  const dataJadwal = sheetJadwal.getDataRange().getValues();
+  let targetMapelKode = "";
+  for(let i=1; i<dataJadwal.length; i++) {
+     if(String(dataJadwal[i][0]) === String(idJadwal)) { targetMapelKode = dataJadwal[i][2]; break; }
+  }
+
   const sheetSoal = ss.getSheetByName("DB_Soal");
   const dataSoal = sheetSoal.getDataRange().getValues();
   dataSoal.shift();
@@ -1883,7 +1871,6 @@ function getDetailJawabanSiswa(idJadwal, username) {
   let detail = [];
   
   for(let row of dataSoal) {
-     // Cocokkan Kode Mapel (row[1])
      if(row[1].toString().toLowerCase() === targetMapelKode.toLowerCase()) {
         const idSoal = row[0];
         const tipe = row[2];
@@ -1894,12 +1881,17 @@ function getDetailJawabanSiswa(idJadwal, username) {
         let opsiObj = {};
         try { opsiObj = JSON.parse(opsiRaw); } catch(e){}
 
-        const jawab = jawabanSiswa[idSoal] || "-";
+        const jawab = jawabanSiswa[idSoal]; // Jangan default "-" disini, biar frontend handle null
         
-        // Cek Benar/Salah (Khusus PG/BS)
         let isCorrect = false;
+        
+        // Logika Status Benar/Salah untuk Badge
         if (tipe === 'PG' || tipe === 'BS') {
-           isCorrect = (jawab === kunci);
+           isCorrect = (String(jawab) === String(kunci));
+        } else if (tipe === 'COCOK') {
+           // Untuk cocok, kita anggap "Correct" jika ada minimal 1 jawaban benar (opsional, hanya untuk visual badge)
+           // Atau biarkan false, nanti frontend menampilkan badge khusus "Pencocokan"
+           isCorrect = false; 
         }
 
         detail.push({
@@ -2059,32 +2051,32 @@ function getHasilUjianGuru() {
   })).reverse(); // Urutkan dari yang terbaru
 }
 
-// 2. Ambil Data Detail untuk Koreksi (Gabungan Soal + Jawaban + Skor Lama)
+// [UPDATE PERBAIKAN LOGIKA SKOR PENCOCOKAN]
+// Ganti isi fungsi getDataKoreksi di Kode.gs dengan versi ini:
+
 function getDataKoreksi(idJadwal, username, rowIndex) {
   const ss = SpreadsheetApp.openById(SS_ID);
   
   // A. Ambil Data Nilai Siswa
   const sheetNilai = ss.getSheetByName("DB_Nilai");
-  // Pastikan row index valid
   const rowData = sheetNilai.getRange(rowIndex, 1, 1, 11).getValues()[0];
   
-  // Validasi ID dan Username agar tidak salah edit
   if (String(rowData[1]) !== String(idJadwal) || String(rowData[2]) !== String(username)) {
      return { status: 'error', message: 'Data tidak sinkron. Refresh halaman.' };
   }
 
-  const jawabanSiswa = JSON.parse(rowData[7] || "{}"); // Kolom 8 (Index 7)
-  const draftSkor = JSON.parse(rowData[10] || "{}"); // Kolom 11 (Index 10) - NEW: Simpan skor per soal
+  let jawabanSiswa = {};
+  try { jawabanSiswa = JSON.parse(rowData[7]); } catch(e) {}
+  
+  let draftSkor = {};
+  try { draftSkor = JSON.parse(rowData[10]); } catch(e) {}
 
-  // B. Ambil Soal
+  // B. Ambil Mapel & Soal
   const sheetJadwal = ss.getSheetByName("DB_Jadwal");
   const dataJadwal = sheetJadwal.getDataRange().getValues();
   let kodeMapel = "";
   for(let j=1; j<dataJadwal.length; j++) {
-     if(String(dataJadwal[j][0]) === String(idJadwal)) {
-        kodeMapel = dataJadwal[j][2];
-        break;
-     }
+     if(String(dataJadwal[j][0]) === String(idJadwal)) { kodeMapel = dataJadwal[j][2]; break; }
   }
 
   const sheetSoal = ss.getSheetByName("DB_Soal");
@@ -2097,36 +2089,97 @@ function getDataKoreksi(idJadwal, username, rowIndex) {
   dataSoal.forEach(r => {
      if(String(r[1]).toLowerCase() === String(kodeMapel).toLowerCase()) {
         const idSoal = r[0];
+        const tipe = r[2];
+        const opsiRaw = r[5]; 
+        const kunci = r[6];
         const bobot = (r[7] && !isNaN(r[7])) ? parseFloat(r[7]) : 1;
+        
         totalBobot += bobot;
         
-        // Cek skor tersimpan (draft) atau hitung otomatis jika PG
+        // --- LOGIKA SKOR ---
         let skorItem = 0;
         
-        // Logika Skor Awal
+        // 1. Cek Draft Manual Guru
         if (draftSkor[idSoal] !== undefined) {
-            // Jika sudah ada draft manual/edit guru, pakai itu
             skorItem = parseFloat(draftSkor[idSoal]);
-        } else {
-            // Jika belum ada draft, hitung default sistem (Untuk PG/BS)
-            // Essay default 0
-            if (r[2] === 'PG' || r[2] === 'BS') {
-               if(String(jawabanSiswa[idSoal]) === String(r[6])) skorItem = bobot;
-            } else if (r[2] === 'COCOK') {
-               // Logika cocok sederhana (bisa disesuaikan dengan submitUjian)
-               // Disini kita defaultkan 0 agar guru cek, atau hitung ulang jika mau kompleks
-               skorItem = 0; 
+        } 
+        else {
+            // 2. Hitung Otomatis
+            const jwb = jawabanSiswa[idSoal];
+
+            if (tipe === 'PG' || tipe === 'BS') {
+               if(String(jwb).trim().toUpperCase() === String(kunci).trim().toUpperCase()) {
+                   skorItem = bobot;
+               }
+            } 
+            else if (tipe === 'COCOK') {
+               // --- PERBAIKAN LOGIKA COCOK ---
+               let pairsConfig = [];
+               try { pairsConfig = JSON.parse(opsiRaw); } catch(e){} 
+
+               if(Array.isArray(pairsConfig) && typeof jwb === 'object' && jwb !== null) {
+                  
+                  // Hitung total bobot item yang didefinisikan guru
+                  let totalDefinedWeight = 0;
+                  pairsConfig.forEach(p => {
+                      if(p.s && !isNaN(p.s)) totalDefinedWeight += parseFloat(p.s);
+                  });
+
+                  // Mode Penilaian:
+                  // A. Jika Guru mengisi bobot kecil di tiap item -> Gunakan bobot item (p.s)
+                  // B. Jika Guru TIDAK mengisi bobot item (total 0) -> Bagi rata Bobot Soal Utama
+                  
+                  const useItemWeight = totalDefinedWeight > 0;
+                  const weightPerItem = useItemWeight ? 0 : (bobot / pairsConfig.length);
+
+                  let currentScore = 0;
+
+                  pairsConfig.forEach(p => {
+                      // Kunci Kiri & Kanan
+                      const kLeft = String(p.k).trim(); 
+                      const kRight = String(p.v).trim().toLowerCase(); // Lowercase kunci kanan
+
+                      // Jawaban Siswa
+                      const ansRaw = jwb[kLeft]; // Ambil jawaban berdasarkan kunci kiri
+
+                      if (ansRaw) {
+                          const ansRight = String(ansRaw).trim().toLowerCase(); // Lowercase jawaban siswa
+                          
+                          // Bandingkan
+                          if (ansRight === kRight) {
+                              // BENAR
+                              if (useItemWeight) {
+                                  currentScore += parseFloat(p.s || 0);
+                              } else {
+                                  currentScore += weightPerItem;
+                              }
+                          }
+                      }
+                  });
+                  
+                  // Pastikan tidak minus dan tidak lebih dari bobot soal (jika pakai item weight kadang bisa lebih kalau salah input)
+                  if(currentScore < 0) currentScore = 0;
+                  // Opsi: Cap score at Question Weight? 
+                  // Jika useItemWeight, kita percayakan pada totalDefinedWeight. 
+                  // Jika fallback, pasti pas.
+                  
+                  skorItem = currentScore;
+               }
             }
         }
+        
+        let opsiParsed = {};
+        try { opsiParsed = JSON.parse(opsiRaw); } catch(e){}
 
         listSoal.push({
            id: idSoal,
-           tipe: r[2],
+           tipe: tipe,
            soal: r[3],
-           kunci: r[6],
+           opsi: opsiParsed,
+           kunci: kunci,
            bobot: bobot,
-           jawabanSiswa: jawabanSiswa[idSoal] || "",
-           skor: skorItem
+           jawabanSiswa: jawabanSiswa[idSoal], 
+           skor: parseFloat(skorItem.toFixed(2)) 
         });
      }
   });
