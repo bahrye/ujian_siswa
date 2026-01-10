@@ -336,7 +336,7 @@ function getScriptUrl() {
 }
 
 // ==========================================
-// [UPDATE] API 4: SUBMIT UJIAN (Auto Grade PG, BS & COCOK)
+// [UPDATE] API 4: SUBMIT UJIAN (Auto Grade PG, BS, ISIAN & COCOK + Bobot Essay)
 // ==========================================
 function submitUjian(payload) {
   try {
@@ -348,10 +348,10 @@ function submitUjian(payload) {
     dataSoal.shift(); 
     
     let mapSoal = {};
-    let totalBobotUjian = 0; // Total skor maksimal seluruh ujian
-    let skorPerolehan = 0;   // Skor yang didapat siswa
+    let totalBobotUjian = 0; // Total skor maksimal seluruh ujian (termasuk Essay)
+    let skorPerolehan = 0;   // Skor yang didapat siswa (Essay mulai dari 0)
     
-    // Filter soal berdasarkan Mapel
+    // Filter soal berdasarkan Mapel untuk menghitung Total Bobot
     for (let i = 0; i < dataSoal.length; i++) {
       let row = dataSoal[i]; 
       // row[1] = Mapel, row[2] = Tipe, row[5] = Opsi(JSON), row[6] = Kunci, row[7] = Bobot
@@ -363,11 +363,12 @@ function submitUjian(payload) {
         const kunci = row[6];
         let bobotSoal = (row[7] && !isNaN(row[7])) ? parseFloat(row[7]) : 1;
 
-        // PARSING OPSI UNTUK COCOK
+        // PARSING OPSI
         let opsiObj = {};
         try { opsiObj = JSON.parse(opsiRaw); } catch(e){}
 
-        if (tipe === "PG" || tipe === "BS") {
+        // [PERBAIKAN]: Masukkan ESSAY & ISIAN ke Total Bobot agar nilai sementara tidak "ketinggian"
+        if (tipe === "PG" || tipe === "BS" || tipe === "ISIAN" || tipe === "ESSAY") {
            totalBobotUjian += bobotSoal;
            mapSoal[idSoal] = { tipe: tipe, kunci: kunci, bobot: bobotSoal };
         } 
@@ -381,7 +382,7 @@ function submitUjian(payload) {
                  maxScoreCocok += w;
               });
            }
-           // Jika user lupa isi bobot per pasang, pakai bobot global dibagi rata (fallback)
+           // Fallback jika bobot item kosong
            if (maxScoreCocok === 0) maxScoreCocok = bobotSoal;
 
            totalBobotUjian += maxScoreCocok;
@@ -390,16 +391,17 @@ function submitUjian(payload) {
       }
     }
 
-    // 2. Hitung Nilai
+    // 2. Hitung Nilai Perolehan Siswa
     let detailBenar = 0;
     
     for (let idSoal in payload.jawaban) {
-      const jwbSiswa = payload.jawaban[idSoal]; // String (PG/BS) atau Object (COCOK)
+      const jwbSiswa = payload.jawaban[idSoal]; 
       const dataS = mapSoal[idSoal];
       
       if (dataS) {
-         if (dataS.tipe === "PG" || dataS.tipe === "BS") {
-             // Cek Jawaban Biasa
+         // [PERBAIKAN]: Tambahkan ISIAN ke Auto-Grade (Exact Match)
+         if (dataS.tipe === "PG" || dataS.tipe === "BS" || dataS.tipe === "ISIAN") {
+             // Cek Jawaban String (Case Insensitive)
              if (String(jwbSiswa).trim().toUpperCase() === String(dataS.kunci).trim().toUpperCase()) {
                  skorPerolehan += dataS.bobot;
                  detailBenar++;
@@ -407,8 +409,7 @@ function submitUjian(payload) {
          } 
          else if (dataS.tipe === "COCOK") {
              // Cek Jawaban Pencocokan (Looping per pasang)
-             // jwbSiswa formatnya: { "Kiri1": "Kanan1", "Kiri2": "Kanan2" }
-             let pairsConfig = dataS.dataPairs; // Array [{k:'A', v:'B', s:2}, ...]
+             let pairsConfig = dataS.dataPairs;
              
              if(Array.isArray(pairsConfig)) {
                 let benarCount = 0;
@@ -417,17 +418,19 @@ function submitUjian(payload) {
                     const kunciKanan = p.v;
                     const skorItem = (p.s && !isNaN(p.s)) ? parseFloat(p.s) : 0;
                     
-                    // Cek apakah siswa menjawab pasangan ini dengan benar
-                    // Kita trim dan lowercase agar tidak sensitif spasi/huruf besar kecil
+                    // Cek match
                     if(jwbSiswa[kunciKiri] && 
                        String(jwbSiswa[kunciKiri]).trim().toLowerCase() === String(kunciKanan).trim().toLowerCase()) {
                           skorPerolehan += skorItem;
                           benarCount++;
                     }
                 });
-                if(benarCount === pairsConfig.length) detailBenar++; // Anggap benar penuh jika semua pasang benar
+                if(benarCount === pairsConfig.length) detailBenar++;
              }
          }
+         // NOTE: Tipe ESSAY tidak dihitung skornya disini (tetap 0), 
+         // tapi bobotnya SUDAH masuk di 'totalBobotUjian' di atas.
+         // Ini yang membuat nilai sementara turun (karena dianggap salah/0 sampai dikoreksi).
       }
     }
 
@@ -451,7 +454,7 @@ function submitUjian(payload) {
       detailBenar + " Soal Full Benar", 
       JSON.stringify(payload.jawaban),
       payload.sisaWaktu || 0, 
-      ""                     
+      "" // Nilai Akhir (Kosong, menunggu koreksi guru)
     ]);
 
     // 4. Update Status & Hapus Progress
@@ -2487,4 +2490,140 @@ function getDataAbsensi(idJadwal) {
      }
   }
   return result;
+}
+
+// ==========================================
+// FUNGSI KHUSUS: UPDATE NILAI LAMA (Jalankan Manual Sekali Saja)
+// ==========================================
+function updateNilaiLama() {
+  const ss = SpreadsheetApp.openById(SS_ID);
+  const sheetNilai = ss.getSheetByName("DB_Nilai");
+  const sheetSoal = ss.getSheetByName("DB_Soal");
+  
+  if (!sheetNilai || !sheetSoal) {
+    console.log("Sheet DB_Nilai atau DB_Soal tidak ditemukan.");
+    return;
+  }
+
+  // 1. SIAPKAN BANK SOAL (Mapping per Mapel)
+  // Tujuannya agar kita bisa mengambil bobot soal dengan cepat
+  const dataSoal = sheetSoal.getDataRange().getValues();
+  dataSoal.shift(); // Skip Header
+
+  let mapSoal = {}; // Format: { "bahasa indonesia": [List Soal...] }
+
+  dataSoal.forEach(row => {
+     // Kolom: [0:Id, 1:Mapel, 2:Tipe, 3:Soal, 4:Img, 5:Opsi, 6:Kunci, 7:Bobot]
+     let mapel = row[1] ? row[1].toString().trim().toLowerCase() : "umum";
+     
+     if (!mapSoal[mapel]) mapSoal[mapel] = [];
+     
+     // Parse Opsi untuk tipe COCOK
+     let opsiObj = {};
+     try { opsiObj = JSON.parse(row[5]); } catch(e) {}
+
+     mapSoal[mapel].push({
+        id: row[0].toString(),
+        tipe: row[2],
+        kunci: row[6],
+        bobot: (row[7] && !isNaN(row[7])) ? parseFloat(row[7]) : 1, // Default bobot 1
+        opsiObj: opsiObj
+     });
+  });
+
+  // 2. PROSES UPDATE NILAI
+  const dataNilai = sheetNilai.getDataRange().getValues();
+  // Header ada di baris 1, data mulai baris 2
+  // Kita loop mulai index 1
+  
+  let countUpdated = 0;
+
+  for (let i = 1; i < dataNilai.length; i++) {
+     const row = dataNilai[i];
+     
+     // Kolom DB_Nilai: 
+     // 0:Waktu, 1:IdJadwal, 2:User, 3:Nama, 4:Mapel, 5:NilaiSmt, 6:Detail, 7:JawabanJSON
+     
+     const mapelSiswa = row[4].toString().trim().toLowerCase();
+     const jawabanRaw = row[7];
+     
+     // Cek apakah ada soal untuk mapel ini
+     if (!mapSoal[mapelSiswa]) continue;
+
+     let jawabanSiswa = {};
+     try { jawabanSiswa = JSON.parse(jawabanRaw); } catch(e) { continue; }
+
+     // --- HITUNG ULANG (Logika Baru) ---
+     let totalBobotUjian = 0;
+     let skorPerolehan = 0;
+     let detailBenar = 0;
+
+     const listSoal = mapSoal[mapelSiswa];
+
+     listSoal.forEach(soal => {
+         // A. Hitung Denominator (Total Bobot Semua Soal)
+         let bobotItem = soal.bobot;
+         
+         // Khusus COCOK: Cek jika bobot ada di dalam item pasangan
+         if (soal.tipe === 'COCOK') {
+             let maxScoreCocok = 0;
+             if(Array.isArray(soal.opsiObj)) {
+                soal.opsiObj.forEach(p => {
+                   if(p.s && !isNaN(p.s)) maxScoreCocok += parseFloat(p.s);
+                });
+             }
+             if (maxScoreCocok > 0) bobotItem = maxScoreCocok;
+         }
+         
+         // SEMUA Tipe (PG, BS, ISIAN, ESSAY, COCOK) masuk perhitungan total bobot
+         totalBobotUjian += bobotItem;
+
+         // B. Hitung Numerator (Skor Perolehan - Auto Grade)
+         // Essay skornya 0 di sini (karena belum dikoreksi guru), ini yg bikin nilai turun/realistis
+         const jawab = jawabanSiswa[soal.id];
+
+         if (jawab) {
+             if (soal.tipe === 'PG' || soal.tipe === 'BS' || soal.tipe === 'ISIAN') {
+                 if (String(jawab).trim().toUpperCase() === String(soal.kunci).trim().toUpperCase()) {
+                     skorPerolehan += soal.bobot;
+                     detailBenar++;
+                 }
+             } 
+             else if (soal.tipe === 'COCOK') {
+                 if(Array.isArray(soal.opsiObj) && typeof jawab === 'object') {
+                     let benarCount = 0;
+                     soal.opsiObj.forEach(p => {
+                        let scoreP = (p.s && !isNaN(p.s)) ? parseFloat(p.s) : 0;
+                        if(scoreP === 0 && bobotItem > 0) scoreP = bobotItem / soal.opsiObj.length; // Fallback rata2
+
+                        if (jawab[p.k] && String(jawab[p.k]).trim().toLowerCase() === String(p.v).trim().toLowerCase()) {
+                            skorPerolehan += scoreP;
+                            benarCount++;
+                        }
+                     });
+                     if(benarCount === soal.opsiObj.length) detailBenar++;
+                 }
+             }
+         }
+     });
+
+     // C. Hitung Nilai Akhir (Skala 100)
+     let nilaiBaru = 0;
+     if (totalBobotUjian > 0) {
+        nilaiBaru = Math.round((skorPerolehan / totalBobotUjian) * 100);
+     }
+     
+     // D. Update ke Sheet (Hanya Timpa Kolom Nilai Sementara & Detail)
+     // Baris Sheet mulai dari 1. i=1 adalah baris ke-2.
+     const sheetRow = i + 1; 
+     
+     // Kolom F (Index 6) = Nilai Sementara
+     // Kolom G (Index 7) = Detail Benar
+     sheetNilai.getRange(sheetRow, 6).setValue(nilaiBaru);
+     sheetNilai.getRange(sheetRow, 7).setValue(detailBenar + " Soal Full Benar (Updated)");
+     
+     countUpdated++;
+  }
+  
+  console.log("Selesai! Berhasil update " + countUpdated + " data nilai.");
 }
