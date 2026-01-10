@@ -143,6 +143,7 @@
            menus = [
              { id: 'dashboard', icon: 'fa-calendar-alt', label: 'Jadwal Ujian' }, // Dashboard isinya Jadwal Semua
              { id: 'pengawas-token', icon: 'fa-key', label: 'Token Ujian' },      // Menu Token
+             { id: 'pengawas-kehadiran', icon: 'fa-user-check', label: 'Cek Kehadiran' },
              { id: 'pengawas-monitor', icon: 'fa-desktop', label: 'Monitoring Live' }, // Menu Monitoring
              { id: 'pengawas-pelanggaran', icon: 'fa-exclamation-triangle', label: 'Pelanggaran Siswa' },
            ];
@@ -2250,6 +2251,65 @@
            }).getMonitoringSiswa(idJadwal); // Kita reuse fungsi ini karena dia return {token, students}
        },
 
+       loadPageKehadiran: function() {
+          document.getElementById('page-title').innerText = "Data Kehadiran Siswa";
+          const sel = document.getElementById('hadir-list-ujian');
+          const tbody = document.getElementById('tbody-hadir-pgw');
+          
+          sel.innerHTML = '<option value="">Loading...</option>';
+          tbody.innerHTML = '<tr><td colspan="3" class="p-8 text-center text-gray-400">Silakan pilih ujian di atas.</td></tr>';
+
+          const user = JSON.parse(sessionStorage.getItem('cbt_session')).data;
+
+          // Load Dropdown Jadwal (Menggunakan fungsi yang sama dengan Monitoring)
+          google.script.run.withSuccessHandler(res => {
+              sel.innerHTML = '<option value="">- Pilih Ujian -</option>';
+              if(res.jadwal.length === 0) {
+                  sel.innerHTML = '<option value="">(Tidak ada ujian aktif)</option>';
+                  return;
+              }
+              res.jadwal.forEach(j => {
+                  sel.insertAdjacentHTML('beforeend', `<option value="${j.id}">${j.mapel} (${new Date(j.mulai).toLocaleTimeString()})</option>`);
+              });
+          }).getPengawasDashboard(user.username);
+       },
+
+       refreshKehadiran: function() {
+           const idJadwal = document.getElementById('hadir-list-ujian').value;
+           const tbody = document.getElementById('tbody-hadir-pgw');
+           
+           if(!idJadwal) {
+               tbody.innerHTML = '<tr><td colspan="3" class="p-8 text-center text-gray-400">Silakan pilih ujian.</td></tr>';
+               return;
+           }
+
+           tbody.innerHTML = '<tr><td colspan="3" class="p-8 text-center"><i class="fas fa-spinner fa-spin"></i> Memuat Data Absensi...</td></tr>';
+           
+           google.script.run.withSuccessHandler(data => {
+               tbody.innerHTML = '';
+
+               if(data.length === 0) {
+                   tbody.innerHTML = '<tr><td colspan="3" class="p-10 text-center"><div class="text-gray-300 text-4xl mb-2"><i class="fas fa-clipboard-list"></i></div><p class="text-gray-500 font-bold">Belum ada data absensi masuk.</p></td></tr>';
+                   return;
+               }
+
+               data.forEach(r => {
+                   // Render Gambar TTD (Base64) dengan fitur Zoom
+                   const imgHtml = r.signature ? 
+                       `<img src="${r.signature}" class="h-12 border rounded bg-white p-1 hover:scale-150 transition shadow-sm cursor-zoom-in origin-left" onclick="App.UI.zoomImg(this)" title="Klik untuk memperbesar">` 
+                       : '<span class="text-xs text-red-400 italic">Tidak ada TTD</span>';
+
+                   tbody.insertAdjacentHTML('beforeend', `
+                       <tr class="border-b hover:bg-slate-50 transition">
+                           <td class="p-4 font-bold text-gray-700">${r.nama} <br> <span class="text-xs font-normal text-gray-500 font-mono">${r.username}</span></td>
+                           <td class="p-4 text-sm text-gray-600 font-mono">${r.waktu}</td>
+                           <td class="p-4 text-center">${imgHtml}</td>
+                       </tr>
+                   `);
+               });
+           }).getDataAbsensi(idJadwal);
+       },
+
        // C. HALAMAN MONITORING
        loadPageMonitoring: function() {
           document.getElementById('page-title').innerText = "Monitoring Ujian";
@@ -3518,8 +3578,10 @@
     // --- Module 7: UI Utilities ---
     UI: {
       setLoading: function(btn, isLoading, text) {
-        btn.disabled = isLoading;
-        btn.innerHTML = isLoading ? `<i class="fas fa-circle-notch fa-spin"></i> ${text}` : text;
+        if(btn) {
+            btn.disabled = isLoading;
+            btn.innerHTML = isLoading ? `<i class="fas fa-circle-notch fa-spin"></i> ${text}` : text;
+        }
       },
 
       switchView: function(viewId, btn) {
@@ -3533,10 +3595,9 @@
         // 3. Sembunyikan Semua View
         const allViews = [
             'view-dashboard', 'view-bank-soal', 'view-akun', 'view-mapel', 'view-ujian',
-            'view-jadwal-siswa', 'view-hasil-ujian', 'view-pengawas', // view-pengawas (legacy)
+            'view-jadwal-siswa', 'view-hasil-ujian', 
             'view-admin-monitoring', 'view-admin-hasil', 'view-hasil-siswa',
-            'view-pengawas-token', 'view-pengawas-monitor', // View Baru Pengawas
-            'view-pengawas-pelanggaran',
+            'view-pengawas-token', 'view-pengawas-monitor', 'view-pengawas-pelanggaran', 'view-pengawas-kehadiran',
             'view-placeholder'
         ];
 
@@ -3545,34 +3606,22 @@
             if(el) el.classList.add('hidden'); 
         });
 
-        // --- RESET UI STATES ---
-        // Kembalikan view-ujian ke kondisi normal (Admin Mode) jika sebelumnya diubah oleh Pengawas
+        // Reset UI States (Kembalikan tampilan admin mode jika sebelumnya diubah pengawas)
         const viewUjian = document.getElementById('view-ujian');
         if (viewUjian) {
             viewUjian.querySelectorAll('button').forEach(b => b.classList.remove('hidden'));
             viewUjian.querySelectorAll('h3').forEach(h => {
                 if(h.innerText.includes('1. Nama Ujian')) h.parentElement.parentElement.classList.remove('hidden');
             });
-            // Hapus label Read Only jika ada
             viewUjian.querySelectorAll('.read-only-label').forEach(el => el.remove());
         }
 
         // 4. Set Judul Halaman
-        const map = { 
-            'dashboard':'Dashboard', 
-            'akun':'Kelola Akun', 
-            'mapel':'Mapel', 
-            'bank-soal':'Bank Soal', 
-            'ujian':'Kelola Ujian',
-            'hasil-siswa': 'Riwayat Nilai',
-            'pengawas-token': 'Token Ujian',
-            'pengawas-monitor': 'Monitoring Ujian'
-        };
         const pageTitle = document.getElementById('page-title');
-        if(pageTitle) pageTitle.innerText = map[viewId] || viewId.toUpperCase();
+        if(pageTitle) pageTitle.innerText = viewId.replace(/-/g, ' ').toUpperCase();
 
         // 5. Logika Percabangan View
-
+        
         // --- LOGIC SISWA ---
         if (App.data.role === 'siswa') {
             if (viewId === 'dashboard') {
@@ -3588,39 +3637,41 @@
             }
         }
 
-        // --- LOGIC PENGAWAS (BARU) ---
+        // --- LOGIC PENGAWAS ---
         if (App.data.role === 'pengawas') {
-            // A. Dashboard Pengawas -> Jadwal Global (Read Only)
             if (viewId === 'dashboard') {
                 document.getElementById('view-ujian').classList.remove('hidden'); 
-                App.Pengawas.loadJadwalGlobal(); // Memuat tabel jadwal ujian (read-only)
+                App.Pengawas.loadJadwalGlobal();
                 return;
             }
-            // B. Halaman Token
             if (viewId === 'pengawas-token') {
                 document.getElementById('view-pengawas-token').classList.remove('hidden');
                 App.Pengawas.loadPageToken();
                 return;
             }
-            // C. Halaman Monitoring
             if (viewId === 'pengawas-monitor') {
                 document.getElementById('view-pengawas-monitor').classList.remove('hidden');
                 App.Pengawas.loadPageMonitoring();
                 return;
             }
-            // D. HALAMAN BARU: PELANGGARAN SISWA
             if (viewId === 'pengawas-pelanggaran') {
                 document.getElementById('view-pengawas-pelanggaran').classList.remove('hidden');
                 App.Pengawas.loadPagePelanggaran();
                 return;
             }
+            if (viewId === 'pengawas-kehadiran') {
+                const el = document.getElementById('view-pengawas-kehadiran');
+                if(el) {
+                    el.classList.remove('hidden');
+                    if(App.Pengawas.loadPageKehadiran) App.Pengawas.loadPageKehadiran();
+                }
+                return;
+            }
         }
 
-        // --- LOGIC UMUM / ADMIN / GURU ---
-
+        // --- DEFAULT VIEWS (ADMIN/GURU) ---
         if (viewId === 'hasil') {
             document.getElementById('view-hasil-ujian').classList.remove('hidden');
-            // INI PENTING: Panggil fungsi load Guru
             App.GuruHasil.load(); 
         }
         else if (viewId === 'bank-soal') {
@@ -3636,8 +3687,6 @@
              App.AdminHasil.load();
         }
         else if (viewId === 'dashboard') { 
-            // Dashboard Admin/Guru (Statistik Sistem)
-            // Siswa & Pengawas sudah direturn di atas, jadi ini aman untuk Admin/Guru
             document.getElementById('view-dashboard').classList.remove('hidden'); 
             App.Dashboard.loadStats(); 
         }
@@ -3655,7 +3704,6 @@
             App.Ujian.loadJadwal(); 
         }
         else {
-            // Fallback jika view tidak ditemukan
             const ph = document.getElementById('view-placeholder');
             if(ph) ph.classList.remove('hidden');
         }
@@ -3664,17 +3712,46 @@
       toggleSidebar: function(forceState) {
         const sidebar = document.getElementById('sidebar-panel');
         const backdrop = document.getElementById('sidebar-backdrop');
+        if(!sidebar || !backdrop) return;
+        
         const isClosed = sidebar.classList.contains('-translate-x-full');
         const shouldOpen = forceState !== undefined ? forceState : isClosed;
         if (shouldOpen) { sidebar.classList.remove('-translate-x-full'); backdrop.classList.remove('hidden'); } 
         else { sidebar.classList.add('-translate-x-full'); backdrop.classList.add('hidden'); }
       },
-      zoomImg: function(el) { Swal.fire({ imageUrl: el.src, width: '90%', showConfirmButton: false, background: 'transparent' }); },
-      openModal: function(id) { document.getElementById(id).classList.remove('hidden'); },
-      closeModal: function(id) { document.getElementById(id).classList.add('hidden'); },
+
+      zoomImg: function(el) { 
+        // Versi Terbaru (HD & Close Button)
+        Swal.fire({ 
+            imageUrl: el.src, 
+            width: 'auto', padding: '1em', background: 'transparent', backdrop: 'rgba(0,0,0, 0.9)',
+            showCloseButton: true, showConfirmButton: true, confirmButtonText: '<i class="fas fa-times"></i> Tutup Gambar', confirmButtonColor: '#d33',
+            customClass: { image: 'max-h-[75vh] object-contain rounded-lg shadow-2xl bg-white', closeButton: 'text-white text-xl focus:outline-none hover:text-red-500' }
+        }); 
+      },
+
+      openModal: function(id) { const el=document.getElementById(id); if(el) el.classList.remove('hidden'); },
+      closeModal: function(id) { const el=document.getElementById(id); if(el) el.classList.add('hidden'); },
+
+      // FUNGSI UTAMA YANG SEBELUMNYA ERROR
       showLoginOnly: function() {
-        document.getElementById('dashboard-container').classList.add('hidden'); document.getElementById('page-siswa').classList.add('hidden'); document.getElementById('lock-screen').classList.add('hidden');
-        document.getElementById('login-container').classList.remove('hidden'); document.getElementById('login-container').classList.add('flex');
+        // Hide All Screens
+        const dash = document.getElementById('dashboard-container');
+        const pageSiswa = document.getElementById('page-siswa');
+        const lock = document.getElementById('lock-screen');
+        const att = document.getElementById('page-attendance');
+        const login = document.getElementById('login-container');
+
+        if(dash) dash.classList.add('hidden');
+        if(pageSiswa) pageSiswa.classList.add('hidden');
+        if(lock) lock.classList.add('hidden');
+        if(att) att.classList.add('hidden');
+        
+        // Show Login
+        if(login) {
+            login.classList.remove('hidden');
+            login.classList.add('flex');
+        }
       }
     },
 
