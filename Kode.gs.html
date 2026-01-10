@@ -267,68 +267,6 @@ function hapusSoalDb(idSoal) {
 }
 
 // ==========================================
-// API 3: SISWA - AMBIL SOAL (DIPERBAIKI)
-// ==========================================
-function getSoalUjian(kodeMapel) {
-  try {
-    const ss = SpreadsheetApp.openById(SS_ID);
-    const sheet = ss.getSheetByName("DB_Soal");
-    
-    // Validasi jika sheet tidak ada
-    if (!sheet) {
-      return { status: 'error', message: 'Database Soal (DB_Soal) tidak ditemukan!' };
-    }
-
-    const data = sheet.getDataRange().getValues();
-    data.shift(); // Hapus Header
-
-    let soalList = [];
-    
-    // Normalisasi input mapel (hilangkan spasi, jadikan huruf kecil)
-    const targetMapel = kodeMapel ? kodeMapel.toString().trim().toLowerCase() : "";
-
-    for (let i = 0; i < data.length; i++) {
-      let row = data[i];
-      
-      // Ambil kode mapel dari Database dan normalisasi
-      let dbMapel = row[1] ? row[1].toString().trim().toLowerCase() : "";
-
-      // Cek Kesamaan Kode Mapel
-      if (dbMapel === targetMapel) {
-        
-        // Parse JSON Opsi dengan aman
-        let opsiObj = {};
-        try { 
-          opsiObj = JSON.parse(row[5]); 
-        } catch (e) {
-          // Jika opsi bukan JSON valid, biarkan kosong atau handle manual
-          console.log("Error parsing opsi soal ID: " + row[0]);
-        }
-
-        soalList.push({
-          id: row[0],
-          tipe: row[2],
-          pertanyaan: row[3],
-          gambar: row[4],
-          opsi: opsiObj 
-          // PENTING: Kunci jawaban (row[6]) TIDAK dikirim ke frontend
-        });
-      }
-    }
-
-    // Jika tidak ada soal yang cocok
-    if (soalList.length === 0) {
-      return { status: 'error', message: 'Soal tidak ditemukan untuk Mapel: ' + kodeMapel + '. Pastikan Kode Mapel di "Bank Soal" sama persis dengan di "Jadwal Ujian".' };
-    }
-
-    return { status: 'success', data: soalList };
-
-  } catch (e) {
-    return { status: 'error', message: 'Server Error: ' + e.toString() };
-  }
-}
-
-// ==========================================
 // TAMBAHKAN FUNGSI INI DI PALING BAWAH ATAU ATAS (Agar reload jalan)
 // ==========================================
 function getScriptUrl() {
@@ -2651,109 +2589,6 @@ function updateNilaiLama() {
   console.log("Selesai! Berhasil update " + countUpdated + " data nilai.");
 }
 
-// ==========================================
-// MODUL BARU: FITUR REMEDIAL (GURU)
-// ==========================================
-
-// 1. Ambil Daftar Remedial (FIX: Case Insensitive & Date Format)
-function getRemedialGuru(usernameGuru) {
-  const ss = SpreadsheetApp.openById(SS_ID);
-  let sheet = ss.getSheetByName("DB_Remedial");
-  
-  if (!sheet) {
-    sheet = ss.insertSheet("DB_Remedial");
-    sheet.appendRow(["ID", "Nama", "Mapel", "Mulai", "Selesai", "Durasi", "Siswa_Target", "Acak_Soal", "Acak_Opsi", "Status", "Guru"]);
-    return [];
-  }
-
-  const data = sheet.getDataRange().getValues();
-  if (data.length <= 1) return []; // Hanya header atau kosong
-
-  data.shift(); // Hapus Header
-
-  // Normalisasi Username Login (kecilkan huruf & hapus spasi)
-  const myUser = usernameGuru ? usernameGuru.toString().trim().toLowerCase() : "";
-
-  let result = [];
-  
-  // Helper: Format tanggal ke ISO String agar aman dikirim ke Frontend
-  const toIso = (dateObj) => {
-      if (dateObj instanceof Date) return dateObj.toISOString();
-      return dateObj; // Kembalikan apa adanya jika bukan object Date
-  };
-
-  data.forEach(r => {
-    // r[10] = Kolom Guru.
-    const dbGuru = r[10] ? r[10].toString().trim().toLowerCase() : "";
-
-    // Tampilkan jika: Kolom Guru Kosong (Data Lama) ATAU Cocok dengan user login
-    if (dbGuru === "" || dbGuru === myUser) {
-       result.push({
-         id: r[0], 
-         nama: r[1], 
-         mapel: r[2], 
-         mulai: toIso(r[3]),   // <--- FIX DATE
-         selesai: toIso(r[4]), // <--- FIX DATE
-         durasi: r[5],
-         siswaTarget: r[6], 
-         acakSoal: r[7], 
-         acakOpsi: r[8], 
-         status: r[9]
-       });
-    }
-  });
-  
-  return result.reverse();
-}
-
-// 2. Simpan Data Remedial (Fixed: Auto Header)
-function simpanRemedial(data) {
-  try {
-    const ss = SpreadsheetApp.openById(SS_ID);
-    let sheet = ss.getSheetByName("DB_Remedial");
-    
-    // HEADER FIX: Jika sheet tidak ada, buat baru + Header
-    if (!sheet) {
-      sheet = ss.insertSheet("DB_Remedial");
-      sheet.appendRow(["ID", "Nama", "Mapel", "Mulai", "Selesai", "Durasi", "Siswa_Target", "Acak_Soal", "Acak_Opsi", "Status", "Guru"]);
-    } 
-    // HEADER FIX: Jika sheet ada tapi barisnya 0 (kosong total), tambah Header dulu
-    else if (sheet.getLastRow() === 0) {
-      sheet.appendRow(["ID", "Nama", "Mapel", "Mulai", "Selesai", "Durasi", "Siswa_Target", "Acak_Soal", "Acak_Opsi", "Status", "Guru"]);
-    }
-    
-    // Validasi Waktu
-    if(new Date(data.mulai) >= new Date(data.selesai)) return { status:'error', message:'Waktu Selesai harus lebih akhir.' };
-    
-    const jsonSiswa = JSON.stringify(data.targetSiswa); 
-
-    const rowData = [
-       data.nama, data.mapel, data.mulai, data.selesai, data.durasi, 
-       jsonSiswa, data.acakSoal, data.acakOpsi, data.status, data.guru
-    ];
-
-    if (data.id) {
-       // EDIT DATA
-       const allData = sheet.getDataRange().getValues();
-       // Loop mulai index 1 karena index 0 adalah Header
-       for(let i=1; i<allData.length; i++) {
-          if(String(allData[i][0]) === String(data.id)) {
-             // Update baris (i+1 karena sheet index mulai 1)
-             sheet.getRange(i+1, 2, 1, 10).setValues([rowData]);
-             return { status:'success', message:'Data Remedial Diupdate' };
-          }
-       }
-    } else {
-       // DATA BARU
-       const newId = "REM-" + Date.now();
-       sheet.appendRow([newId, ...rowData]);
-       return { status:'success', message:'Jadwal Remedial Dibuat' };
-    }
-  } catch(e) {
-    return { status:'error', message: e.toString() };
-  }
-}
-
 // 3. Hapus Remedial
 function hapusRemedial(id) {
   return hapusDataUmum(id, "DB_Remedial");
@@ -2869,4 +2704,206 @@ function getSiswaDetail(usernames) {
      }
   });
   return result;
+}
+
+// ==========================================
+// [BARU] API UNTUK MEMILIH SOAL (REMEDIAL)
+// ==========================================
+function getSoalByMapel(kodeMapel) {
+  const ss = SpreadsheetApp.openById(SS_ID);
+  const sheet = ss.getSheetByName("DB_Soal");
+  if (!sheet) return [];
+  
+  const data = sheet.getDataRange().getValues();
+  data.shift(); // Skip Header
+  
+  const target = kodeMapel ? kodeMapel.toString().trim().toLowerCase() : "";
+  let result = [];
+  
+  // Format Data: [0:ID, 1:Mapel, 2:Tipe, 3:Soal, 4:Img, 5:Opsi, 6:Kunci, 7:Bobot]
+  data.forEach(r => {
+    if (r[1] && r[1].toString().trim().toLowerCase() === target) {
+      // Kita kirim data ringkas saja untuk list pemilihan
+      let snippet = r[3].replace(/<[^>]*>/g, ''); // Hapus tag HTML
+      if(snippet.length > 60) snippet = snippet.substring(0, 60) + "...";
+      
+      result.push({
+        id: r[0],
+        tipe: r[2],
+        soal: snippet,
+        kunci: r[6]
+      });
+    }
+  });
+  
+  return result;
+}
+
+// ==========================================
+// [UPDATE] SIMPAN REMEDIAL (TAMBAH KOLOM SOAL_TARGET)
+// ==========================================
+function simpanRemedial(data) {
+  try {
+    const ss = SpreadsheetApp.openById(SS_ID);
+    let sheet = ss.getSheetByName("DB_Remedial");
+    
+    // Header diperbarui (Kolom ke-12: Soal_Target)
+    if (!sheet) {
+      sheet = ss.insertSheet("DB_Remedial");
+      sheet.appendRow(["ID", "Nama", "Mapel", "Mulai", "Selesai", "Durasi", "Siswa_Target", "Acak_Soal", "Acak_Opsi", "Status", "Guru", "Soal_Target"]);
+    } else if (sheet.getLastRow() === 0) {
+      sheet.appendRow(["ID", "Nama", "Mapel", "Mulai", "Selesai", "Durasi", "Siswa_Target", "Acak_Soal", "Acak_Opsi", "Status", "Guru", "Soal_Target"]);
+    }
+    
+    if(new Date(data.mulai) >= new Date(data.selesai)) return { status:'error', message:'Waktu Selesai harus lebih akhir.' };
+    
+    const jsonSiswa = JSON.stringify(data.targetSiswa); 
+    const jsonSoal = JSON.stringify(data.targetSoal || []); // Simpan array ID soal
+
+    const rowData = [
+       data.nama, data.mapel, data.mulai, data.selesai, data.durasi, 
+       jsonSiswa, data.acakSoal, data.acakOpsi, data.status, data.guru,
+       jsonSoal // <--- KOLOM BARU (Index 11)
+    ];
+
+    if (data.id) {
+       // EDIT DATA
+       const allData = sheet.getDataRange().getValues();
+       for(let i=1; i<allData.length; i++) {
+          if(String(allData[i][0]) === String(data.id)) {
+             // Update baris (Overwrite 11 kolom data)
+             sheet.getRange(i+1, 2, 1, 11).setValues([rowData]);
+             return { status:'success', message:'Data Remedial Diupdate' };
+          }
+       }
+    } else {
+       // DATA BARU
+       const newId = "REM-" + Date.now();
+       sheet.appendRow([newId, ...rowData]);
+       return { status:'success', message:'Jadwal Remedial Dibuat' };
+    }
+  } catch(e) {
+    return { status:'error', message: e.toString() };
+  }
+}
+
+// ==========================================
+// [UPDATE] AMBIL DATA REMEDIAL (BACA KOLOM SOAL)
+// ==========================================
+function getRemedialGuru(usernameGuru) {
+  const ss = SpreadsheetApp.openById(SS_ID);
+  let sheet = ss.getSheetByName("DB_Remedial");
+  if (!sheet) return [];
+
+  const data = sheet.getDataRange().getValues();
+  if (data.length <= 1) return [];
+
+  data.shift(); 
+  const myUser = usernameGuru ? usernameGuru.toString().trim().toLowerCase() : "";
+  let result = [];
+  
+  const toIso = (dateObj) => {
+      if (dateObj instanceof Date) return dateObj.toISOString();
+      return dateObj;
+  };
+
+  data.forEach(r => {
+    const dbGuru = r[10] ? r[10].toString().trim().toLowerCase() : "";
+
+    if (dbGuru === "" || dbGuru === myUser) {
+       result.push({
+         id: r[0], 
+         nama: r[1], 
+         mapel: r[2], 
+         mulai: toIso(r[3]),
+         selesai: toIso(r[4]),
+         durasi: r[5],
+         siswaTarget: r[6], 
+         acakSoal: r[7], 
+         acakOpsi: r[8], 
+         status: r[9],
+         soalTarget: r[11] // <--- BACA KOLOM SOAL (Index 11)
+       });
+    }
+  });
+  
+  return result.reverse();
+}
+
+// ==========================================
+// [UPDATE CRITICAL] AMBIL SOAL UJIAN (HANDLE REMEDIAL)
+// ==========================================
+function getSoalUjian(kodeMapel, idJadwal) { // <--- Tambah parameter idJadwal
+  try {
+    const ss = SpreadsheetApp.openById(SS_ID);
+    const sheet = ss.getSheetByName("DB_Soal");
+    if (!sheet) return { status: 'error', message: 'Database Soal tidak ditemukan!' };
+
+    // 1. Cek Apakah ini Remedial & Punya Spesifik Soal?
+    let targetSoalIds = null; // null artinya ambil semua by mapel
+    
+    if (idJadwal && String(idJadwal).startsWith("REM-")) {
+        const sheetRem = ss.getSheetByName("DB_Remedial");
+        if(sheetRem) {
+            const dataRem = sheetRem.getDataRange().getValues();
+            for(let j=1; j<dataRem.length; j++) {
+                if(String(dataRem[j][0]) === String(idJadwal)) {
+                    try {
+                        const parsed = JSON.parse(dataRem[j][11]); // Kolom 12 (Index 11)
+                        if(Array.isArray(parsed) && parsed.length > 0) {
+                            targetSoalIds = new Set(parsed.map(String)); // Pakai Set biar cepat
+                        }
+                    } catch(e){}
+                    break;
+                }
+            }
+        }
+    }
+
+    // 2. Ambil Soal
+    const data = sheet.getDataRange().getValues();
+    data.shift(); 
+    let soalList = [];
+    const targetMapel = kodeMapel ? kodeMapel.toString().trim().toLowerCase() : "";
+
+    for (let i = 0; i < data.length; i++) {
+      let row = data[i];
+      let dbMapel = row[1] ? row[1].toString().trim().toLowerCase() : "";
+
+      // Logic Filter:
+      // Jika Remedial punya Target ID: Abaikan Mapel, Cek ID Soal
+      // Jika Tidak: Cek Kesamaan Mapel
+      
+      let isMatch = false;
+      if (targetSoalIds) {
+          // Mode Remedial Spesifik: Cek apakah ID soal ada di daftar target
+          if (targetSoalIds.has(String(row[0]))) isMatch = true;
+      } else {
+          // Mode Normal / Remedial Full Mapel
+          if (dbMapel === targetMapel) isMatch = true;
+      }
+
+      if (isMatch) {
+        let opsiObj = {};
+        try { opsiObj = JSON.parse(row[5]); } catch (e) {}
+
+        soalList.push({
+          id: row[0],
+          tipe: row[2],
+          pertanyaan: row[3],
+          gambar: row[4],
+          opsi: opsiObj 
+        });
+      }
+    }
+
+    if (soalList.length === 0) {
+      return { status: 'error', message: 'Soal tidak ditemukan.' };
+    }
+
+    return { status: 'success', data: soalList };
+
+  } catch (e) {
+    return { status: 'error', message: 'Server Error: ' + e.toString() };
+  }
 }
