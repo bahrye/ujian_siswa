@@ -887,25 +887,40 @@ function startExamSession(username, idJadwal) {
   };
 }
 
-// Helper: Ambil Durasi Jadwal
+// ==========================================
+// [FIX] HELPER: AMBIL DURASI (SUPPORT REMEDIAL)
+// ==========================================
 function getDurasiFromJadwal(idJadwal) {
-  // Jika ID kosong, kembalikan default 60 menit
   if (!idJadwal) return 60; 
-
-  const ss = SpreadsheetApp.openById(SS_ID);
-  const sheet = ss.getSheetByName("DB_Jadwal");
-  if (!sheet) return 60; // Safety check jika sheet hilang
-
-  const data = sheet.getDataRange().getValues();
   
-  // Loop cari ID
-  for(let i=1; i<data.length; i++) {
-    // Gunakan String() untuk membungkus nilai agar tidak error jika cell kosong/null
-    if(String(data[i][0]) === String(idJadwal)) {
-      return parseInt(data[i][8]) || 60; // Ambil kolom durasi (index 8), default 60
-    }
+  const targetId = String(idJadwal).trim();
+  const ss = SpreadsheetApp.openById(SS_ID);
+  
+  // Cek apakah Remedial
+  if (targetId.startsWith("REM-")) {
+      const sheetRem = ss.getSheetByName("DB_Remedial");
+      if (!sheetRem) return 60;
+      const data = sheetRem.getDataRange().getValues();
+      for(let i=1; i<data.length; i++) {
+        if(String(data[i][0]) === targetId) {
+          // Di DB_Remedial, durasi ada di kolom index 5 (Mulai:3, Selesai:4, Durasi:5)
+          return parseInt(data[i][5]) || 60;
+        }
+      }
+  } else {
+      // Jadwal Reguler
+      const sheet = ss.getSheetByName("DB_Jadwal");
+      if (!sheet) return 60;
+      const data = sheet.getDataRange().getValues();
+      for(let i=1; i<data.length; i++) {
+        if(String(data[i][0]) === targetId) {
+          // Di DB_Jadwal, durasi ada di kolom index 8
+          return parseInt(data[i][8]) || 60;
+        }
+      }
   }
-  return 60; // Default jika ID tidak ketemu
+  
+  return 60; // Default fallback
 }
 
 // 2. Mencatat Pelanggaran (LOCK PERSISTENT)
@@ -979,28 +994,59 @@ function generateTokenForExam(idJadwal) {
   return token.toUpperCase();
 }
 
-// 2. Update Verifikasi Token (Terima parameter idJadwal)
+// ==========================================
+// [FIX] VERIFIKASI TOKEN (SUPPORT JADWAL BIASA & REMEDIAL)
+// ==========================================
 function verifikasiTokenUjian(inputToken, idJadwal) {
   const ss = SpreadsheetApp.openById(SS_ID);
-  const sheetJadwal = ss.getSheetByName("DB_Jadwal");
-  const dataJadwal = sheetJadwal.getDataRange().getValues();
   
+  // Konversi ID ke string agar aman
+  const targetId = String(idJadwal).trim();
   let jadwalData = null;
-  for(let i=1; i<dataJadwal.length; i++) {
-     if(dataJadwal[i][0].toString() === idJadwal.toString()) {
-        jadwalData = { 
-           mulai: new Date(dataJadwal[i][3]), 
-           selesai: new Date(dataJadwal[i][4]),
-           status: dataJadwal[i][5]
-        };
-        break;
-     }
+
+  // DETEKSI: Apakah ini Remedial? (ID Remedial diawali "REM-")
+  // Lihat fungsi simpanRemedial: const newId = "REM-" + Date.now();
+  const isRemedial = targetId.startsWith("REM-");
+
+  if (isRemedial) {
+      // --- A. CARI DI DB_REMEDIAL ---
+      const sheetRem = ss.getSheetByName("DB_Remedial");
+      if(sheetRem) {
+          const dataRem = sheetRem.getDataRange().getValues();
+          for(let i=1; i<dataRem.length; i++) {
+              if(String(dataRem[i][0]) === targetId) {
+                  jadwalData = {
+                      mulai: new Date(dataRem[i][3]),
+                      selesai: new Date(dataRem[i][4]),
+                      status: dataRem[i][9] // Col 9: Status
+                  };
+                  break;
+              }
+          }
+      }
+  } else {
+      // --- B. CARI DI DB_JADWAL (REGULER) ---
+      const sheetJadwal = ss.getSheetByName("DB_Jadwal");
+      if(sheetJadwal) {
+          const dataJadwal = sheetJadwal.getDataRange().getValues();
+          for(let i=1; i<dataJadwal.length; i++) {
+              if(String(dataJadwal[i][0]) === targetId) {
+                  jadwalData = {
+                      mulai: new Date(dataJadwal[i][3]),
+                      selesai: new Date(dataJadwal[i][4]),
+                      status: dataJadwal[i][5] // Col 5: Status
+                  };
+                  break;
+              }
+          }
+      }
   }
 
-  if (!jadwalData) return { status: 'error', message: 'Jadwal tidak ditemukan.' };
+  // VALIDASI DATA
+  if (!jadwalData) return { status: 'error', message: 'Jadwal tidak ditemukan di Database.' };
   
   // 1. Cek Status Manual
-  if (jadwalData.status !== 'Aktif') return { status: 'error', message: 'Ujian sedang dinonaktifkan oleh Admin.' };
+  if (jadwalData.status !== 'Aktif') return { status: 'error', message: 'Ujian sedang dinonaktifkan oleh Guru/Admin.' };
 
   // 2. Cek Waktu Realtime
   const now = new Date();
@@ -1012,9 +1058,12 @@ function verifikasiTokenUjian(inputToken, idJadwal) {
      return { status: 'error', message: 'Waktu ujian telah berakhir.' };
   }
 
-  // 3. Cek Token
-  const validToken = generateTokenForExam(idJadwal);
-  if (inputToken === validToken) {
+  // 3. Cek Token (Input vs Generated)
+  // Token menggunakan ID Jadwal sebagai seed, jadi otomatis unik per remedial
+  const validToken = generateTokenForExam(targetId);
+  
+  // Trim dan UpperCase input siswa
+  if (String(inputToken).trim().toUpperCase() === validToken) {
     return { status: 'success' };
   } else {
     return { status: 'error', message: 'Token Salah!' };
