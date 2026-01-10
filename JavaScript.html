@@ -2581,17 +2581,21 @@
              let liveTimers = [];
              let upcomingExams = [];
 
-             data.forEach(j => {
+             // --- HELPER: RENDER KARTU UJIAN ---
+             const createCardHtml = (j) => {
                 const dMulai = new Date(j.mulai);
                 const dSelesai = new Date(j.selesai);
                 const now = new Date();
+                const isRemedial = (j.jenis === 'REMEDIAL');
 
                 // --- [UPDATE] Format Waktu Lengkap ---
                 const opts = { day: 'numeric', month: 'short', hour: '2-digit', minute:'2-digit' };
-                // Contoh: 10 Jan 08:00 s.d. 10 Jan 10:00
                 const waktuLengkap = dMulai.toLocaleString('id-ID', opts) + ' s.d. ' + dSelesai.toLocaleString('id-ID', opts);
 
-                let cardColor = "border-l-4 border-gray-400";
+                // --- [UPDATE] WARNA KARTU ---
+                // Default Utama: Abu-abu, Default Remedial: Oranye Pucat
+                let cardColor = isRemedial ? "border-l-4 border-orange-400 bg-orange-50/50" : "border-l-4 border-gray-400";
+                
                 let statusBadge = '<span class="bg-gray-100 text-gray-500 px-2 py-1 rounded text-xs font-bold">BELUM MENGERJAKAN</span>';
                 let btnAction = '';
 
@@ -2628,11 +2632,11 @@
                 else {
                     // --- STATUS: BELUM (Normal) ---
                     if (now < dMulai) {
-                        // KASUS 1: BELUM MULAI (Akan di-update LIVE)
-                        cardColor = "border-l-4 border-gray-400"; // Warna Abu
+                        // KASUS 1: BELUM MULAI
+                        // Warna Remedial tetap oranye pudar, Utama abu-abu
+                        cardColor = isRemedial ? "border-l-4 border-orange-300 bg-orange-50/30" : "border-l-4 border-gray-400";
                         btnAction = `<button disabled class="px-4 py-2 bg-gray-200 text-gray-400 rounded-lg font-bold cursor-not-allowed text-sm w-full md:w-auto"><i class="far fa-clock"></i> Menunggu Jadwal...</button>`;
                         
-                        // Masukkan ke daftar pantau (Upcoming)
                         upcomingExams.push({
                             id: j.id,
                             start: dMulai.getTime(),
@@ -2644,18 +2648,20 @@
                         cardColor = "border-l-4 border-red-300 opacity-80";
                         btnAction = `<button disabled class="px-4 py-2 bg-red-100 text-red-400 rounded-lg font-bold cursor-not-allowed text-sm">Waktu Habis</button>`;
                     } else {
-                        // KASUS 3: SUDAH AKTIF SAAT LOAD
+                        // KASUS 3: SUDAH AKTIF
                         cardColor = "border-l-4 border-indigo-500 hover:shadow-md transition";
                         btnAction = `<button onclick="App.Siswa.actionMulai('${j.kode_mapel}', '${j.id}', '${configStr}', true)" class="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold shadow text-sm transition animate-pulse">MULAI MENGERJAKAN</button>`;
                     }
                 }
 
+                const iconLabel = isRemedial ? '<i class="fas fa-recycle text-orange-600 mr-1"></i>' : '';
+
                 // Tambahkan ID unik ke Card dan Wrapper Tombol untuk Update Live
-                div.insertAdjacentHTML('beforeend', `
+                return `
                   <div id="card-ujian-${j.id}" class="bg-white p-5 rounded-xl shadow-sm border border-gray-100 ${cardColor} mb-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 transition-colors duration-500">
                      <div class="space-y-2 flex-1">
                         <div class="flex items-center gap-2 mb-1">
-                           <span class="text-[10px] font-bold uppercase tracking-wider bg-gray-100 text-gray-600 px-2 py-0.5 rounded">${j.jenis}</span>
+                           <span class="text-[10px] font-bold uppercase tracking-wider bg-gray-100 text-gray-600 px-2 py-0.5 rounded">${iconLabel} ${j.jenis}</span>
                            ${statusBadge}
                         </div>
                         <h4 class="font-bold text-xl text-gray-800">${j.nama_mapel} <span class="text-sm font-normal text-gray-500">(${j.kode_mapel})</span></h4>
@@ -2672,8 +2678,31 @@
                      </div>
                      <div id="btn-wrap-${j.id}" class="w-full md:w-auto flex justify-end">${btnAction}</div>
                   </div>
-                `);
-             });
+                `;
+             }; // End createCardHtml
+
+             // --- [LOGIKA BARU] PISAHKAN DATA & RENDER ---
+             
+             const mainExams = data.filter(x => x.jenis !== 'REMEDIAL');
+             const remExams = data.filter(x => x.jenis === 'REMEDIAL');
+
+             // 1. Render Ujian Utama
+             if(mainExams.length > 0) {
+                 div.insertAdjacentHTML('beforeend', `<h3 class="font-bold text-gray-700 text-lg mb-4 pb-2 border-b flex items-center"><i class="fas fa-file-alt text-indigo-600 mr-2"></i> Ujian Utama</h3>`);
+                 mainExams.forEach(j => {
+                     div.insertAdjacentHTML('beforeend', createCardHtml(j));
+                 });
+             }
+
+             // 2. Render Remedial (Di Bawah)
+             if(remExams.length > 0) {
+                 // Beri jarak jika ada ujian utama
+                 const marginClass = mainExams.length > 0 ? "mt-10" : "";
+                 div.insertAdjacentHTML('beforeend', `<h3 class="font-bold text-gray-700 text-lg mb-4 pb-2 border-b flex items-center ${marginClass}"><i class="fas fa-recycle text-orange-600 mr-2"></i> Ujian Remedial</h3>`);
+                 remExams.forEach(j => {
+                     div.insertAdjacentHTML('beforeend', createCardHtml(j));
+                 });
+             }
 
              // Jalankan Timer (Gabungan Sisa Waktu & Jadwal Mulai)
              if (liveTimers.length > 0 || upcomingExams.length > 0) {
