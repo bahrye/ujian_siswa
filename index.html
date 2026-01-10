@@ -461,6 +461,132 @@
             </div>
           </div>
 
+          <div id="view-remedial-guru" class="hidden animate__animated animate__fadeIn">
+            <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+              <div>
+                <h2 class="text-2xl font-bold text-gray-800"><i class="fas fa-recycle text-indigo-600"></i> Remedial</h2>
+                <p class="text-sm text-gray-500">Kelola jadwal & peserta remedial.</p>
+              </div>
+              <div class="flex gap-2">
+                <button onclick="App.Remedial.loadList()" class="px-4 py-2 bg-white border rounded shadow hover:text-indigo-600"><i class="fas fa-sync-alt"></i></button>
+                <button onclick="App.Remedial.openForm()" class="px-4 py-2 bg-indigo-600 text-white rounded font-bold shadow hover:bg-indigo-700"><i class="fas fa-plus"></i> Buat Remedial</button>
+              </div>
+            </div>
+
+            <div class="flex gap-2 border-b mb-6 overflow-x-auto">
+              <button onclick="App.Remedial.switchTab('jadwal')" id="tab-rem-jadwal" class="px-4 py-2 border-b-2 border-indigo-600 text-indigo-600 font-bold text-sm">Jadwal & Setting</button>
+              <button onclick="App.Remedial.switchTab('monitoring')" id="tab-rem-monitoring" class="px-4 py-2 border-b-2 border-transparent text-gray-500 hover:text-gray-700 font-bold text-sm">Monitoring & Token</button>
+            </div>
+
+            <div id="rem-panel-jadwal" class="bg-white rounded-xl shadow border overflow-hidden">
+              <div class="overflow-x-auto">
+                  <table class="w-full text-left text-sm">
+                    <thead class="bg-gray-50 text-gray-600 uppercase text-xs font-bold">
+                        <tr>
+                          <th class="p-4 border-b">Nama Remedial</th>
+                          <th class="p-4 border-b">Mapel Sumber</th>
+                          <th class="p-4 border-b">Waktu</th>
+                          <th class="p-4 border-b text-center">Peserta</th>
+                          <th class="p-4 border-b text-center">Status</th>
+                          <th class="p-4 border-b text-right">Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tbody-remedial" class="divide-y divide-gray-100"></tbody>
+                  </table>
+              </div>
+            </div>
+
+            <div id="rem-panel-monitoring" class="hidden">
+              <div class="flex gap-4 mb-4">
+                  <select id="sel-mon-remedial" onchange="App.Remedial.refreshMonitor()" class="input-std w-64 bg-white"><option value="">- Pilih Jadwal -</option></select>
+                  <button onclick="App.Remedial.refreshMonitor()" class="px-4 py-2 bg-white border rounded shadow font-bold text-gray-600"><i class="fas fa-sync-alt"></i></button>
+              </div>
+              
+              <div id="rem-token-box" class="hidden mb-4 bg-indigo-600 text-white p-4 rounded-xl shadow flex justify-between items-center">
+                  <div>
+                    <p class="text-xs font-bold uppercase text-indigo-200">Token Remedial</p>
+                    <h2 class="text-3xl font-mono font-black tracking-widest" id="rem-token-text">---</h2>
+                  </div>
+                  <i class="fas fa-key text-4xl text-indigo-400 opacity-50"></i>
+              </div>
+
+              <div class="bg-white rounded-xl shadow border overflow-hidden">
+                  <table class="w-full text-left text-sm">
+                    <thead class="bg-gray-50 text-gray-600 uppercase text-xs font-bold">
+                        <tr>
+                          <th class="p-4 border-b">Siswa</th>
+                          <th class="p-4 border-b text-center">Status</th>
+                          <th class="p-4 border-b text-center">Nilai</th>
+                          <th class="p-4 border-b">Keterangan / Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tbody-mon-remedial" class="divide-y divide-gray-100">
+                        <tr><td colspan="4" class="p-8 text-center text-gray-400">Pilih jadwal remedial di atas.</td></tr>
+                    </tbody>
+                  </table>
+              </div>
+            </div>
+          </div>
+
+          <div id="modal-remedial" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm p-4">
+            <div class="bg-white w-full max-w-2xl rounded-xl shadow-2xl p-6 max-h-[90vh] overflow-y-auto animate__animated animate__zoomIn">
+                <div class="flex justify-between items-center mb-4 border-b pb-2">
+                  <h3 class="font-bold text-lg">Setting Remedial</h3>
+                  <button onclick="App.UI.closeModal('modal-remedial')"><i class="fas fa-times"></i></button>
+                </div>
+                <form onsubmit="App.Remedial.save(event)" class="space-y-4">
+                  <input type="hidden" id="rem-id">
+                  
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label class="text-xs font-bold text-gray-500">Nama Kegiatan</label>
+                        <input type="text" id="rem-nama" class="input-std" placeholder="Cth: Remedial PH 1 Matematika" required>
+                      </div>
+                      <div>
+                        <label class="text-xs font-bold text-gray-500">Ambil Soal Dari Mapel</label>
+                        <select id="rem-mapel" class="input-std bg-gray-50" required><option value="">Loading...</option></select>
+                        <p class="text-[10px] text-gray-400 mt-1">*Pilih kode mapel/bank soal yang ingin diujikan.</p>
+                      </div>
+                  </div>
+
+                  <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div><label class="text-xs font-bold text-gray-500">Mulai</label><input type="datetime-local" id="rem-mulai" class="input-std" required></div>
+                      <div><label class="text-xs font-bold text-gray-500">Selesai</label><input type="datetime-local" id="rem-selesai" class="input-std" required></div>
+                      <div><label class="text-xs font-bold text-gray-500">Durasi (Menit)</label><input type="number" id="rem-durasi" class="input-std" value="60"></div>
+                  </div>
+
+                  <div class="bg-indigo-50 p-4 rounded-lg border border-indigo-100">
+                      <label class="text-xs font-bold text-indigo-800 mb-2 block">Pilih Peserta Remedial</label>
+                      <div class="flex gap-2 mb-2">
+                        <select id="rem-filter-kelas" onchange="App.Remedial.loadSiswa(this.value)" class="input-std text-xs w-1/2">
+                            <option value="">- Pilih Kelas -</option>
+                        </select>
+                        <span class="text-xs text-gray-500 flex items-center">Pilih kelas lalu centang siswa.</span>
+                      </div>
+                      <div id="rem-list-siswa" class="h-40 overflow-y-auto bg-white border rounded p-2 grid grid-cols-2 md:grid-cols-3 gap-2">
+                        <p class="col-span-full text-center text-xs text-gray-400 py-4">Pilih kelas dulu.</p>
+                      </div>
+                      <div class="mt-2 text-xs text-gray-600">
+                        Terpilih: <span id="rem-count-siswa" class="font-bold">0</span> Siswa
+                      </div>
+                  </div>
+                  
+                  <div class="flex gap-4">
+                      <label class="flex items-center gap-2 text-sm"><input type="checkbox" id="rem-acak-soal" checked> Acak Soal</label>
+                      <label class="flex items-center gap-2 text-sm"><input type="checkbox" id="rem-acak-opsi" checked> Acak Opsi</label>
+                      <div class="ml-auto">
+                        <label class="text-xs font-bold text-gray-500 mr-2">Status</label>
+                        <select id="rem-status" class="border rounded px-2 py-1 text-sm"><option value="Aktif">Aktif</option><option value="Nonaktif">Nonaktif</option></select>
+                      </div>
+                  </div>
+
+                  <div class="pt-4 text-right border-t">
+                      <button type="submit" id="btn-rem-save" class="px-6 py-2 bg-indigo-600 text-white font-bold rounded shadow hover:bg-indigo-700">Simpan Remedial</button>
+                  </div>
+                </form>
+            </div>
+          </div>
+
           <div id="view-pengawas-token" class="hidden animate__animated animate__fadeIn">
              <div class="bg-blue-50 border-l-4 border-blue-500 p-4 mb-6 rounded-r shadow-sm">
                 <div class="flex">
