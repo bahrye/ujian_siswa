@@ -168,6 +168,7 @@
            menus = [
              { id: 'dashboard', icon: 'fa-home', label: 'Dashboard' },
              { id: 'bank-soal', icon: 'fa-file-alt', label: 'Bank Soal' },
+             { id: 'remedial-guru', icon: 'fa-recycle', label: 'Remedial' }, // <--- TAMBAHAN
              { id: 'hasil', icon: 'fa-poll', label: 'Hasil & Koreksi' },
            ];
         } else if (role === 'pengawas') {
@@ -3224,6 +3225,331 @@
        }
     },
 
+    // --- MODULE REMEDIAL (GURU) ---
+    Remedial: {
+       selectedSiswa: new Set(), // Menyimpan username siswa yang dicentang
+
+       switchTab: function(tabName) {
+           const tabJadwal = document.getElementById('tab-rem-jadwal');
+           const tabMon = document.getElementById('tab-rem-monitoring');
+           const panJadwal = document.getElementById('rem-panel-jadwal');
+           const panMon = document.getElementById('rem-panel-monitoring');
+
+           if(tabName === 'jadwal') {
+               tabJadwal.className = "px-4 py-2 border-b-2 border-indigo-600 text-indigo-600 font-bold text-sm";
+               tabMon.className = "px-4 py-2 border-b-2 border-transparent text-gray-500 hover:text-gray-700 font-bold text-sm";
+               panJadwal.classList.remove('hidden'); panMon.classList.add('hidden');
+               App.Remedial.loadList();
+           } else {
+               tabMon.className = "px-4 py-2 border-b-2 border-indigo-600 text-indigo-600 font-bold text-sm";
+               tabJadwal.className = "px-4 py-2 border-b-2 border-transparent text-gray-500 hover:text-gray-700 font-bold text-sm";
+               panMon.classList.remove('hidden'); panJadwal.classList.add('hidden');
+               // Load Dropdown Monitoring
+               App.Remedial.loadDropdownMon();
+           }
+       },
+
+       loadList: function() {
+           const tbody = document.getElementById('tbody-remedial');
+           // Tampilkan loading spinner
+           tbody.innerHTML = '<tr><td colspan="6" class="p-8 text-center text-gray-500"><i class="fas fa-circle-notch fa-spin text-indigo-500 text-2xl"></i><br><span class="text-xs mt-2">Memuat Jadwal...</span></td></tr>';
+           
+           const user = JSON.parse(sessionStorage.getItem('cbt_session')).data;
+           
+           google.script.run.withSuccessHandler(data => {
+               tbody.innerHTML = ''; // Bersihkan loading
+               
+               if(!data || data.length === 0) {
+                   tbody.innerHTML = '<tr><td colspan="6" class="p-8 text-center text-gray-400 bg-gray-50 border border-dashed rounded italic">Belum ada jadwal remedial yang dibuat.</td></tr>';
+                   return;
+               }
+
+               data.forEach(r => {
+                   let count = 0;
+                   try { count = JSON.parse(r.siswaTarget).length; } catch(e){ count = 0; }
+                   
+                   const strData = encodeURIComponent(JSON.stringify(r));
+                   const badge = r.status === 'Aktif' ? 'bg-green-100 text-green-700 border-green-200' : 'bg-gray-100 text-gray-500 border-gray-200';
+
+                   // Format Tanggal (Lebih Rapi)
+                   const formatTgl = (isoStr) => {
+                       if(!isoStr) return '-';
+                       try {
+                           const d = new Date(isoStr);
+                           return d.toLocaleDateString('id-ID', { day:'numeric', month:'short' }) + ' ' + d.toLocaleTimeString('id-ID', { hour:'2-digit', minute:'2-digit' });
+                       } catch(e) { return isoStr; }
+                   };
+
+                   tbody.insertAdjacentHTML('beforeend', `
+                      <tr class="hover:bg-slate-50 border-b transition">
+                         <td class="p-4 font-bold text-gray-700">${r.nama}</td>
+                         <td class="p-4"><span class="bg-indigo-50 text-indigo-700 px-2 py-1 rounded text-xs font-bold border border-indigo-100">${r.mapel}</span></td>
+                         <td class="p-4 text-xs text-gray-600 space-y-1">
+                            <div class="flex items-center gap-2"><i class="fas fa-play text-green-500 w-4"></i> ${formatTgl(r.mulai)}</div>
+                            <div class="flex items-center gap-2"><i class="fas fa-stop text-red-500 w-4"></i> ${formatTgl(r.selesai)}</div>
+                         </td>
+                         <td class="p-4 text-center">
+                            <div class="inline-flex flex-col items-center justify-center bg-gray-50 border rounded px-3 py-1">
+                                <span class="font-bold text-lg text-gray-800">${count}</span> 
+                                <span class="text-[10px] text-gray-400 uppercase">Siswa</span>
+                            </div>
+                         </td>
+                         <td class="p-4 text-center"><span class="text-xs font-bold px-2 py-1 rounded border ${badge}">${r.status}</span></td>
+                         <td class="p-4 text-right">
+                            <button onclick="App.Remedial.edit('${strData}')" class="text-blue-600 hover:text-blue-800 p-2 rounded hover:bg-blue-50 transition" title="Edit"><i class="fas fa-edit"></i></button>
+                            <button onclick="App.Remedial.hapus('${r.id}')" class="text-red-500 hover:text-red-700 p-2 rounded hover:bg-red-50 transition" title="Hapus"><i class="fas fa-trash"></i></button>
+                         </td>
+                      </tr>
+                   `);
+               });
+           }).getRemedialGuru(user.username);
+       },
+
+       // UPDATE: Open Form dengan Parameter Mapel
+       openForm: function(selectedMapel = null) {
+           App.UI.openModal('modal-remedial');
+           
+           // 1. Reset Input Form
+           document.getElementById('rem-id').value = "";
+           document.getElementById('rem-nama').value = "";
+           document.getElementById('rem-mulai').value = "";
+           document.getElementById('rem-selesai').value = "";
+           document.getElementById('rem-durasi').value = "60";
+           document.getElementById('rem-status').value = "Aktif";
+           
+           // Reset Siswa & Count
+           App.Remedial.selectedSiswa.clear();
+           App.Remedial.updateCount();
+           document.getElementById('rem-list-siswa').innerHTML = '<p class="col-span-full text-center text-xs text-gray-400 py-4">Pilih kelas dulu.</p>';
+           
+           // 2. Load Mapel (Dengan Logika Pre-Select)
+           const selMapel = document.getElementById('rem-mapel');
+           const user = JSON.parse(sessionStorage.getItem('cbt_session')).data;
+
+           const renderMapel = (list) => {
+               selMapel.innerHTML = '<option value="">- Pilih Mapel -</option>';
+               if(list.length === 0) selMapel.innerHTML = '<option value="">(Kosong)</option>';
+               
+               list.forEach(m => {
+                   // Cek jika ini mapel yang mau diedit
+                   const isSelected = (selectedMapel && m.kode === selectedMapel) ? 'selected' : '';
+                   selMapel.insertAdjacentHTML('beforeend', `<option value="${m.kode}" ${isSelected}>${m.kode} - ${m.nama}</option>`);
+               });
+           };
+
+           // Cek Cache atau Ambil Server
+           if(App.Cache.get('mapel_opts')) {
+               renderMapel(App.Cache.get('mapel_opts'));
+           } else {
+               selMapel.innerHTML = '<option value="">Loading...</option>';
+               const handler = (list) => { App.Cache.set('mapel_opts', list); renderMapel(list); };
+               
+               if (user.role === 'guru') google.script.run.withSuccessHandler(handler).getMapelByGuru(user.nama);
+               else google.script.run.withSuccessHandler(handler).getAllMapel();
+           }
+
+           // 3. Load Daftar Kelas
+           const selKelas = document.getElementById('rem-filter-kelas');
+           selKelas.innerHTML = '<option value="">Loading...</option>';
+           google.script.run.withSuccessHandler(list => {
+               selKelas.innerHTML = '<option value="">- Pilih Kelas -</option>';
+               list.forEach(k => selKelas.insertAdjacentHTML('beforeend', `<option value="${k}">${k}</option>`));
+           }).getListKelasUnik();
+       },
+
+       loadSiswa: function(kelas) {
+           const div = document.getElementById('rem-list-siswa');
+           if(!kelas) return;
+           div.innerHTML = '<div class="col-span-full text-center"><i class="fas fa-spinner fa-spin"></i></div>';
+           
+           google.script.run.withSuccessHandler(list => {
+               div.innerHTML = '';
+               list.forEach(s => {
+                   const isChecked = App.Remedial.selectedSiswa.has(s.username) ? 'checked' : '';
+                   div.insertAdjacentHTML('beforeend', `
+                      <label class="flex items-center gap-2 text-xs p-2 border rounded hover:bg-gray-50 cursor-pointer">
+                         <input type="checkbox" value="${s.username}" onchange="App.Remedial.toggleSiswa(this)" ${isChecked} class="accent-indigo-600">
+                         <span class="truncate">${s.nama}</span>
+                      </label>
+                   `);
+               });
+               // Select All Button
+               div.insertAdjacentHTML('afterbegin', `<label class="col-span-full text-xs font-bold text-indigo-600 cursor-pointer border-b pb-1 mb-1"><input type="checkbox" onchange="document.querySelectorAll('#rem-list-siswa input[type=checkbox]').forEach(c => {c.checked=this.checked; App.Remedial.toggleSiswa(c)})"> Pilih Semua di Kelas Ini</label>`);
+           }).getSiswaByKelas(kelas);
+       },
+
+       toggleSiswa: function(chk) {
+           if(chk.checked) App.Remedial.selectedSiswa.add(chk.value);
+           else App.Remedial.selectedSiswa.delete(chk.value);
+           App.Remedial.updateCount();
+       },
+
+       updateCount: function() {
+           document.getElementById('rem-count-siswa').innerText = App.Remedial.selectedSiswa.size;
+       },
+
+       save: function(e) {
+           e.preventDefault();
+           if(App.Remedial.selectedSiswa.size === 0) return Swal.fire('Error', 'Pilih minimal 1 siswa.', 'warning');
+           
+           const btn = document.getElementById('btn-rem-save');
+           App.UI.setLoading(btn, true, 'Menyimpan...');
+
+           const data = {
+               id: document.getElementById('rem-id').value,
+               nama: document.getElementById('rem-nama').value,
+               mapel: document.getElementById('rem-mapel').value,
+               mulai: document.getElementById('rem-mulai').value,
+               selesai: document.getElementById('rem-selesai').value,
+               durasi: document.getElementById('rem-durasi').value,
+               targetSiswa: Array.from(App.Remedial.selectedSiswa),
+               acakSoal: document.getElementById('rem-acak-soal').checked,
+               acakOpsi: document.getElementById('rem-acak-opsi').checked,
+               status: document.getElementById('rem-status').value,
+               guru: JSON.parse(sessionStorage.getItem('cbt_session')).data.username
+           };
+
+           google.script.run.withSuccessHandler(res => {
+               App.UI.setLoading(btn, false, 'Simpan Remedial');
+               if(res.status === 'success') {
+                   App.UI.closeModal('modal-remedial');
+                   Swal.fire('Sukses', res.message, 'success');
+                   App.Remedial.loadList();
+               } else Swal.fire('Gagal', res.message, 'error');
+           }).simpanRemedial(data);
+       },
+
+       // UPDATE: Fungsi Edit (Fix Date & Participants)
+       edit: function(str) {
+           const d = JSON.parse(decodeURIComponent(str));
+           
+           // 1. Buka Form & Isi Mapel (Kirim parameter mapel agar terpilih otomatis)
+           App.Remedial.openForm(d.mapel);
+           
+           // 2. Isi Data Text
+           document.getElementById('rem-id').value = d.id;
+           document.getElementById('rem-nama').value = d.nama;
+           document.getElementById('rem-durasi').value = d.durasi;
+           document.getElementById('rem-status').value = d.status;
+           document.getElementById('rem-acak-soal').checked = d.acakSoal;
+           document.getElementById('rem-acak-opsi').checked = d.acakOpsi;
+
+           // 3. FIX: Format Tanggal (ISO ke Local String untuk Input HTML)
+           // Trik: Menggeser waktu berdasarkan zona waktu lokal browser
+           const toLocalInput = (isoStr) => {
+               if(!isoStr) return "";
+               try {
+                   const date = new Date(isoStr);
+                   const tzOffset = date.getTimezoneOffset() * 60000; // offset menit ke milidetik
+                   const localTime = new Date(date.getTime() - tzOffset);
+                   return localTime.toISOString().slice(0, 16); // Ambil format "YYYY-MM-DDTHH:mm"
+               } catch(e) { return ""; }
+           };
+
+           document.getElementById('rem-mulai').value = toLocalInput(d.mulai);
+           document.getElementById('rem-selesai').value = toLocalInput(d.selesai);
+
+           // 4. FIX: Restore Peserta (Ambil Nama dari Server)
+           let targets = [];
+           try { targets = JSON.parse(d.siswaTarget); } catch(e){}
+           
+           if (targets.length > 0) {
+               // Masukkan ke Set agar tersimpan saat save
+               targets.forEach(u => App.Remedial.selectedSiswa.add(u));
+               App.Remedial.updateCount();
+               
+               // Tampilkan Visual Checkbox
+               const div = document.getElementById('rem-list-siswa');
+               div.innerHTML = '<div class="col-span-full text-center py-2 text-indigo-500"><i class="fas fa-spinner fa-spin"></i> Memuat data peserta terpilih...</div>';
+               
+               google.script.run.withSuccessHandler(list => {
+                   div.innerHTML = ''; // Bersihkan loader
+                   
+                   // Info Header
+                   div.insertAdjacentHTML('beforeend', `<div class="col-span-full text-[10px] bg-yellow-50 text-yellow-700 p-2 rounded border border-yellow-200 mb-2"><b>Mode Edit:</b> Menampilkan ${list.length} siswa yang sudah tersimpan. Ganti filter kelas untuk menambah siswa lain.</div>`);
+
+                   list.forEach(s => {
+                       div.insertAdjacentHTML('beforeend', `
+                          <label class="flex items-center gap-2 text-xs p-2 border rounded bg-indigo-50 border-indigo-200 cursor-pointer hover:bg-indigo-100 transition">
+                             <input type="checkbox" value="${s.username}" onchange="App.Remedial.toggleSiswa(this)" checked class="accent-indigo-600">
+                             <span class="truncate font-bold text-indigo-700">${s.nama}</span>
+                          </label>
+                       `);
+                   });
+               }).getSiswaDetail(targets);
+           }
+       },
+
+       hapus: function(id) {
+           Swal.fire({ title:'Hapus Remedial?', icon:'warning', showCancelButton:true, confirmButtonColor:'#d33'}).then(r=>{
+               if(r.isConfirmed) google.script.run.withSuccessHandler(()=>{ App.Remedial.loadList(); }).hapusRemedial(id);
+           });
+       },
+
+       // --- MONITORING & TOKEN REMEDIAL ---
+       loadDropdownMon: function() {
+           const sel = document.getElementById('sel-mon-remedial');
+           const user = JSON.parse(sessionStorage.getItem('cbt_session')).data;
+           sel.innerHTML = '<option value="">Loading...</option>';
+           
+           google.script.run.withSuccessHandler(data => {
+               sel.innerHTML = '<option value="">- Pilih Jadwal -</option>';
+               data.forEach(r => {
+                   if(r.status === 'Aktif') sel.insertAdjacentHTML('beforeend', `<option value="${r.id}">${r.nama}</option>`);
+               });
+           }).getRemedialGuru(user.username);
+       },
+
+       refreshMonitor: function() {
+           const id = document.getElementById('sel-mon-remedial').value;
+           const tbody = document.getElementById('tbody-mon-remedial');
+           const boxToken = document.getElementById('rem-token-box');
+           
+           if(!id) { tbody.innerHTML='<tr><td colspan="4" class="p-8 text-center text-gray-400">Pilih jadwal dulu.</td></tr>'; boxToken.classList.add('hidden'); return; }
+
+           tbody.innerHTML = '<tr><td colspan="4" class="p-8 text-center"><i class="fas fa-spinner fa-spin"></i> Loading...</td></tr>';
+           
+           google.script.run.withSuccessHandler(res => {
+               // Tampilkan Token
+               if(res.token && res.token !== 'ERROR') {
+                   boxToken.classList.remove('hidden');
+                   document.getElementById('rem-token-text').innerText = res.token;
+               } else {
+                   boxToken.classList.add('hidden');
+               }
+
+               // Tampilkan Tabel
+               tbody.innerHTML = '';
+               if(res.students.length === 0) { tbody.innerHTML='<tr><td colspan="4" class="p-8 text-center text-gray-400">Belum ada siswa login.</td></tr>'; return; }
+
+               res.students.forEach(s => {
+                   let badge = "bg-gray-100 text-gray-500";
+                   if(s.status.includes("SEDANG")) badge = "bg-yellow-100 text-yellow-800 animate-pulse";
+                   if(s.status.includes("SELESAI")) badge = "bg-green-100 text-green-700";
+                   if(s.status.includes("TERKUNCI")) badge = "bg-red-600 text-white animate-bounce";
+
+                   let aksi = `<span class="text-gray-300">-</span>`;
+                   let violationInfo = s.violationReason ? `<div class="text-[10px] text-red-500 font-bold mt-1"><i class="fas fa-exclamation-triangle"></i> ${s.violationReason}</div>` : '';
+                   
+                   if(s.isLocked) {
+                       aksi = `<button onclick="App.Pengawas.bukaKunci('${s.username}', '${s.nama}')" class="px-3 py-1 bg-red-50 border border-red-200 text-red-600 text-xs font-bold rounded hover:bg-red-600 hover:text-white transition"><i class="fas fa-key"></i> Buka Kunci</button>`;
+                   } else if (s.status === 'SEDANG MENGERJAKAN') {
+                       aksi = `<button onclick="App.Pengawas.bukaKunci('${s.username}', '${s.nama}')" class="text-xs text-blue-500 underline" title="Reset/Buka jika macet">Reset/Buka</button>`;
+                   }
+
+                   tbody.insertAdjacentHTML('beforeend', `
+                       <tr class="border-b hover:bg-slate-50">
+                           <td class="p-4"><div class="font-bold text-gray-700">${s.nama}</div><div class="text-xs text-gray-400 font-mono">${s.username} - ${s.kelas}</div></td>
+                           <td class="p-4 text-center"><span class="px-2 py-1 rounded text-[10px] font-bold ${badge}">${s.status}</span></td>
+                           <td class="p-4 text-center font-bold text-gray-700">${s.nilai}</td>
+                           <td class="p-4">${aksi} ${violationInfo}</td>
+                       </tr>
+                   `);
+               });
+           }).getMonitoringRemedial(id);
+       }
+    },
+
     // --- MODULE: GURU HASIL & KOREKSI ---
     GuruHasil: {
        load: function(force=false) {
@@ -3616,128 +3942,143 @@
       },
 
       switchView: function(viewId, btn) {
-        // 1. Mobile Sidebar Toggle
-        if(window.innerWidth < 768) App.UI.toggleSidebar(false);
-        
-        // 2. Active State Styling (Navigasi)
-        document.querySelectorAll('.nav-item').forEach(el => el.className = 'nav-item w-full flex items-center gap-3 px-6 py-3 transition text-left hover:bg-slate-800 text-gray-400 hover:text-white');
-        if(btn) btn.className = 'nav-item w-full flex items-center gap-3 px-6 py-3 transition text-left bg-slate-800 border-l-4 border-indigo-500 text-white';
-        
-        // 3. Sembunyikan Semua View
-        const allViews = [
-            'view-dashboard', 'view-bank-soal', 'view-akun', 'view-mapel', 'view-ujian',
-            'view-jadwal-siswa', 'view-hasil-ujian', 
-            'view-admin-monitoring', 'view-admin-hasil', 'view-hasil-siswa',
-            'view-pengawas-token', 'view-pengawas-monitor', 'view-pengawas-pelanggaran', 'view-pengawas-kehadiran',
-            'view-placeholder'
-        ];
+          // 1. Mobile Sidebar Toggle (Tutup sidebar jika di mode mobile)
+          if(window.innerWidth < 768) App.UI.toggleSidebar(false);
+          
+          // 2. Active State Styling (Update tampilan tombol navigasi aktif)
+          document.querySelectorAll('.nav-item').forEach(el => el.className = 'nav-item w-full flex items-center gap-3 px-6 py-3 transition text-left hover:bg-slate-800 text-gray-400 hover:text-white');
+          if(btn) btn.className = 'nav-item w-full flex items-center gap-3 px-6 py-3 transition text-left bg-slate-800 border-l-4 border-indigo-500 text-white';
+          
+          // 3. Sembunyikan Semua View (Reset Tampilan)
+          // Daftar semua ID elemen view halaman yang ada di aplikasi
+          const allViews = [
+              'view-dashboard', 'view-bank-soal', 'view-akun', 'view-mapel', 'view-ujian',
+              'view-jadwal-siswa', 'view-hasil-ujian', 
+              'view-admin-monitoring', 'view-admin-hasil', 'view-hasil-siswa',
+              'view-pengawas-token', 'view-pengawas-monitor', 'view-pengawas-pelanggaran', 'view-pengawas-kehadiran',
+              'view-remedial-guru', // <--- VIEW BARU DITAMBAHKAN DISINI AGAR IKUTDISEMBUNYIKAN
+              'view-placeholder'
+          ];
 
-        allViews.forEach(id => { 
-            const el = document.getElementById(id); 
-            if(el) el.classList.add('hidden'); 
-        });
+          // Loop untuk menyembunyikan setiap view
+          allViews.forEach(id => { 
+              const el = document.getElementById(id); 
+              if(el) el.classList.add('hidden'); 
+          });
 
-        // Reset UI States (Kembalikan tampilan admin mode jika sebelumnya diubah pengawas)
-        const viewUjian = document.getElementById('view-ujian');
-        if (viewUjian) {
-            viewUjian.querySelectorAll('button').forEach(b => b.classList.remove('hidden'));
-            viewUjian.querySelectorAll('h3').forEach(h => {
-                if(h.innerText.includes('1. Nama Ujian')) h.parentElement.parentElement.classList.remove('hidden');
-            });
-            viewUjian.querySelectorAll('.read-only-label').forEach(el => el.remove());
-        }
+          // Reset UI States Khusus (Kembalikan tampilan admin mode jika sebelumnya diubah oleh view pengawas)
+          const viewUjian = document.getElementById('view-ujian');
+          if (viewUjian) {
+              viewUjian.querySelectorAll('button').forEach(b => b.classList.remove('hidden'));
+              viewUjian.querySelectorAll('h3').forEach(h => {
+                  if(h.innerText.includes('1. Nama Ujian')) h.parentElement.parentElement.classList.remove('hidden');
+              });
+              viewUjian.querySelectorAll('.read-only-label').forEach(el => el.remove());
+          }
 
-        // 4. Set Judul Halaman
-        const pageTitle = document.getElementById('page-title');
-        if(pageTitle) pageTitle.innerText = viewId.replace(/-/g, ' ').toUpperCase();
+          // 4. Set Judul Halaman Otomatis
+          const pageTitle = document.getElementById('page-title');
+          if(pageTitle) pageTitle.innerText = viewId.replace(/-/g, ' ').toUpperCase();
 
-        // 5. Logika Percabangan View
-        
-        // --- LOGIC SISWA ---
-        if (App.data.role === 'siswa') {
-            if (viewId === 'dashboard') {
-                document.getElementById('view-jadwal-siswa').classList.remove('hidden');
-                App.Siswa.loadDashboard();
-                if(pageTitle) pageTitle.innerText = "Jadwal Ujian Kelas Anda";
-                return; 
-            }
-            if (viewId === 'hasil-siswa') {
-                document.getElementById('view-hasil-siswa').classList.remove('hidden');
-                App.Siswa.loadHasil();
-                return;
-            }
-        }
+          // 5. Logika Percabangan View (Menampilkan View yang Dipilih)
+          
+          // --- LOGIC BARU: REMEDIAL GURU ---
+          if (viewId === 'remedial-guru') {
+              const el = document.getElementById('view-remedial-guru');
+              if (el) {
+                  el.classList.remove('hidden');
+                  // Pastikan modul Remedial sudah dimuat, lalu set tab default ke jadwal
+                  if (App.Remedial) App.Remedial.switchTab('jadwal'); 
+              }
+              return;
+          }
 
-        // --- LOGIC PENGAWAS ---
-        if (App.data.role === 'pengawas') {
-            if (viewId === 'dashboard') {
-                document.getElementById('view-ujian').classList.remove('hidden'); 
-                App.Pengawas.loadJadwalGlobal();
-                return;
-            }
-            if (viewId === 'pengawas-token') {
-                document.getElementById('view-pengawas-token').classList.remove('hidden');
-                App.Pengawas.loadPageToken();
-                return;
-            }
-            if (viewId === 'pengawas-monitor') {
-                document.getElementById('view-pengawas-monitor').classList.remove('hidden');
-                App.Pengawas.loadPageMonitoring();
-                return;
-            }
-            if (viewId === 'pengawas-pelanggaran') {
-                document.getElementById('view-pengawas-pelanggaran').classList.remove('hidden');
-                App.Pengawas.loadPagePelanggaran();
-                return;
-            }
-            if (viewId === 'pengawas-kehadiran') {
-                const el = document.getElementById('view-pengawas-kehadiran');
-                if(el) {
-                    el.classList.remove('hidden');
-                    if(App.Pengawas.loadPageKehadiran) App.Pengawas.loadPageKehadiran();
-                }
-                return;
-            }
-        }
+          // --- LOGIC SISWA ---
+          if (App.data.role === 'siswa') {
+              if (viewId === 'dashboard') {
+                  document.getElementById('view-jadwal-siswa').classList.remove('hidden');
+                  App.Siswa.loadDashboard();
+                  if(pageTitle) pageTitle.innerText = "Jadwal Ujian Kelas Anda";
+                  return; 
+              }
+              if (viewId === 'hasil-siswa') {
+                  document.getElementById('view-hasil-siswa').classList.remove('hidden');
+                  App.Siswa.loadHasil();
+                  return;
+              }
+          }
 
-        // --- DEFAULT VIEWS (ADMIN/GURU) ---
-        if (viewId === 'hasil') {
-            document.getElementById('view-hasil-ujian').classList.remove('hidden');
-            App.GuruHasil.load(); 
-        }
-        else if (viewId === 'bank-soal') {
-            document.getElementById('view-bank-soal').classList.remove('hidden');
-            App.BankSoal.loadOptionsMapel();
-        }
-        else if (viewId === 'admin-monitoring') {
-             document.getElementById('view-admin-monitoring').classList.remove('hidden');
-             App.AdminMonitor.loadSummary();
-        }
-        else if (viewId === 'admin-hasil') {
-             document.getElementById('view-admin-hasil').classList.remove('hidden');
-             App.AdminHasil.load();
-        }
-        else if (viewId === 'dashboard') { 
-            document.getElementById('view-dashboard').classList.remove('hidden'); 
-            App.Dashboard.loadStats(); 
-        }
-        else if (viewId === 'akun') { 
-            document.getElementById('view-akun').classList.remove('hidden'); 
-            App.User.loadAll(); 
-        }
-        else if (viewId === 'mapel') { 
-            document.getElementById('view-mapel').classList.remove('hidden'); 
-            App.Mapel.load(); 
-        }
-        else if (viewId === 'ujian') { 
-            document.getElementById('view-ujian').classList.remove('hidden'); 
-            App.Ujian.loadJenis(); 
-            App.Ujian.loadJadwal(); 
-        }
-        else {
-            const ph = document.getElementById('view-placeholder');
-            if(ph) ph.classList.remove('hidden');
-        }
+          // --- LOGIC PENGAWAS ---
+          if (App.data.role === 'pengawas') {
+              if (viewId === 'dashboard') {
+                  document.getElementById('view-ujian').classList.remove('hidden'); 
+                  App.Pengawas.loadJadwalGlobal();
+                  return;
+              }
+              if (viewId === 'pengawas-token') {
+                  document.getElementById('view-pengawas-token').classList.remove('hidden');
+                  App.Pengawas.loadPageToken();
+                  return;
+              }
+              if (viewId === 'pengawas-monitor') {
+                  document.getElementById('view-pengawas-monitor').classList.remove('hidden');
+                  App.Pengawas.loadPageMonitoring();
+                  return;
+              }
+              if (viewId === 'pengawas-pelanggaran') {
+                  document.getElementById('view-pengawas-pelanggaran').classList.remove('hidden');
+                  App.Pengawas.loadPagePelanggaran();
+                  return;
+              }
+              if (viewId === 'pengawas-kehadiran') {
+                  const el = document.getElementById('view-pengawas-kehadiran');
+                  if(el) {
+                      el.classList.remove('hidden');
+                      if(App.Pengawas.loadPageKehadiran) App.Pengawas.loadPageKehadiran();
+                  }
+                  return;
+              }
+          }
+
+          // --- DEFAULT VIEWS (ADMIN/GURU) ---
+          if (viewId === 'hasil') {
+              document.getElementById('view-hasil-ujian').classList.remove('hidden');
+              App.GuruHasil.load(); 
+          }
+          else if (viewId === 'bank-soal') {
+              document.getElementById('view-bank-soal').classList.remove('hidden');
+              App.BankSoal.loadOptionsMapel();
+          }
+          else if (viewId === 'admin-monitoring') {
+              document.getElementById('view-admin-monitoring').classList.remove('hidden');
+              App.AdminMonitor.loadSummary();
+          }
+          else if (viewId === 'admin-hasil') {
+              document.getElementById('view-admin-hasil').classList.remove('hidden');
+              App.AdminHasil.load();
+          }
+          else if (viewId === 'dashboard') { 
+              document.getElementById('view-dashboard').classList.remove('hidden'); 
+              App.Dashboard.loadStats(); 
+          }
+          else if (viewId === 'akun') { 
+              document.getElementById('view-akun').classList.remove('hidden'); 
+              App.User.loadAll(); 
+          }
+          else if (viewId === 'mapel') { 
+              document.getElementById('view-mapel').classList.remove('hidden'); 
+              App.Mapel.load(); 
+          }
+          else if (viewId === 'ujian') { 
+              document.getElementById('view-ujian').classList.remove('hidden'); 
+              App.Ujian.loadJenis(); 
+              App.Ujian.loadJadwal(); 
+          }
+          else {
+              // Tampilkan placeholder jika view tidak ditemukan
+              const ph = document.getElementById('view-placeholder');
+              if(ph) ph.classList.remove('hidden');
+          }
       },
 
       toggleSidebar: function(forceState) {
