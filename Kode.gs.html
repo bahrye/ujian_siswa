@@ -1635,140 +1635,114 @@ function pancingIzin() {
   console.log("Izin berhasil dipancing. Silakan deploy ulang.");
 }
 
-// ==========================================
-// UPDATE FUNGSI: getStudentDashboardData (Dengan Nama Lengkap Pengawas)
-// ==========================================
+// 6. UPDATE DASHBOARD SISWA (Agar Remedial Muncul)
+// Fungsi ini harus meng-inject data remedial ke hasil getStudentDashboardData
+// CARA: Ubah fungsi getStudentDashboardData di atas, atau tambahkan logic ini:
+
 function getStudentDashboardData(username, kelasSiswa) {
   try {
     const ss = SpreadsheetApp.openById(SS_ID);
-    const sheetJadwal = ss.getSheetByName("DB_Jadwal");
+    const props = PropertiesService.getScriptProperties();
     const sheetNilai = ss.getSheetByName("DB_Nilai");
-    
-    // 1. [BARU] Ambil Data User untuk Mapping Username -> Nama Lengkap
-    const sheetUser = ss.getSheetByName("Users");
-    let mapPengawas = {};
-    
-    if (sheetUser) {
-       const dataUser = sheetUser.getDataRange().getValues();
-       dataUser.shift(); // Skip Header
-       // Loop untuk buat kamus: { "username1": "Budi Santoso", "username2": "Siti Aminah" }
-       dataUser.forEach(u => {
-          const uName = u[1] ? u[1].toString().trim() : "";
-          const uFull = u[4] ? u[4].toString().trim() : "";
-          if(uName) mapPengawas[uName] = uFull;
-       });
-    }
-    
+    const dataNilai = sheetNilai ? sheetNilai.getDataRange().getValues() : [];
+
+    // --- A. AMBIL JADWAL REGULER (DB_Jadwal) ---
+    const sheetJadwal = ss.getSheetByName("DB_Jadwal");
     let jadwalList = [];
     
-    if (sheetJadwal && sheetJadwal.getLastRow() > 1) {
-      const data = sheetJadwal.getDataRange().getValues();
-      data.shift(); 
-      
-      const mapelList = getAllMapel(); 
-      const jenisList = getJenisUjian();
-  
-      data.forEach(row => {
-        const statusJadwal = row[5];
-        const targetKelas = row[7] ? row[7].toString().trim() : "Semua";
-        
-        if (statusJadwal === 'Aktif') {
-          if (targetKelas.toLowerCase() === 'semua' || (kelasSiswa && targetKelas === kelasSiswa)) {
-             const m = mapelList.find(x => x.kode === row[2]);
-             const j = jenisList.find(x => x.id === row[1]);
-             
-             const tMulai = row[3] instanceof Date ? row[3].toISOString() : row[3];
-             const tSelesai = row[4] instanceof Date ? row[4].toISOString() : row[4];
-  
-             // 2. [BARU] Logika Ganti Username ke Nama Lengkap
-             let pengawasRaw = row[6] ? row[6].toString().trim() : "";
-             let pengawasDisplay = "-";
+    // Mapping Nama Pengawas
+    const sheetUser = ss.getSheetByName("Users");
+    let mapPengawas = {};
+    if (sheetUser) {
+       const dU = sheetUser.getDataRange().getValues(); dU.shift();
+       dU.forEach(u => { if(u[1]) mapPengawas[u[1]] = u[4]; });
+    }
+    
+    // Helper Time
+    const formatTime = (d) => { try { return d.toISOString(); } catch(e){return d;} };
 
-             if (pengawasRaw.toLowerCase() === 'semua') {
-                 pengawasDisplay = "Semua Pengawas";
-             } else if (mapPengawas[pengawasRaw]) {
-                 pengawasDisplay = mapPengawas[pengawasRaw]; // Pakai Nama Lengkap
-             } else {
-                 pengawasDisplay = pengawasRaw; // Fallback ke username jika nama tidak ketemu
+    if (sheetJadwal) {
+       const data = sheetJadwal.getDataRange().getValues(); data.shift();
+       const mapelList = getAllMapel(); 
+       const jenisList = getJenisUjian();
+
+       data.forEach(row => {
+          if (row[5] === 'Aktif') {
+             const targetKelas = row[7] ? row[7].toString().trim() : "Semua";
+             if (targetKelas.toLowerCase() === 'semua' || targetKelas === kelasSiswa) {
+                 const m = mapelList.find(x => x.kode === row[2]);
+                 const j = jenisList.find(x => x.id === row[1]);
+                 let pgw = row[6] ? row[6].toString() : "";
+                 if(mapPengawas[pgw]) pgw = mapPengawas[pgw];
+
+                 jadwalList.push({
+                    id: row[0], jenis: j ? j.nama : "UJIAN", kode_mapel: row[2], nama_mapel: m ? m.nama : row[2],
+                    mulai: formatTime(row[3]), selesai: formatTime(row[4]), pengawas: pgw,
+                    durasi: row[8]||60, acak_soal: row[9], acak_opsi: row[10]
+                 });
              }
-  
-             jadwalList.push({
-               id: row[0],
-               jenis: j ? j.nama : row[1],
-               kode_mapel: row[2],
-               nama_mapel: m ? m.nama : row[2],
-               mulai: tMulai,
-               selesai: tSelesai,
-               pengawas: pengawasDisplay, // <--- Ini sekarang berisi Nama Lengkap
-               durasi: row[8] || 60,
-               acak_soal: row[9],
-               acak_opsi: row[10]
-             });
           }
-        }
-      });
+       });
     }
-  
-    // B. Cek Status Personal Siswa (Kode Lama - Tidak Berubah)
-    const dataNilai = sheetNilai ? sheetNilai.getDataRange().getValues() : [];
-    const props = PropertiesService.getScriptProperties();
-  
-    let namaSiswa = "";
-    // Cari nama siswa login untuk pencocokan nilai (fallback)
-    if(sheetUser) {
-       const dataUser = sheetUser.getDataRange().getValues();
-       for(let u of dataUser) { 
-         if(u[1] == username) { namaSiswa = u[4]; break; } 
-       }
+
+    // --- B. AMBIL JADWAL REMEDIAL (DB_Remedial) [BARU] ---
+    const sheetRem = ss.getSheetByName("DB_Remedial");
+    if (sheetRem) {
+       const dataRem = sheetRem.getDataRange().getValues(); dataRem.shift();
+       // Col: 0:ID, 1:Nama, 2:Mapel, 3:Mulai, 4:Selesai, 5:Durasi, 6:Target(JSON), 7:AcakSoal, 8:AcakOpsi, 9:Status, 10:Guru
+       
+       dataRem.forEach(r => {
+          if (r[9] === 'Aktif') {
+              let targets = [];
+              try { targets = JSON.parse(r[6]); } catch(e){}
+              
+              // Cek apakah username siswa ini ada di daftar target remedial
+              if (targets.includes(username)) {
+                  let guruName = mapPengawas[r[10]] || r[10]; // Nama Guru
+                  
+                  jadwalList.push({
+                      id: r[0], 
+                      jenis: "REMEDIAL", // Label Khusus
+                      kode_mapel: r[2], 
+                      nama_mapel: r[1], // Gunakan Nama Remedial sebagai Nama Mapel
+                      mulai: formatTime(r[3]), 
+                      selesai: formatTime(r[4]), 
+                      pengawas: guruName, // Guru dianggap pengawas
+                      durasi: r[5]||60, 
+                      acak_soal: r[7], 
+                      acak_opsi: r[8]
+                  });
+              }
+          }
+       });
     }
-  
-    const finalResult = jadwalList.map(j => {
-        // Cek Nilai berdasarkan Username (Prioritas) atau Nama
-        const isFinishedDB = dataNilai.some(n => 
-            (n[2] && n[2].toString() === username && n[1].toString() === j.id.toString()) || // Cek Username
-            (n[2] && n[2].toString() === namaSiswa && n[1].toString() === j.id.toString())   // Cek Nama (Legacy)
-        );
+
+    // --- C. PROSES STATUS PERSONAL (SAMA) ---
+    return jadwalList.map(j => {
+        // Cek Nilai
+        const isFinishedDB = dataNilai.some(n => String(n[2]) === String(username) && String(n[1]) === String(j.id));
         
         const stateKey = `STATUS_${username}_${j.id}`;
         const stateVal = props.getProperty(stateKey);
         
-        let personalStatus = 'BELUM';
-        let sisaDetik = 0; 
+        let status = 'BELUM';
+        let sisa = 0;
 
-        const hitungSisa = () => {
-           const endKey = `ENDTIME_${username}_${j.id}`;
-           const endTimeStr = props.getProperty(endKey);
-           if(endTimeStr) {
-               const now = new Date();
-               const end = new Date(endTimeStr);
-               let s = Math.floor((end.getTime() - now.getTime()) / 1000);
-               return s < 0 ? 0 : s;
-           }
+        const getSisa = () => {
+           const endStr = props.getProperty(`ENDTIME_${username}_${j.id}`);
+           if(endStr) return Math.floor((new Date(endStr).getTime() - new Date().getTime())/1000);
            return 0;
         };
-        
-        if (isFinishedDB || stateVal === 'SELESAI') {
-           personalStatus = 'SELESAI';
-        } else if (stateVal === 'LOCKED') {
-           personalStatus = 'TERKUNCI';
-           sisaDetik = hitungSisa(); 
-        } else if (stateVal === 'STARTED') {
-           personalStatus = 'SEDANG';
-           sisaDetik = hitungSisa(); 
-        }
-  
-        return {
-           ...j,
-           status_personal: personalStatus,
-           sisa_detik: sisaDetik 
-        };
+
+        if (isFinishedDB || stateVal === 'SELESAI') status = 'SELESAI';
+        else if (stateVal === 'LOCKED') { status = 'TERKUNCI'; sisa = getSisa(); }
+        else if (stateVal === 'STARTED') { status = 'SEDANG'; sisa = getSisa(); }
+
+        return { ...j, status_personal: status, sisa_detik: sisa < 0 ? 0 : sisa };
     });
-  
-    return finalResult;
-    
+
   } catch (e) {
-    Logger.log("ERROR getStudentDashboardData: " + e.toString());
-    return []; 
+    return [];
   }
 }
 
@@ -2626,4 +2600,224 @@ function updateNilaiLama() {
   }
   
   console.log("Selesai! Berhasil update " + countUpdated + " data nilai.");
+}
+
+// ==========================================
+// MODUL BARU: FITUR REMEDIAL (GURU)
+// ==========================================
+
+// 1. Ambil Daftar Remedial (FIX: Case Insensitive & Date Format)
+function getRemedialGuru(usernameGuru) {
+  const ss = SpreadsheetApp.openById(SS_ID);
+  let sheet = ss.getSheetByName("DB_Remedial");
+  
+  if (!sheet) {
+    sheet = ss.insertSheet("DB_Remedial");
+    sheet.appendRow(["ID", "Nama", "Mapel", "Mulai", "Selesai", "Durasi", "Siswa_Target", "Acak_Soal", "Acak_Opsi", "Status", "Guru"]);
+    return [];
+  }
+
+  const data = sheet.getDataRange().getValues();
+  if (data.length <= 1) return []; // Hanya header atau kosong
+
+  data.shift(); // Hapus Header
+
+  // Normalisasi Username Login (kecilkan huruf & hapus spasi)
+  const myUser = usernameGuru ? usernameGuru.toString().trim().toLowerCase() : "";
+
+  let result = [];
+  
+  // Helper: Format tanggal ke ISO String agar aman dikirim ke Frontend
+  const toIso = (dateObj) => {
+      if (dateObj instanceof Date) return dateObj.toISOString();
+      return dateObj; // Kembalikan apa adanya jika bukan object Date
+  };
+
+  data.forEach(r => {
+    // r[10] = Kolom Guru.
+    const dbGuru = r[10] ? r[10].toString().trim().toLowerCase() : "";
+
+    // Tampilkan jika: Kolom Guru Kosong (Data Lama) ATAU Cocok dengan user login
+    if (dbGuru === "" || dbGuru === myUser) {
+       result.push({
+         id: r[0], 
+         nama: r[1], 
+         mapel: r[2], 
+         mulai: toIso(r[3]),   // <--- FIX DATE
+         selesai: toIso(r[4]), // <--- FIX DATE
+         durasi: r[5],
+         siswaTarget: r[6], 
+         acakSoal: r[7], 
+         acakOpsi: r[8], 
+         status: r[9]
+       });
+    }
+  });
+  
+  return result.reverse();
+}
+
+// 2. Simpan Data Remedial (Fixed: Auto Header)
+function simpanRemedial(data) {
+  try {
+    const ss = SpreadsheetApp.openById(SS_ID);
+    let sheet = ss.getSheetByName("DB_Remedial");
+    
+    // HEADER FIX: Jika sheet tidak ada, buat baru + Header
+    if (!sheet) {
+      sheet = ss.insertSheet("DB_Remedial");
+      sheet.appendRow(["ID", "Nama", "Mapel", "Mulai", "Selesai", "Durasi", "Siswa_Target", "Acak_Soal", "Acak_Opsi", "Status", "Guru"]);
+    } 
+    // HEADER FIX: Jika sheet ada tapi barisnya 0 (kosong total), tambah Header dulu
+    else if (sheet.getLastRow() === 0) {
+      sheet.appendRow(["ID", "Nama", "Mapel", "Mulai", "Selesai", "Durasi", "Siswa_Target", "Acak_Soal", "Acak_Opsi", "Status", "Guru"]);
+    }
+    
+    // Validasi Waktu
+    if(new Date(data.mulai) >= new Date(data.selesai)) return { status:'error', message:'Waktu Selesai harus lebih akhir.' };
+    
+    const jsonSiswa = JSON.stringify(data.targetSiswa); 
+
+    const rowData = [
+       data.nama, data.mapel, data.mulai, data.selesai, data.durasi, 
+       jsonSiswa, data.acakSoal, data.acakOpsi, data.status, data.guru
+    ];
+
+    if (data.id) {
+       // EDIT DATA
+       const allData = sheet.getDataRange().getValues();
+       // Loop mulai index 1 karena index 0 adalah Header
+       for(let i=1; i<allData.length; i++) {
+          if(String(allData[i][0]) === String(data.id)) {
+             // Update baris (i+1 karena sheet index mulai 1)
+             sheet.getRange(i+1, 2, 1, 10).setValues([rowData]);
+             return { status:'success', message:'Data Remedial Diupdate' };
+          }
+       }
+    } else {
+       // DATA BARU
+       const newId = "REM-" + Date.now();
+       sheet.appendRow([newId, ...rowData]);
+       return { status:'success', message:'Jadwal Remedial Dibuat' };
+    }
+  } catch(e) {
+    return { status:'error', message: e.toString() };
+  }
+}
+
+// 3. Hapus Remedial
+function hapusRemedial(id) {
+  return hapusDataUmum(id, "DB_Remedial");
+}
+
+// 4. Helper: Ambil Siswa Berdasarkan Kelas (Untuk Checkbox Selection)
+function getSiswaByKelas(kelas) {
+  const ss = SpreadsheetApp.openById(SS_ID);
+  const sheet = ss.getSheetByName("Users");
+  const data = sheet.getDataRange().getValues();
+  data.shift();
+  
+  let result = [];
+  data.forEach(r => {
+     // r[3]=Role, r[5]=Kelas, r[1]=Username, r[4]=Nama
+     if (String(r[3]).toLowerCase() === 'siswa' && String(r[5]) === String(kelas)) {
+        result.push({ username: r[1], nama: r[4] });
+     }
+  });
+  return result;
+}
+
+// 5. Monitoring Remedial (Reuse Logic Monitoring tapi sumber DB beda)
+function getMonitoringRemedial(idRemedial) {
+  // Kita bisa me-reuse fungsi getMonitoringSiswa dengan sedikit modifikasi
+  // Karena struktur DB_Nilai sama (ID Jadwal disimpan di col 1), maka logic sama.
+  // Hanya saja pengecekan "Target Siswa" harus diambil dari DB_Remedial
+
+  const ss = SpreadsheetApp.openById(SS_ID);
+  
+  // Ambil Data Remedial untuk Token & Waktu
+  const sheetRem = ss.getSheetByName("DB_Remedial");
+  const dataRem = sheetRem.getDataRange().getValues();
+  let remData = null;
+  for(let i=1; i<dataRem.length; i++) {
+     if(String(dataRem[i][0]) === String(idRemedial)) {
+        remData = { 
+           mulai: new Date(dataRem[i][3]), 
+           selesai: new Date(dataRem[i][4]), 
+           target: JSON.parse(dataRem[i][6] || "[]") 
+        };
+        break;
+     }
+  }
+
+  if (!remData) return { students: [], token: "ERROR" };
+
+  // Generate Token
+  const now = new Date();
+  let token = "BELUM MULAI";
+  if (now > remData.selesai) token = "SELESAI";
+  else if (now >= remData.mulai) token = generateTokenForExam(idRemedial);
+
+  // Ambil Data Siswa (HANYA YG DITARGETKAN)
+  const sheetUser = ss.getSheetByName("Users");
+  const allUsers = sheetUser.getDataRange().getValues();
+  let targetUsers = [];
+  
+  // Filter user yang username-nya ada di list target remedial
+  allUsers.forEach(u => {
+      if(remData.target.includes(u[1])) {
+          targetUsers.push({ username: u[1], nama: u[4], kelas: u[5] });
+      }
+  });
+
+  // Cek Status (Nilai & Login)
+  const sheetNilai = ss.getSheetByName("DB_Nilai");
+  const dataNilai = sheetNilai ? sheetNilai.getDataRange().getValues() : [];
+  const props = PropertiesService.getScriptProperties();
+
+  let result = [];
+  targetUsers.forEach(u => {
+      // Logic status sama persis dengan monitoring biasa
+      let status = "BELUM MENGERJAKAN";
+      let isLocked = false;
+      let violationReason = "";
+      let nilai = "-";
+
+      const entryNilai = dataNilai.find(n => String(n[1]) === String(idRemedial) && String(n[2]) === String(u.username));
+      const stateKey = `STATUS_${u.username}_${idRemedial}`;
+      const reasonKey = `REASON_${u.username}_${idRemedial}`;
+      const stateVal = props.getProperty(stateKey);
+
+      if (entryNilai) { status = "SELESAI"; nilai = entryNilai[5]; } // Tampilkan Nilai Sementara
+      else if (stateVal === 'SELESAI') { status = "SELESAI"; nilai = "Proses"; }
+      else if (stateVal === 'LOCKED') { status = "TERKUNCI"; isLocked = true; violationReason = props.getProperty(reasonKey); }
+      else if (stateVal === 'STARTED') { status = "SEDANG MENGERJAKAN"; }
+
+      result.push({ 
+          nama: u.nama, username: u.username, kelas: u.kelas, 
+          status: status, isLocked: isLocked, violationReason: violationReason, nilai: nilai 
+      });
+  });
+
+  return { students: result, token: token };
+}
+
+// Helper: Ambil Detail Siswa dari List Username (Untuk Fitur Edit Remedial)
+function getSiswaDetail(usernames) {
+  const ss = SpreadsheetApp.openById(SS_ID);
+  const sheet = ss.getSheetByName("Users");
+  const data = sheet.getDataRange().getValues();
+  data.shift();
+  
+  let result = [];
+  // Gunakan Set agar pencarian cepat
+  const targetSet = new Set(usernames.map(u => String(u).trim()));
+  
+  data.forEach(r => {
+     // r[1]=Username, r[4]=Nama
+     if (targetSet.has(String(r[1]).trim())) {
+        result.push({ username: r[1], nama: r[4] });
+     }
+  });
+  return result;
 }
