@@ -1544,7 +1544,10 @@
 
       start: function(kodeMapel, config) {
           const idJadwal = App.data.activeJadwalId; 
-          const username = App.data.user ? App.data.user.username : JSON.parse(sessionStorage.getItem('cbt_session')).data.username;
+          // Ambil User Session
+          const session = JSON.parse(sessionStorage.getItem('cbt_session'));
+          const user = App.data.user || session.data;
+          const username = user.username;
 
           Swal.fire({title: 'Memuat Ujian...', didOpen: () => Swal.showLoading()});
           
@@ -1560,17 +1563,19 @@
               
               document.getElementById('dashboard-container').classList.add('hidden');
               document.getElementById('page-siswa').classList.remove('hidden');
+              
+              // --- PERBAIKAN DISINI: SET NAMA & MAPEL ---
+              document.getElementById('header-nama').innerText = user.nama; // Set Nama Asli
               document.getElementById('header-mapel').innerText = kodeMapel;
+              // ------------------------------------------
               
               document.getElementById('exam-loading').classList.remove('hidden');
               document.getElementById('soal-container').classList.add('hidden');
               document.getElementById('nav-buttons').classList.add('hidden');
               document.getElementById('disp-pertanyaan').innerHTML = "";
 
-              // --- PERBAIKAN: AKTIFKAN SECURITY FEATURES ---
               App.Security.enterFullscreen(); 
-              App.Security.enableWakeLock(); // <--- TAMBAHAN WAKE LOCK DISINI
-              // ---------------------------------------------
+              App.Security.enableWakeLock(); 
 
               App.Exam.timerStart(res.remainingSeconds); 
               App.Exam.loadSoal(kodeMapel, config);
@@ -3650,15 +3655,12 @@
                 if (r.nilaiAkhir !== "" && r.nilaiAkhir !== null) {
                     const val = parseFloat(r.nilaiAkhir);
                     const color = val < 70 ? 'text-red-600' : 'text-green-600';
-                    
-                    // [PERUBAHAN DISINI]
                     labelAkhir = `
                         <button onclick="App.Nilai.showDetail('${r.idJadwal}', '${r.username}')" 
                                 class="text-lg font-bold ${color} hover:underline decoration-dotted underline-offset-4" 
                                 title="Lihat detail perhitungan">
                            ${val}
                         </button>`;
-                    
                     rowClass = "bg-green-50/30"; 
                 }
 
@@ -3666,10 +3668,13 @@
                    <tr class="hover:bg-slate-50 border-b transition ${rowClass}">
                       <td class="p-4">
                          <div class="font-bold text-gray-700">${r.nama}</div>
-                         <div class="text-[10px] text-gray-400 font-mono">${r.username}</div>
                       </td>
                       <td class="p-4 text-sm text-gray-600">${r.waktu}</td>
-                      <td class="p-4"><span class="bg-indigo-50 text-indigo-700 px-2 py-1 rounded text-xs font-bold border border-indigo-100">${r.mapel}</span></td>
+                      <td class="p-4">
+                         <span class="bg-indigo-50 text-indigo-700 px-2 py-1 rounded text-xs font-bold border border-indigo-100 block w-fit">
+                            ${r.judulUjian || r.mapel}
+                         </span>
+                      </td>
                       <td class="p-4 text-center text-xs font-mono text-gray-500">${r.sisaWaktu}</td>
                       <td class="p-4 text-center">
                          <span class="bg-gray-100 text-gray-600 px-2 py-1 rounded font-bold text-sm">${r.nilaiSementara}</span>
