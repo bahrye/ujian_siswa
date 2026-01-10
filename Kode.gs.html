@@ -2958,3 +2958,73 @@ function getSoalUjian(kodeMapel, idJadwal) { // <--- Tambah parameter idJadwal
     return { status: 'error', message: 'Server Error: ' + e.toString() };
   }
 }
+
+// ==========================================
+// API TAMBAHAN: TATA TERTIB
+// ==========================================
+
+function getTataTertib() {
+  const ss = SpreadsheetApp.openById(SS_ID);
+  let sheet = ss.getSheetByName("DB_Config");
+  
+  // Jika sheet belum ada, buat baru dan isi default
+  if (!sheet) {
+    sheet = ss.insertSheet("DB_Config");
+    sheet.appendRow(["KEY", "VALUE"]); // Header
+    
+    const defaultRules = `
+      <ol>
+        <li>Peserta ujian wajib login 10 menit sebelum ujian dimulai.</li>
+        <li>Berdoa sebelum mengerjakan soal.</li>
+        <li>Dilarang keras membuka tab lain, browser lain, atau aplikasi lain selama ujian berlangsung.</li>
+        <li>Dilarang bekerja sama, menyontek, atau memberi jawaban kepada peserta lain.</li>
+        <li>Jika terjadi kendala teknis (logout tiba-tiba/layar terkunci), segera hubungi Pengawas Ruangan.</li>
+        <li>Waktu ujian dihitung mundur otomatis oleh sistem. Jika waktu habis, jawaban akan terkirim otomatis.</li>
+        <li>Pastikan klik tombol "Selesai" jika telah yakin dengan semua jawaban.</li>
+      </ol>
+    `;
+    sheet.appendRow(["TATA_TERTIB", defaultRules]);
+    return defaultRules;
+  }
+
+  // Cari Baris TATA_TERTIB
+  const data = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0] === "TATA_TERTIB") {
+      return data[i][1];
+    }
+  }
+  
+  return ""; // Default jika kosong
+}
+
+function simpanTataTertib(htmlContent) {
+  try {
+    const ss = SpreadsheetApp.openById(SS_ID);
+    let sheet = ss.getSheetByName("DB_Config");
+    if (!sheet) { getTataTertib(); sheet = ss.getSheetByName("DB_Config"); } // Init jika belum ada
+    
+    const data = sheet.getDataRange().getValues();
+    let rowIndex = -1;
+
+    // Cari baris
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][0] === "TATA_TERTIB") {
+        rowIndex = i + 1;
+        break;
+      }
+    }
+
+    if (rowIndex !== -1) {
+      // Update
+      sheet.getRange(rowIndex, 2).setValue(htmlContent);
+    } else {
+      // Insert Baru
+      sheet.appendRow(["TATA_TERTIB", htmlContent]);
+    }
+    
+    return { status: 'success', message: 'Tata tertib berhasil diperbarui.' };
+  } catch(e) {
+    return { status: 'error', message: e.toString() };
+  }
+}
