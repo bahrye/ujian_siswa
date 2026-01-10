@@ -115,4 +115,45 @@
   #signature-pad {
       touch-action: none; /* Mencegah scroll saat drawing di HP */
   }
+
+  /* Alignment / Perataan Teks */
+  .ql-align-center {
+    text-align: center;
+  }
+  .ql-align-right {
+    text-align: right;
+  }
+  .ql-align-justify {
+    text-align: justify;
+  }
+
+  /* Indentasi (jika ada list bertingkat) */
+  .ql-indent-1 { padding-left: 3em; }
+  .ql-indent-2 { padding-left: 6em; }
+  .ql-indent-3 { padding-left: 9em; }
+  
+  /* Ukuran Font Besar (Header) */
+  h1 { font-size: 2em; margin-bottom: 0.5em; font-weight: bold; }
+  h2 { font-size: 1.5em; margin-bottom: 0.5em; font-weight: bold; }
+  h3 { font-size: 1.17em; margin-bottom: 0.5em; font-weight: bold; }
+
+  /* Pastikan list (angka/bulat) muncul di dalam container siswa */
+  #content-tata-tertib-siswa ul {
+      list-style-type: disc;
+      padding-left: 1.5em;
+      margin-bottom: 1em;
+  }
+  #content-tata-tertib-siswa ol {
+      list-style-type: decimal;
+      padding-left: 1.5em;
+      margin-bottom: 1em;
+  }
+  
+  /* Perbaikan Gambar agar mengikuti align parent-nya */
+  #content-tata-tertib-siswa img {
+      max-width: 100%;
+      height: auto;
+      margin-top: 10px;
+      margin-bottom: 10px;
+  }
 </style>
