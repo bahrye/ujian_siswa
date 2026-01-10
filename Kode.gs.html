@@ -266,44 +266,50 @@ function hapusSoalDb(idSoal) {
   return { status: 'error', message: 'ID Soal tidak ditemukan.' };
 }
 
-// ==========================================
-// API 3: SISWA - AMBIL SOAL (DIPERBAIKI)
-// ==========================================
-function getSoalUjian(kodeMapel) {
+// [UPDATE] 2. Update getSoalUjian (Filter Soal jika Soal_IDs terisi)
+// Tambahkan parameter idJadwal (opsional) untuk pengecekan remedial
+function getSoalUjian(kodeMapel, idJadwal) {
   try {
     const ss = SpreadsheetApp.openById(SS_ID);
     const sheet = ss.getSheetByName("DB_Soal");
-    
-    // Validasi jika sheet tidak ada
-    if (!sheet) {
-      return { status: 'error', message: 'Database Soal (DB_Soal) tidak ditemukan!' };
+    if (!sheet) return { status: 'error', message: 'DB Soal tidak ditemukan!' };
+
+    // A. Cek Filter Soal ID dari Jadwal (Jika ada idJadwal)
+    let allowedIds = null; // null artinya ambil semua
+    if (idJadwal) {
+        const sheetJadwal = ss.getSheetByName("DB_Jadwal");
+        const dataJ = sheetJadwal.getDataRange().getValues();
+        for(let j=1; j<dataJ.length; j++) {
+            if(String(dataJ[j][0]) === String(idJadwal)) {
+                // Kolom Soal_IDs ada di index 12 (Column M)
+                const rawIds = dataJ[j][12]; 
+                if (rawIds && String(rawIds).trim() !== "") {
+                    // Buat Set ID agar pencarian cepat
+                    allowedIds = new Set(String(rawIds).split(',').map(s => s.trim()));
+                }
+                break;
+            }
+        }
     }
 
     const data = sheet.getDataRange().getValues();
-    data.shift(); // Hapus Header
+    data.shift(); 
 
     let soalList = [];
-    
-    // Normalisasi input mapel (hilangkan spasi, jadikan huruf kecil)
     const targetMapel = kodeMapel ? kodeMapel.toString().trim().toLowerCase() : "";
 
     for (let i = 0; i < data.length; i++) {
       let row = data[i];
-      
-      // Ambil kode mapel dari Database dan normalisasi
       let dbMapel = row[1] ? row[1].toString().trim().toLowerCase() : "";
 
-      // Cek Kesamaan Kode Mapel
       if (dbMapel === targetMapel) {
-        
-        // Parse JSON Opsi dengan aman
-        let opsiObj = {};
-        try { 
-          opsiObj = JSON.parse(row[5]); 
-        } catch (e) {
-          // Jika opsi bukan JSON valid, biarkan kosong atau handle manual
-          console.log("Error parsing opsi soal ID: " + row[0]);
+        // FILTER ID: Jika allowedIds tidak null, cek apakah ID soal ini ada di daftar
+        if (allowedIds !== null) {
+            if (!allowedIds.has(String(row[0]))) continue; // Skip jika tidak ada di daftar
         }
+
+        let opsiObj = {};
+        try { opsiObj = JSON.parse(row[5]); } catch (e) {}
 
         soalList.push({
           id: row[0],
@@ -311,14 +317,12 @@ function getSoalUjian(kodeMapel) {
           pertanyaan: row[3],
           gambar: row[4],
           opsi: opsiObj 
-          // PENTING: Kunci jawaban (row[6]) TIDAK dikirim ke frontend
         });
       }
     }
 
-    // Jika tidak ada soal yang cocok
     if (soalList.length === 0) {
-      return { status: 'error', message: 'Soal tidak ditemukan untuk Mapel: ' + kodeMapel + '. Pastikan Kode Mapel di "Bank Soal" sama persis dengan di "Jadwal Ujian".' };
+      return { status: 'error', message: 'Soal tidak ditemukan / Belum dipilih untuk remedial ini.' };
     }
 
     return { status: 'success', data: soalList };
@@ -326,6 +330,34 @@ function getSoalUjian(kodeMapel) {
   } catch (e) {
     return { status: 'error', message: 'Server Error: ' + e.toString() };
   }
+}
+
+// [BARU] 3. Fungsi untuk Guru Memilih Soal (Ringan, hanya ID & Cuplikan Pertanyaan)
+function getListSoalByMapel(kodeMapel) {
+  const ss = SpreadsheetApp.openById(SS_ID);
+  const sheet = ss.getSheetByName("DB_Soal");
+  if (!sheet) return [];
+  
+  const data = sheet.getDataRange().getValues();
+  data.shift();
+  
+  const target = kodeMapel.toLowerCase();
+  let result = [];
+  
+  data.forEach(r => {
+      if(String(r[1]).toLowerCase() === target) {
+          // Bersihkan HTML tag untuk preview teks
+          let plainText = r[3].replace(/<[^>]*>?/gm, '');
+          if(plainText.length > 60) plainText = plainText.substring(0, 60) + "...";
+          
+          result.push({
+              id: r[0],
+              tipe: r[2],
+              preview: plainText
+          });
+      }
+  });
+  return result;
 }
 
 // ==========================================
@@ -1296,14 +1328,14 @@ function getJadwalUjian() {
   });
 }
 
-// 3. UPDATE: simpanJadwal (Simpan kolom baru)
+// [UPDATE] 1. Update simpanJadwal (Menangani Kolom Soal_IDs)
 function simpanJadwal(data) {
   const ss = SpreadsheetApp.openById(SS_ID);
   let sheet = ss.getSheetByName("DB_Jadwal");
   
   if (!sheet) { 
     sheet = ss.insertSheet("DB_Jadwal"); 
-    sheet.appendRow(["ID", "ID_Jenis", "Kode_Mapel", "Mulai", "Selesai", "Status", "Pengawas", "Kelas", "Durasi", "Acak_Soal", "Acak_Opsi"]); 
+    sheet.appendRow(["ID", "ID_Jenis", "Kode_Mapel", "Mulai", "Selesai", "Status", "Pengawas", "Kelas", "Durasi", "Acak_Soal", "Acak_Opsi", "Target_Siswa", "Soal_IDs"]); 
   }
   
   const allData = sheet.getDataRange().getValues();
@@ -1312,8 +1344,7 @@ function simpanJadwal(data) {
      return { status: 'error', message: 'Waktu Selesai harus lebih akhir dari Mulai.' };
   }
 
-  // Data yang akan disimpan (11 Kolom)
-  // Pastikan urutan sesuai Header: ID(skip), Jenis, Mapel, Mulai, Selesai, Status, Pengawas, Kelas, Durasi, AcakSoal, AcakOpsi
+  // Data yang akan disimpan (13 Kolom sekarang)
   const rowData = [
     data.id_jenis, 
     data.kode_mapel, 
@@ -1324,14 +1355,16 @@ function simpanJadwal(data) {
     data.target_kelas,
     data.durasi,
     data.acak_soal,
-    data.acak_opsi
+    data.acak_opsi,
+    data.target_siswa || "",
+    data.soal_ids || "" // <--- KOLOM BARU (Index 12 / Kolom M)
   ];
 
   if (data.id) { // Edit
     for (let i = 1; i < allData.length; i++) {
       if (allData[i][0].toString() === data.id.toString()) {
-        // Update range kolom 2 sampai 11 (sebanyak 10 kolom data)
-        sheet.getRange(i + 1, 2, 1, 10).setValues([rowData]);
+        // Update range diperlebar jadi 12 kolom data
+        sheet.getRange(i + 1, 2, 1, 12).setValues([rowData]);
         return { status: 'success', message: 'Jadwal diperbarui!' };
       }
     }
@@ -1671,9 +1704,24 @@ function getStudentDashboardData(username, kelasSiswa) {
       data.forEach(row => {
         const statusJadwal = row[5];
         const targetKelas = row[7] ? row[7].toString().trim() : "Semua";
+        const targetSiswa = row[11] ? row[11].toString().toLowerCase() : ""; // Kolom Target Siswa (Index 11)
         
         if (statusJadwal === 'Aktif') {
-          if (targetKelas.toLowerCase() === 'semua' || (kelasSiswa && targetKelas === kelasSiswa)) {
+          let isEligible = false;
+
+          // LOGIKA 1: Cek apakah Remedial Khusus (Target Siswa Spesifik)
+          if (targetSiswa !== "") {
+             // Cek apakah username siswa ada di dalam list (dipisah koma)
+             if (targetSiswa.includes(username.toLowerCase())) {
+                isEligible = true;
+             }
+          } 
+          // LOGIKA 2: Jika bukan khusus, cek Kelas
+          else if (targetKelas.toLowerCase() === 'semua' || (kelasSiswa && targetKelas === kelasSiswa)) {
+             isEligible = true;
+          }
+
+          if (isEligible) {
              const m = mapelList.find(x => x.kode === row[2]);
              const j = jenisList.find(x => x.id === row[1]);
              
@@ -1682,15 +1730,7 @@ function getStudentDashboardData(username, kelasSiswa) {
   
              // 2. [BARU] Logika Ganti Username ke Nama Lengkap
              let pengawasRaw = row[6] ? row[6].toString().trim() : "";
-             let pengawasDisplay = "-";
-
-             if (pengawasRaw.toLowerCase() === 'semua') {
-                 pengawasDisplay = "Semua Pengawas";
-             } else if (mapPengawas[pengawasRaw]) {
-                 pengawasDisplay = mapPengawas[pengawasRaw]; // Pakai Nama Lengkap
-             } else {
-                 pengawasDisplay = pengawasRaw; // Fallback ke username jika nama tidak ketemu
-             }
+             let pengawasDisplay = mapPengawas[pengawasRaw] || pengawasRaw || "Semua Pengawas";
   
              jadwalList.push({
                id: row[0],
@@ -2626,4 +2666,129 @@ function updateNilaiLama() {
   }
   
   console.log("Selesai! Berhasil update " + countUpdated + " data nilai.");
+}
+
+// --- API KHUSUS GURU: REMEDIAL ---
+
+// 1. Ambil Siswa per Kelas (Untuk Guru memilih peserta remedial)
+function getSiswaByKelas(kelas) {
+  const ss = SpreadsheetApp.openById(SS_ID);
+  const sheet = ss.getSheetByName("Users");
+  const data = sheet.getDataRange().getValues();
+  data.shift();
+  
+  let result = [];
+  data.forEach(r => {
+    // r[3]=Role, r[5]=Kelas
+    if (r[3].toString().toLowerCase() === 'siswa' && r[5].toString() === kelas) {
+       result.push({ username: r[1], nama: r[4] });
+    }
+  });
+  return result;
+}
+
+// [UPDATE] Ambil Jadwal Remedial dengan status "Apakah sudah ada yang mengerjakan?"
+function getJadwalRemedialGuru(usernameGuru) {
+  const ss = SpreadsheetApp.openById(SS_ID);
+  const sheet = ss.getSheetByName("DB_Jadwal");
+  if(!sheet) return [];
+  
+  // 1. Ambil Data Jadwal
+  const data = sheet.getDataRange().getValues();
+  data.shift();
+  
+  // 2. Cek DB_Nilai untuk melihat jadwal mana yang sudah ada pesertanya
+  // Asumsi: DB_Nilai menyimpan ID Jadwal di kolom pertama (Index 0)
+  const sheetNilai = ss.getSheetByName("DB_Nilai");
+  const startedIds = new Set();
+  
+  if (sheetNilai) {
+    const dataNilai = sheetNilai.getDataRange().getValues();
+    // Mulai loop dari baris ke-2 (index 1) untuk skip header
+    for (let i = 1; i < dataNilai.length; i++) {
+       // Masukkan ID Jadwal ke dalam Set (unik)
+       startedIds.add(String(dataNilai[i][0]));
+    }
+  }
+
+  // Format waktu helper
+  const fmt = (d) => { try { return Utilities.formatDate(new Date(d), "Asia/Makassar", "dd/MM/yyyy HH:mm"); } catch(e){return "-";} };
+
+  let result = [];
+  
+  data.forEach(r => {
+     // Filter hanya jadwal milik guru tersebut
+     if (r[6] && r[6].toString() === usernameGuru) {
+         
+         const idJadwal = String(r[0]);
+         
+         // LOGIKA TOKEN (Tetap berjalan berdasarkan waktu)
+         let token = "BELUM MULAI";
+         const now = new Date();
+         const tMulai = new Date(r[3]);
+         const tSelesai = new Date(r[4]);
+         
+         if(now >= tMulai && now <= tSelesai) {
+            token = generateTokenForExam(idJadwal); 
+         } else if (now > tSelesai) {
+            token = "SELESAI";
+         }
+         
+         // LOGIKA KUNCI: Cek apakah ID ini ada di DB_Nilai?
+         // Jika TRUE = Ada siswa yang sedang/sudah mengerjakan -> Kunci Edit
+         // Jika FALSE = Belum ada yang sentuh -> Boleh Edit (meski waktu sudah berjalan)
+         const isLocked = startedIds.has(idJadwal);
+
+         result.push({
+            id: idJadwal,
+            jenis: r[1],
+            mapel: r[2],
+            mulai: fmt(r[3]),
+            selesai: fmt(r[4]),
+            status: r[5],
+            target_kelas: r[7],
+            target_siswa: r[11] || "Semua",
+            token: token,
+            is_locked: isLocked // <--- Flag Baru untuk Frontend
+         });
+     }
+  });
+  return result;
+}
+
+// Ambil Detail Jadwal by ID (Untuk Edit Remedial)
+function getJadwalById(id) {
+  const ss = SpreadsheetApp.openById(SS_ID);
+  const sheet = ss.getSheetByName("DB_Jadwal");
+  const data = sheet.getDataRange().getValues();
+  
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === String(id)) {
+      const r = data[i];
+      // Format datetime-local string: YYYY-MM-DDTHH:mm
+      const fmt = (d) => {
+         let date = new Date(d);
+         // Sesuaikan timezone offset Indonesia (WITA/WIB/WIT) atau gunakan UTC handling
+         // Cara aman untuk input type="datetime-local" adalah ISO string dipotong
+         // Namun Google Apps Script timezone server-side kadang tricky.
+         // Kita kirim string ISO, nanti client side yang parsing.
+         return date.toISOString().slice(0, 16); 
+      };
+      
+      return {
+        id: r[0],
+        id_jenis: r[1],
+        kode_mapel: r[2],
+        mulai: fmt(r[3]),
+        selesai: fmt(r[4]),
+        status: r[5],
+        pengawas: r[6],
+        target_kelas: r[7],
+        durasi: r[8],
+        target_siswa: r[11],
+        soal_ids: r[12]
+      };
+    }
+  }
+  return null;
 }
