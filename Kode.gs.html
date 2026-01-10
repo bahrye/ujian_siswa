@@ -1802,76 +1802,6 @@ function getRiwayatNilaiSiswa(username) {
   return result;
 }
 
-// 2. [UPDATE] Ambil Detail Jawaban (Fix COCOK vs ESSAY)
-function getDetailJawabanSiswa(idJadwal, username) {
-  const ss = SpreadsheetApp.openById(SS_ID);
-  
-  // Validasi Waktu dll (kode lama tetap sama)...
-  // Langsung ke logic pengambilan data:
-  
-  const sheetNilai = ss.getSheetByName("DB_Nilai");
-  const dataNilai = sheetNilai.getDataRange().getValues();
-  let jawabanSiswa = {};
-  
-  for(let i=dataNilai.length-1; i>=1; i--) {
-     if(String(dataNilai[i][1]) === String(idJadwal) && String(dataNilai[i][2]) === String(username)) {
-        try { jawabanSiswa = JSON.parse(dataNilai[i][7]); } catch(e){}
-        break;
-     }
-  }
-
-  // Ambil Mapel
-  const sheetJadwal = ss.getSheetByName("DB_Jadwal");
-  const dataJadwal = sheetJadwal.getDataRange().getValues();
-  let targetMapelKode = "";
-  for(let i=1; i<dataJadwal.length; i++) {
-     if(String(dataJadwal[i][0]) === String(idJadwal)) { targetMapelKode = dataJadwal[i][2]; break; }
-  }
-
-  const sheetSoal = ss.getSheetByName("DB_Soal");
-  const dataSoal = sheetSoal.getDataRange().getValues();
-  dataSoal.shift();
-
-  let detail = [];
-  
-  for(let row of dataSoal) {
-     if(row[1].toString().toLowerCase() === targetMapelKode.toLowerCase()) {
-        const idSoal = row[0];
-        const tipe = row[2];
-        const pertanyaan = row[3];
-        const opsiRaw = row[5];
-        const kunci = row[6];
-        
-        let opsiObj = {};
-        try { opsiObj = JSON.parse(opsiRaw); } catch(e){}
-
-        const jawab = jawabanSiswa[idSoal]; // Jangan default "-" disini, biar frontend handle null
-        
-        let isCorrect = false;
-        
-        // Logika Status Benar/Salah untuk Badge
-        if (tipe === 'PG' || tipe === 'BS') {
-           isCorrect = (String(jawab) === String(kunci));
-        } else if (tipe === 'COCOK') {
-           // Untuk cocok, kita anggap "Correct" jika ada minimal 1 jawaban benar (opsional, hanya untuk visual badge)
-           // Atau biarkan false, nanti frontend menampilkan badge khusus "Pencocokan"
-           isCorrect = false; 
-        }
-
-        detail.push({
-           tipe: tipe,
-           pertanyaan: pertanyaan,
-           opsi: opsiObj,
-           kunci: kunci,
-           jawabanSiswa: jawab,
-           isCorrect: isCorrect
-        });
-     }
-  }
-
-  return { status: 'success', data: detail };
-}
-
 // ==========================================
 // FITUR AUTO-SAVE & PROGRESS (DATABASE CADANGAN)
 // ==========================================
@@ -1977,23 +1907,68 @@ function getMapelByGuru(namaGuru) {
 // API KHUSUS GURU: HASIL & KOREKSI
 // ==========================================
 
-// 1. Ambil Daftar Hasil Ujian (Format Baru untuk Guru)
+// ==========================================
+// UPDATE: AMBIL DAFTAR HASIL (FIX NAMA SISWA & FORMAT MAPEL)
+// ==========================================
 function getHasilUjianGuru() {
   const ss = SpreadsheetApp.openById(SS_ID);
+  
+  // 1. AMBIL DATA REFERENSI
+  const sheetJadwal = ss.getSheetByName("DB_Jadwal");
+  const sheetJenis = ss.getSheetByName("DB_JenisUjian");
+  const sheetRem = ss.getSheetByName("DB_Remedial");
+  const sheetUser = ss.getSheetByName("Users"); // <--- TAMBAHAN: Ambil DB Users
+
+  // A. Mapping ID Jenis -> Nama Ujian
+  let mapJenisNama = {};
+  if (sheetJenis) {
+    const dJenis = sheetJenis.getDataRange().getValues(); dJenis.shift();
+    dJenis.forEach(r => mapJenisNama[r[0]] = r[1]);
+  }
+
+  // B. Mapping ID Jadwal -> Info Judul Lengkap
+  let mapJadwalInfo = {};
+  
+  if (sheetJadwal) {
+    const dJadwal = sheetJadwal.getDataRange().getValues(); dJadwal.shift();
+    dJadwal.forEach(r => {
+      const namaUjian = mapJenisNama[r[1]] || "Ujian";
+      mapJadwalInfo[r[0]] = `${namaUjian} - ${r[2]}`;
+    });
+  }
+
+  if (sheetRem) {
+    const dRem = sheetRem.getDataRange().getValues(); dRem.shift();
+    dRem.forEach(r => {
+      mapJadwalInfo[r[0]] = `Remedial: ${r[1]} - ${r[2]}`;
+    });
+  }
+
+  // C. Mapping Username -> Nama Lengkap Asli (FIX UTAMA)
+  let mapNamaSiswa = {};
+  if (sheetUser) {
+    const dUser = sheetUser.getDataRange().getValues(); 
+    // Mulai loop dari baris ke-2 (index 1) karena baris 1 header
+    for(let i=1; i<dUser.length; i++) {
+        // Kolom 1: Username, Kolom 4: Nama Lengkap
+        // Pastikan konversi ke string agar aman
+        const uName = String(dUser[i][1]).trim();
+        const fName = String(dUser[i][4]).trim();
+        mapNamaSiswa[uName] = fName;
+    }
+  }
+
+  // 2. AMBIL DATA NILAI
   const sheet = ss.getSheetByName("DB_Nilai");
   if (!sheet) return [];
   
   const data = sheet.getDataRange().getValues();
   data.shift(); // Skip Header
   
-  // [0:Time, 1:ID_Jadwal, 2:Username, 3:Nama, 4:Mapel, 5:NilaiSmt, 6:Detail, 7:Jawaban, 8:Sisa, 9:NilaiAkhir]
-  
-  // Format Tanggal
+  // Helper Format
   const formatTgl = (d) => {
       try { return Utilities.formatDate(new Date(d), "Asia/Makassar", "dd MMM yyyy HH:mm"); } catch(e){return "-";}
   };
-  
-  // Helper Format Sisa Waktu
   const formatSisa = (detik) => {
       if(!detik || detik <= 0) return "0m 0d";
       const m = Math.floor(detik / 60);
@@ -2001,22 +1976,35 @@ function getHasilUjianGuru() {
       return `${m}m ${s}d`;
   };
 
-  return data.map((row, i) => ({
-    rowIndex: i + 2, // Simpan index baris (Excel row) untuk update cepat
-    waktu: formatTgl(row[0]),
-    idJadwal: row[1],
-    username: row[2],
-    nama: row[3],
-    mapel: row[4],
-    nilaiSementara: row[5], // Nilai Sistem (PG/Otomatis)
-    sisaWaktu: formatSisa(row[8]),
-    nilaiAkhir: row[9], // Nilai Rapor (Bisa kosong)
-    status: (row[9] !== "" && row[9] !== null) ? "Published" : "Draft"
-  })).reverse(); // Urutkan dari yang terbaru
+  return data.map((row, i) => {
+    const idJadwal = row[1];
+    const usernameSiswa = String(row[2]).trim();
+    
+    // 1. Perbaiki Judul Mapel
+    const judulDisplay = mapJadwalInfo[idJadwal] || row[4]; 
+
+    // 2. Perbaiki Nama Siswa (Lookup dari Users, jika tidak ada pakai nama di row)
+    // Ini memperbaiki masalah "Siswa" yang muncul
+    const namaAsli = mapNamaSiswa[usernameSiswa] || row[3]; 
+
+    return {
+      rowIndex: i + 2,
+      waktu: formatTgl(row[0]),
+      idJadwal: idJadwal,
+      username: usernameSiswa,
+      nama: namaAsli, // <--- Gunakan Nama yang sudah diperbaiki
+      mapel: row[4], 
+      judulUjian: judulDisplay,
+      nilaiSementara: row[5],
+      sisaWaktu: formatSisa(row[8]),
+      nilaiAkhir: row[9],
+      status: (row[9] !== "" && row[9] !== null) ? "Published" : "Draft"
+    };
+  }).reverse();
 }
 
 // ==========================================
-// FIX: KOREKSI GURU (LOGIKA COCOK & BOBOT DINAMIS)
+// 2. UPDATE: LOGIKA KOREKSI (FIX REMEDIAL & SOAL TARGET)
 // ==========================================
 function getDataKoreksi(idJadwal, username, rowIndex) {
   const ss = SpreadsheetApp.openById(SS_ID);
@@ -2025,138 +2013,111 @@ function getDataKoreksi(idJadwal, username, rowIndex) {
   const sheetNilai = ss.getSheetByName("DB_Nilai");
   const rowData = sheetNilai.getRange(rowIndex, 1, 1, 11).getValues()[0];
   
-  // Validasi data sinkron
   if (String(rowData[1]) !== String(idJadwal) || String(rowData[2]) !== String(username)) {
      return { status: 'error', message: 'Data tidak sinkron. Refresh halaman.' };
   }
 
   let jawabanSiswa = {};
   try { jawabanSiswa = JSON.parse(rowData[7]); } catch(e) {}
-  
   let draftSkor = {};
   try { draftSkor = JSON.parse(rowData[10]); } catch(e) {}
 
-  // B. Ambil Mapel & Soal
-  const sheetJadwal = ss.getSheetByName("DB_Jadwal");
-  const dataJadwal = sheetJadwal.getDataRange().getValues();
+  // B. DETEKSI MAPEL & SOAL TARGET (Handle SCH vs REM)
   let kodeMapel = "";
-  for(let j=1; j<dataJadwal.length; j++) {
-     if(String(dataJadwal[j][0]) === String(idJadwal)) { kodeMapel = dataJadwal[j][2]; break; }
+  let targetSoalIds = null; // Set ID Soal spesifik (jika remedial)
+
+  // Cek apakah Remedial?
+  if (String(idJadwal).startsWith("REM-")) {
+      const sheetRem = ss.getSheetByName("DB_Remedial");
+      if(sheetRem) {
+          const dataRem = sheetRem.getDataRange().getValues();
+          for(let j=1; j<dataRem.length; j++) {
+              if(String(dataRem[j][0]) === String(idJadwal)) {
+                  kodeMapel = dataRem[j][2]; 
+                  // Cek Target Soal (Kolom Index 11 / ke-12)
+                  try {
+                      const parsed = JSON.parse(dataRem[j][11]);
+                      if(Array.isArray(parsed) && parsed.length > 0) targetSoalIds = new Set(parsed.map(String));
+                  } catch(e){}
+                  break;
+              }
+          }
+      }
+  } else {
+      // Jadwal Reguler
+      const sheetJadwal = ss.getSheetByName("DB_Jadwal");
+      const dataJadwal = sheetJadwal.getDataRange().getValues();
+      for(let j=1; j<dataJadwal.length; j++) {
+         if(String(dataJadwal[j][0]) === String(idJadwal)) { kodeMapel = dataJadwal[j][2]; break; }
+      }
   }
 
+  // C. AMBIL DB SOAL
   const sheetSoal = ss.getSheetByName("DB_Soal");
   const dataSoal = sheetSoal.getDataRange().getValues();
   dataSoal.shift();
 
   let listSoal = [];
-  let totalBobotSeluruhSoal = 0; // Akumulasi bobot semua soal
+  let totalBobotSeluruhSoal = 0;
 
   dataSoal.forEach(r => {
-     if(String(r[1]).toLowerCase() === String(kodeMapel).toLowerCase()) {
+     let isMatch = false;
+     
+     // 1. Filter: Jika Remedial punya Target ID, abaikan Mapel, cek ID
+     if (targetSoalIds) {
+         if (targetSoalIds.has(String(r[0]))) isMatch = true;
+     } else {
+         // 2. Filter Normal: Cek Mapel
+         if(String(r[1]).toLowerCase() === String(kodeMapel).toLowerCase()) isMatch = true;
+     }
+
+     if(isMatch) {
         const idSoal = r[0];
         const tipe = r[2];
         const opsiRaw = r[5]; 
         const kunci = r[6];
-        
-        // Bobot Default dari Database (Global)
         let bobotGlobal = (r[7] && !isNaN(r[7])) ? parseFloat(r[7]) : 1;
-        let finalBobotSoal = bobotGlobal; // Ini yang akan dipakai sebagai penyebut (denominator)
+        let finalBobotSoal = bobotGlobal; 
 
-        // --- LOGIKA SKOR ---
+        // -- LOGIKA SKOR (Sama seperti sebelumnya) --
         let skorItem = 0;
         
-        // 1. Cek Draft Manual Guru (Jika sudah pernah dikoreksi dan disimpan)
         if (draftSkor[idSoal] !== undefined) {
             skorItem = parseFloat(draftSkor[idSoal]);
-            
-            // Khusus COCOK: Kita perlu hitung ulang Total Bobot jika guru pakai bobot item
+            // Recalc bobot untuk COCOK jika guru pakai bobot item
             if (tipe === 'COCOK') {
-                let pairsConfig = [];
-                try { pairsConfig = JSON.parse(opsiRaw); } catch(e){}
-                let totalDefinedWeight = 0;
-                if(Array.isArray(pairsConfig)) {
-                    pairsConfig.forEach(p => {
-                       if(p.s && !isNaN(p.s)) totalDefinedWeight += parseFloat(p.s);
-                    });
-                }
-                // Jika total bobot item > 0, gunakan itu sebagai Final Bobot
-                if(totalDefinedWeight > 0) finalBobotSoal = totalDefinedWeight;
+                let pairs = []; try{pairs=JSON.parse(opsiRaw)}catch(e){}
+                let tw=0; if(Array.isArray(pairs)) pairs.forEach(p=>{if(p.s) tw+=parseFloat(p.s)});
+                if(tw>0) finalBobotSoal = tw;
             }
-
-        } 
-        else {
-            // 2. Hitung Otomatis (Belum ada draft)
+        } else {
+            // Hitung Otomatis (PG/BS/COCOK)
             const jwb = jawabanSiswa[idSoal];
-
             if (tipe === 'PG' || tipe === 'BS') {
-               if(String(jwb).trim().toUpperCase() === String(kunci).trim().toUpperCase()) {
-                   skorItem = bobotGlobal;
-               }
-            } 
-            else if (tipe === 'COCOK') {
-               // --- PERBAIKAN LOGIKA COCOK (ROBUST MATCHING) ---
-               let pairsConfig = [];
-               try { pairsConfig = JSON.parse(opsiRaw); } catch(e){} 
+               if(String(jwb).trim().toUpperCase() === String(kunci).trim().toUpperCase()) skorItem = bobotGlobal;
+            } else if (tipe === 'COCOK') {
+               let pairs = []; try{pairs=JSON.parse(opsiRaw)}catch(e){}
+               if(Array.isArray(pairs)) {
+                  let tw=0; pairs.forEach(p=>{if(p.s) tw+=parseFloat(p.s)});
+                  finalBobotSoal = tw > 0 ? tw : bobotGlobal;
+                  const itemW = tw > 0 ? 0 : (bobotGlobal/pairs.length);
 
-               if(Array.isArray(pairsConfig)) {
-                  
-                  // 1. Hitung Total Bobot Item (Jika guru mengisi bobot per pasang)
-                  let totalDefinedWeight = 0;
-                  pairsConfig.forEach(p => {
-                      if(p.s && !isNaN(p.s)) totalDefinedWeight += parseFloat(p.s);
-                  });
-
-                  // Tentukan Bobot Akhir Soal & Bobot Per Item
-                  const useItemWeight = totalDefinedWeight > 0;
-                  finalBobotSoal = useItemWeight ? totalDefinedWeight : bobotGlobal;
-                  const weightPerItem = useItemWeight ? 0 : (bobotGlobal / pairsConfig.length);
-
-                  let currentScore = 0;
-                  
-                  // 2. LOGIKA PENCOCOKAN: ABAIKAN URUTAN
-                  if (typeof jwb === 'object' && jwb !== null) {
-                      
-                      // Langkah A: Buat Kamus Jawaban Siswa yang Dinormalisasi
-                      // Format: { "kunci_huruf_kecil": "nilai_huruf_kecil" }
-                      let studentMap = {};
-                      Object.keys(jwb).forEach(studentKey => {
-                          const cleanKey = String(studentKey).trim().toLowerCase();
-                          const cleanVal = String(jwb[studentKey]).trim().toLowerCase();
-                          studentMap[cleanKey] = cleanVal;
-                      });
-
-                      // Langkah B: Loop Kunci Jawaban (Database)
-                      pairsConfig.forEach(p => {
-                          // Ambil pasangan Benar dari DB
-                          const dbKey = String(p.k).trim().toLowerCase(); 
-                          const dbValRight = String(p.v).trim().toLowerCase();
-                          const itemScore = useItemWeight ? parseFloat(p.s || 0) : weightPerItem;
-
-                          // Cek apakah siswa punya jawaban untuk Kunci Kiri ini?
-                          if (studentMap.hasOwnProperty(dbKey)) {
-                              // Cek apakah Nilai Kanannya cocok?
-                              if (studentMap[dbKey] === dbValRight) {
-                                  // BENAR (Match!)
-                                  currentScore += itemScore;
-                              }
-                          }
+                  let cur=0;
+                  if(typeof jwb === 'object' && jwb!==null) {
+                      let sMap={}; Object.keys(jwb).forEach(k=>sMap[String(k).trim().toLowerCase()]=String(jwb[k]).trim().toLowerCase());
+                      pairs.forEach(p=>{
+                          const score = tw > 0 ? parseFloat(p.s||0) : itemW;
+                          if(sMap[String(p.k).trim().toLowerCase()] === String(p.v).trim().toLowerCase()) cur+=score;
                       });
                   }
-                  
-                  // Pembulatan score agar rapi (2 desimal)
-                  skorItem = parseFloat(currentScore.toFixed(2));
-                  
-                  // Safety: Skor tidak boleh melebihi bobot total soal (misal karena pembulatan)
+                  skorItem = parseFloat(cur.toFixed(2));
                   if(skorItem > finalBobotSoal) skorItem = finalBobotSoal;
                }
             }
         }
         
-        // Akumulasi Bobot Total Seluruh Ujian (Untuk penyebut nilai akhir)
         totalBobotSeluruhSoal += finalBobotSoal;
-
-        let opsiParsed = {};
-        try { opsiParsed = JSON.parse(opsiRaw); } catch(e){}
+        let opsiParsed = {}; try { opsiParsed = JSON.parse(opsiRaw); } catch(e){}
 
         listSoal.push({
            id: idSoal,
@@ -2164,7 +2125,7 @@ function getDataKoreksi(idJadwal, username, rowIndex) {
            soal: r[3],
            opsi: opsiParsed,
            kunci: kunci,
-           bobot: finalBobotSoal, // Kirim bobot yang sudah diperbaiki (Total Item atau Global)
+           bobot: finalBobotSoal,
            jawabanSiswa: jawabanSiswa[idSoal], 
            skor: parseFloat(skorItem)
         });
@@ -2178,6 +2139,96 @@ function getDataKoreksi(idJadwal, username, rowIndex) {
      nilaiAkhir: rowData[9],
      rowIndex: rowIndex
   };
+}
+
+// ==========================================
+// 3. UPDATE: DETAIL JAWABAN (FIX REMEDIAL & SOAL TARGET)
+// ==========================================
+function getDetailJawabanSiswa(idJadwal, username) {
+  const ss = SpreadsheetApp.openById(SS_ID);
+  
+  // A. Ambil Data Nilai
+  const sheetNilai = ss.getSheetByName("DB_Nilai");
+  const dataNilai = sheetNilai.getDataRange().getValues();
+  let jawabanSiswa = {};
+  
+  // Cari data siswa (loop dari bawah)
+  for(let i=dataNilai.length-1; i>=1; i--) {
+     if(String(dataNilai[i][1]) === String(idJadwal) && String(dataNilai[i][2]) === String(username)) {
+        try { jawabanSiswa = JSON.parse(dataNilai[i][7]); } catch(e){}
+        break;
+     }
+  }
+
+  // B. DETEKSI MAPEL & SOAL TARGET (Sama seperti getDataKoreksi)
+  let kodeMapel = "";
+  let targetSoalIds = null;
+
+  if (String(idJadwal).startsWith("REM-")) {
+      const sheetRem = ss.getSheetByName("DB_Remedial");
+      if(sheetRem) {
+          const dataRem = sheetRem.getDataRange().getValues();
+          for(let j=1; j<dataRem.length; j++) {
+              if(String(dataRem[j][0]) === String(idJadwal)) {
+                  kodeMapel = dataRem[j][2]; 
+                  try {
+                      const parsed = JSON.parse(dataRem[j][11]);
+                      if(Array.isArray(parsed) && parsed.length > 0) targetSoalIds = new Set(parsed.map(String));
+                  } catch(e){}
+                  break;
+              }
+          }
+      }
+  } else {
+      const sheetJadwal = ss.getSheetByName("DB_Jadwal");
+      const dataJadwal = sheetJadwal.getDataRange().getValues();
+      for(let j=1; j<dataJadwal.length; j++) {
+         if(String(dataJadwal[j][0]) === String(idJadwal)) { kodeMapel = dataJadwal[j][2]; break; }
+      }
+  }
+
+  // C. AMBIL SOAL
+  const sheetSoal = ss.getSheetByName("DB_Soal");
+  const dataSoal = sheetSoal.getDataRange().getValues();
+  dataSoal.shift();
+
+  let detail = [];
+  
+  for(let row of dataSoal) {
+     let isMatch = false;
+     if (targetSoalIds) {
+         if (targetSoalIds.has(String(row[0]))) isMatch = true;
+     } else {
+         if(String(row[1]).toLowerCase() === String(kodeMapel).toLowerCase()) isMatch = true;
+     }
+
+     if(isMatch) {
+        const idSoal = row[0];
+        const tipe = row[2];
+        const pertanyaan = row[3];
+        const opsiRaw = row[5];
+        const kunci = row[6];
+        
+        let opsiObj = {}; try { opsiObj = JSON.parse(opsiRaw); } catch(e){}
+        const jawab = jawabanSiswa[idSoal]; 
+        
+        let isCorrect = false;
+        if (tipe === 'PG' || tipe === 'BS') {
+           isCorrect = (String(jawab) === String(kunci));
+        }
+
+        detail.push({
+           tipe: tipe,
+           pertanyaan: pertanyaan,
+           opsi: opsiObj,
+           kunci: kunci,
+           jawabanSiswa: jawab,
+           isCorrect: isCorrect
+        });
+     }
+  }
+
+  return { status: 'success', data: detail };
 }
 
 // 3. Simpan Nilai Koreksi (Draft / Publish)
