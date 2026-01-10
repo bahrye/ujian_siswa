@@ -161,6 +161,7 @@
              { id: 'mapel', icon: 'fa-tags', label: 'Kelola Mapel' },
              { id: 'bank-soal', icon: 'fa-file-alt', label: 'Bank Soal' },
              { id: 'ujian', icon: 'fa-calendar-alt', label: 'Kelola Ujian' },
+             { id: 'kelola-tata-tertib', icon: 'fa-gavel', label: 'Kelola Tata Tertib' },
              { id: 'admin-monitoring', icon: 'fa-desktop', label: 'Monitoring Live' }, 
              { id: 'admin-hasil', icon: 'fa-poll', label: 'Hasil Ujian' },           
            ];
@@ -170,6 +171,7 @@
              { id: 'bank-soal', icon: 'fa-file-alt', label: 'Bank Soal' },
              { id: 'remedial-guru', icon: 'fa-recycle', label: 'Remedial' }, // <--- TAMBAHAN
              { id: 'hasil', icon: 'fa-poll', label: 'Hasil & Koreksi' },
+             { id: 'tata-tertib-siswa', icon: 'fa-shield-alt', label: 'Tata Tertib' },
            ];
         } else if (role === 'pengawas') {
            menus = [
@@ -178,11 +180,13 @@
              { id: 'pengawas-kehadiran', icon: 'fa-user-check', label: 'Cek Kehadiran' },
              { id: 'pengawas-monitor', icon: 'fa-desktop', label: 'Monitoring Live' }, // Menu Monitoring
              { id: 'pengawas-pelanggaran', icon: 'fa-exclamation-triangle', label: 'Pelanggaran Siswa' },
+             { id: 'tata-tertib-siswa', icon: 'fa-shield-alt', label: 'Tata Tertib' },
            ];
         } else if (role === 'siswa') {
            menus = [
              // Label tetap Dashboard, tapi isinya nanti Jadwal Ujian
              { id: 'dashboard', icon: 'fa-calendar-check', label: 'Jadwal Ujian' }, 
+             { id: 'tata-tertib-siswa', icon: 'fa-shield-alt', label: 'Tata Tertib' },
              { id: 'hasil-siswa', icon: 'fa-poll', label: 'Riwayat Nilai' }, 
            ];
         }
@@ -930,6 +934,90 @@
         `;
         document.getElementById('container-cocok').appendChild(div);
       },
+    },
+
+    // --- Module: Tata Tertib ---
+    TataTertib: {
+       quill: null,
+
+       // Untuk Admin: Init Editor & Load Data
+       initEditor: function() {
+           // 1. Setup Quill jika belum ada
+           if (!App.TataTertib.quill) {
+               // Gunakan konfigurasi toolbar lengkap termasuk image
+               const toolbarOptions = [
+                  ['bold', 'italic', 'underline', 'strike'],
+                  [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+                  [{ 'align': [] }],
+                  [{ 'header': [1, 2, 3, false] }],
+                  ['link', 'image'], // Gambar aktif
+                  [{ 'color': [] }, { 'background': [] }]
+               ];
+
+               // Register ImageResize jika ada (sudah ada di index.html)
+               let modulesConfig = { toolbar: toolbarOptions };
+               if (window.Quill && window.ImageResize) { 
+                  Quill.register('modules/imageResize', window.ImageResize.default || window.ImageResize); 
+                  modulesConfig.imageResize = { displaySize: true }; 
+               }
+
+               App.TataTertib.quill = new Quill('#editor-tatib', {
+                  theme: 'snow',
+                  placeholder: 'Tulis tata tertib ujian di sini...',
+                  modules: modulesConfig
+               });
+               
+               // Handler Custom Image Upload (Opsional: Reuse logic BankSoal jika ingin upload ke Drive, 
+               // tapi default Quill base64 sudah cukup untuk tata tertib yang jarang berubah)
+           }
+
+           // 2. Load Content Existing
+           const editor = App.TataTertib.quill;
+           // Set loading state text
+           editor.setText('Memuat data...');
+           editor.enable(false);
+
+           google.script.run.withSuccessHandler(html => {
+               editor.clipboard.dangerouslyPasteHTML(0, html);
+               editor.enable(true);
+           }).getTataTertib();
+       },
+
+       // Untuk Admin: Simpan
+       save: function() {
+           const html = App.TataTertib.quill.root.innerHTML;
+           
+           Swal.fire({title: 'Menyimpan...', didOpen: () => Swal.showLoading()});
+           
+           google.script.run.withSuccessHandler(res => {
+               Swal.close();
+               if(res.status === 'success') {
+                   Swal.fire('Sukses', res.message, 'success');
+               } else {
+                   Swal.fire('Gagal', res.message, 'error');
+               }
+           }).simpanTataTertib(html);
+       },
+
+       // Untuk Siswa/Umum: Load Read Only
+       loadForView: function() {
+           const container = document.getElementById('content-tata-tertib-siswa');
+           container.innerHTML = '<div class="text-center py-10"><i class="fas fa-spinner fa-spin text-indigo-500 text-2xl"></i></div>';
+           
+           google.script.run.withSuccessHandler(html => {
+               // HAPUS bagian .replace yang memaksa mx-auto (rata tengah)
+               // Kita biarkan HTML murni agar CSS di Stylesheet.html yang bekerja
+               
+               let fixedHtml = html; 
+               
+               // Jika kosong, tampilkan default message
+               if(!fixedHtml || fixedHtml === '<p><br></p>') {
+                   fixedHtml = '<p class="text-center text-gray-500 italic">Belum ada tata tertib yang diatur.</p>';
+               }
+               
+               container.innerHTML = fixedHtml;
+           }).getTataTertib();
+       }
     },
 
     // --- Module 4: Users Management ---
@@ -4070,6 +4158,8 @@
               'view-admin-monitoring', 'view-admin-hasil', 'view-hasil-siswa',
               'view-pengawas-token', 'view-pengawas-monitor', 'view-pengawas-pelanggaran', 'view-pengawas-kehadiran',
               'view-remedial-guru', // <--- VIEW BARU DITAMBAHKAN DISINI AGAR IKUTDISEMBUNYIKAN
+              'view-kelola-tata-tertib', // <--- BARU
+              'view-tata-tertib-siswa',  // <--- BARU
               'view-placeholder'
           ];
 
@@ -4186,6 +4276,14 @@
               document.getElementById('view-ujian').classList.remove('hidden'); 
               App.Ujian.loadJenis(); 
               App.Ujian.loadJadwal(); 
+          }
+          else if (viewId === 'kelola-tata-tertib') {
+              document.getElementById('view-kelola-tata-tertib').classList.remove('hidden');
+              App.TataTertib.initEditor(); // Load Editor Admin
+          }
+          else if (viewId === 'tata-tertib-siswa') {
+              document.getElementById('view-tata-tertib-siswa').classList.remove('hidden');
+              App.TataTertib.loadForView(); // Load View Read Only
           }
           else {
               // Tampilkan placeholder jika view tidak ditemukan
