@@ -1579,55 +1579,73 @@
       },
 
       loadSoal: function(kode, config) {
+          // Ambil username siswa
           const username = App.data.user ? App.data.user.username : JSON.parse(sessionStorage.getItem('cbt_session')).data.username;
-          const idJadwal = App.data.activeJadwalId;
+          
+          // [PENTING] Ambil ID Jadwal yang sedang aktif (bisa ID Reguler atau ID Remedial "REM-...")
+          // Nilai ini diset saat verifikasi token berhasil
+          const idJadwal = App.data.activeJadwalId; 
 
+          // Panggil server untuk ambil soal
+          // Parameter ke-2 (idJadwal) dikirim agar server bisa filter soal remedial
           google.script.run.withSuccessHandler(res => {
             if(res.status === 'success') {
               let rawSoal = res.data;
-              if(config && config.acakSoal) rawSoal = App.Exam.shuffleArray(rawSoal);
               
+              // 1. Acak Soal jika setting aktif
+              if(config && config.acakSoal) {
+                  rawSoal = App.Exam.shuffleArray(rawSoal);
+              }
+              
+              // 2. Siapkan Array Opsi & Acak Opsi jika perlu
               rawSoal.forEach(s => {
                   let keys = ['A','B','C','D','E'];
-                  if(config && config.acakOpsi && s.tipe === 'PG') s.shuffledKeys = App.Exam.shuffleArray([...keys]);
-                  else s.shuffledKeys = keys;
+                  // Hanya acak jika tipe PG dan setting acakOpsi aktif
+                  if(config && config.acakOpsi && s.tipe === 'PG') {
+                      s.shuffledKeys = App.Exam.shuffleArray([...keys]);
+                  } else {
+                      s.shuffledKeys = keys;
+                  }
               });
 
+              // Simpan ke memory aplikasi
               App.data.soalList = rawSoal; 
               
-              // === FITUR LOAD PROGRESS ===
-              // Panggil DB Progress untuk mengembalikan jawaban siswa
+              // 3. Muat Progress Jawaban (jika siswa pernah mengerjakan sebelumnya/reload)
               google.script.run.withSuccessHandler(savedJson => {
                   if (savedJson && savedJson !== "{}") {
                       try {
-                          const savedJawaban = JSON.parse(savedJson);
-                          App.data.jawabanSiswa = savedJawaban;
-                          
-                          // Optional: Toast notifikasi
-                          Swal.fire({
-                              toast: true, position: 'top-end', icon: 'info', 
-                              title: 'Jawaban tersimpan dimuat kembali', 
-                              timer: 3000, showConfirmButton: false
+                          App.data.jawabanSiswa = JSON.parse(savedJson);
+                          Swal.fire({ 
+                              toast: true, 
+                              position: 'top-end', 
+                              icon: 'info', 
+                              title: 'Jawaban tersimpan dimuat', 
+                              timer: 3000, 
+                              showConfirmButton: false 
                           });
-                      } catch(e) { console.log("Error parse progress", e); }
+                      } catch(e) {}
                   }
 
-                  // Tampilkan UI setelah data siap
+                  // 4. Tampilkan Antarmuka Ujian
                   document.getElementById('exam-loading').classList.add('hidden'); 
                   document.getElementById('soal-container').classList.remove('hidden'); 
-                  document.getElementById('nav-buttons').classList.remove('hidden'); 
-                  document.getElementById('nav-buttons').classList.add('flex'); 
                   
+                  const navBtns = document.getElementById('nav-buttons');
+                  navBtns.classList.remove('hidden'); 
+                  navBtns.classList.add('flex'); 
+
+                  // Render Soal Pertama & Grid Navigasi
                   App.Exam.render(0);
                   App.Exam.renderGrid();
 
-              }).getProgressSiswa(username, idJadwal);
-              // ============================
+              }).getProgressSiswa(username, idJadwal); // Kirim idJadwal untuk ambil progress spesifik
 
             } else { 
+              // Jika gagal ambil soal (misal koneksi atau error server)
               Swal.fire('Gagal', res.message, 'error').then(() => window.location.reload());
             }
-          }).getSoalUjian(kode);
+          }).getSoalUjian(kode, idJadwal); // <--- [UPDATE] Kirim idJadwal ke Backend
       },
 
       // 1. Fungsi Baru: Toggle Sidebar Mobile
@@ -3227,7 +3245,8 @@
 
     // --- MODULE REMEDIAL (GURU) ---
     Remedial: {
-       selectedSiswa: new Set(), // Menyimpan username siswa yang dicentang
+       selectedSiswa: new Set(), 
+       selectedSoal: new Set(), // [BARU]
 
        switchTab: function(tabName) {
            const tabJadwal = document.getElementById('tab-rem-jadwal');
@@ -3244,42 +3263,30 @@
                tabMon.className = "px-4 py-2 border-b-2 border-indigo-600 text-indigo-600 font-bold text-sm";
                tabJadwal.className = "px-4 py-2 border-b-2 border-transparent text-gray-500 hover:text-gray-700 font-bold text-sm";
                panMon.classList.remove('hidden'); panJadwal.classList.add('hidden');
-               // Load Dropdown Monitoring
                App.Remedial.loadDropdownMon();
            }
        },
 
        loadList: function() {
            const tbody = document.getElementById('tbody-remedial');
-           // Tampilkan loading spinner
            tbody.innerHTML = '<tr><td colspan="6" class="p-8 text-center text-gray-500"><i class="fas fa-circle-notch fa-spin text-indigo-500 text-2xl"></i><br><span class="text-xs mt-2">Memuat Jadwal...</span></td></tr>';
-           
            const user = JSON.parse(sessionStorage.getItem('cbt_session')).data;
            
            google.script.run.withSuccessHandler(data => {
-               tbody.innerHTML = ''; // Bersihkan loading
-               
+               tbody.innerHTML = '';
                if(!data || data.length === 0) {
                    tbody.innerHTML = '<tr><td colspan="6" class="p-8 text-center text-gray-400 bg-gray-50 border border-dashed rounded italic">Belum ada jadwal remedial yang dibuat.</td></tr>';
                    return;
                }
-
                data.forEach(r => {
                    let count = 0;
                    try { count = JSON.parse(r.siswaTarget).length; } catch(e){ count = 0; }
-                   
                    const strData = encodeURIComponent(JSON.stringify(r));
                    const badge = r.status === 'Aktif' ? 'bg-green-100 text-green-700 border-green-200' : 'bg-gray-100 text-gray-500 border-gray-200';
-
-                   // Format Tanggal (Lebih Rapi)
                    const formatTgl = (isoStr) => {
                        if(!isoStr) return '-';
-                       try {
-                           const d = new Date(isoStr);
-                           return d.toLocaleDateString('id-ID', { day:'numeric', month:'short' }) + ' ' + d.toLocaleTimeString('id-ID', { hour:'2-digit', minute:'2-digit' });
-                       } catch(e) { return isoStr; }
+                       try { const d = new Date(isoStr); return d.toLocaleDateString('id-ID', { day:'numeric', month:'short' }) + ' ' + d.toLocaleTimeString('id-ID', { hour:'2-digit', minute:'2-digit' }); } catch(e) { return isoStr; }
                    };
-
                    tbody.insertAdjacentHTML('beforeend', `
                       <tr class="hover:bg-slate-50 border-b transition">
                          <td class="p-4 font-bold text-gray-700">${r.nama}</td>
@@ -3296,8 +3303,8 @@
                          </td>
                          <td class="p-4 text-center"><span class="text-xs font-bold px-2 py-1 rounded border ${badge}">${r.status}</span></td>
                          <td class="p-4 text-right">
-                            <button onclick="App.Remedial.edit('${strData}')" class="text-blue-600 hover:text-blue-800 p-2 rounded hover:bg-blue-50 transition" title="Edit"><i class="fas fa-edit"></i></button>
-                            <button onclick="App.Remedial.hapus('${r.id}')" class="text-red-500 hover:text-red-700 p-2 rounded hover:bg-red-50 transition" title="Hapus"><i class="fas fa-trash"></i></button>
+                            <button onclick="App.Remedial.edit('${strData}')" class="text-blue-600 hover:text-blue-800 p-2 rounded hover:bg-blue-50 transition"><i class="fas fa-edit"></i></button>
+                            <button onclick="App.Remedial.hapus('${r.id}')" class="text-red-500 hover:text-red-700 p-2 rounded hover:bg-red-50 transition"><i class="fas fa-trash"></i></button>
                          </td>
                       </tr>
                    `);
@@ -3305,11 +3312,8 @@
            }).getRemedialGuru(user.username);
        },
 
-       // UPDATE: Open Form dengan Parameter Mapel
        openForm: function(selectedMapel = null) {
            App.UI.openModal('modal-remedial');
-           
-           // 1. Reset Input Form
            document.getElementById('rem-id').value = "";
            document.getElementById('rem-nama').value = "";
            document.getElementById('rem-mulai').value = "";
@@ -3319,36 +3323,34 @@
            
            // Reset Siswa & Count
            App.Remedial.selectedSiswa.clear();
+           App.Remedial.selectedSoal.clear(); // [BARU]
            App.Remedial.updateCount();
-           document.getElementById('rem-list-siswa').innerHTML = '<p class="col-span-full text-center text-xs text-gray-400 py-4">Pilih kelas dulu.</p>';
+           App.Remedial.updateCountSoal();    // [BARU]
            
-           // 2. Load Mapel (Dengan Logika Pre-Select)
+           document.getElementById('rem-list-siswa').innerHTML = '<p class="col-span-full text-center text-xs text-gray-400 py-4">Pilih kelas dulu.</p>';
+           document.getElementById('rem-list-soal').innerHTML = '<p class="col-span-full text-center text-xs text-gray-400 py-4">Pilih mapel dulu.</p>';
+
            const selMapel = document.getElementById('rem-mapel');
            const user = JSON.parse(sessionStorage.getItem('cbt_session')).data;
 
            const renderMapel = (list) => {
                selMapel.innerHTML = '<option value="">- Pilih Mapel -</option>';
                if(list.length === 0) selMapel.innerHTML = '<option value="">(Kosong)</option>';
-               
                list.forEach(m => {
-                   // Cek jika ini mapel yang mau diedit
                    const isSelected = (selectedMapel && m.kode === selectedMapel) ? 'selected' : '';
                    selMapel.insertAdjacentHTML('beforeend', `<option value="${m.kode}" ${isSelected}>${m.kode} - ${m.nama}</option>`);
                });
            };
 
-           // Cek Cache atau Ambil Server
            if(App.Cache.get('mapel_opts')) {
                renderMapel(App.Cache.get('mapel_opts'));
            } else {
                selMapel.innerHTML = '<option value="">Loading...</option>';
                const handler = (list) => { App.Cache.set('mapel_opts', list); renderMapel(list); };
-               
                if (user.role === 'guru') google.script.run.withSuccessHandler(handler).getMapelByGuru(user.nama);
                else google.script.run.withSuccessHandler(handler).getAllMapel();
            }
 
-           // 3. Load Daftar Kelas
            const selKelas = document.getElementById('rem-filter-kelas');
            selKelas.innerHTML = '<option value="">Loading...</option>';
            google.script.run.withSuccessHandler(list => {
@@ -3357,24 +3359,91 @@
            }).getListKelasUnik();
        },
 
+       // --- [BARU] LOAD DAFTAR SOAL KETIKA MAPEL DIPILIH ---
+       loadSoalByMapel: function(kodeMapel) {
+           const div = document.getElementById('rem-list-soal');
+           if(!kodeMapel) {
+               div.innerHTML = '<p class="text-center text-xs text-gray-400 py-4">Pilih mapel dulu.</p>';
+               return;
+           }
+           div.innerHTML = '<div class="text-center py-4 text-indigo-500"><i class="fas fa-spinner fa-spin"></i> Loading Soal...</div>';
+           
+           // Clear selection saat ganti mapel
+           if(!document.getElementById('rem-id').value) { // Kecuali lagi edit
+               App.Remedial.selectedSoal.clear();
+               App.Remedial.updateCountSoal();
+           }
+
+           google.script.run.withSuccessHandler(list => {
+               div.innerHTML = '';
+               if(list.length === 0) {
+                   div.innerHTML = '<p class="text-center text-xs text-red-400 py-4">Tidak ada soal di bank soal untuk mapel ini.</p>';
+                   return;
+               }
+
+               // Tombol Select All Soal
+               div.insertAdjacentHTML('beforeend', `
+                   <label class="flex items-center gap-2 p-2 bg-indigo-50 border-b border-indigo-100 cursor-pointer hover:bg-indigo-100">
+                      <input type="checkbox" onchange="App.Remedial.toggleAllSoal(this)" class="accent-indigo-600">
+                      <span class="text-xs font-bold text-indigo-700">Pilih Semua Soal (${list.length})</span>
+                   </label>
+               `);
+
+               list.forEach(s => {
+                   // Cek apakah ID soal ada di Set selectedSoal
+                   const isChecked = App.Remedial.selectedSoal.has(String(s.id)) ? 'checked' : '';
+                   div.insertAdjacentHTML('beforeend', `
+                      <label class="flex items-start gap-2 p-2 border-b hover:bg-gray-50 cursor-pointer">
+                         <input type="checkbox" value="${s.id}" onchange="App.Remedial.toggleSoal(this)" ${isChecked} class="accent-indigo-600 mt-1 chk-soal-item">
+                         <div class="text-xs">
+                             <span class="font-bold text-gray-500">[${s.tipe}]</span> ${s.soal}
+                         </div>
+                      </label>
+                   `);
+               });
+           }).getSoalByMapel(kodeMapel);
+       },
+
+       toggleSoal: function(chk) {
+           if(chk.checked) App.Remedial.selectedSoal.add(String(chk.value));
+           else App.Remedial.selectedSoal.delete(String(chk.value));
+           App.Remedial.updateCountSoal();
+       },
+       
+       toggleAllSoal: function(masterChk) {
+           const all = document.querySelectorAll('.chk-soal-item');
+           all.forEach(c => {
+               c.checked = masterChk.checked;
+               if(c.checked) App.Remedial.selectedSoal.add(String(c.value));
+               else App.Remedial.selectedSoal.delete(String(c.value));
+           });
+           App.Remedial.updateCountSoal();
+       },
+
+       updateCountSoal: function() {
+           const count = App.Remedial.selectedSoal.size;
+           document.getElementById('rem-count-soal').innerText = count > 0 ? count + " Soal Terpilih" : "Semua Soal (Default)";
+       },
+
        loadSiswa: function(kelas) {
            const div = document.getElementById('rem-list-siswa');
            if(!kelas) return;
-           div.innerHTML = '<div class="col-span-full text-center"><i class="fas fa-spinner fa-spin"></i></div>';
+           div.innerHTML = '<div class="col-span-full text-center py-4"><i class="fas fa-spinner fa-spin text-indigo-500"></i></div>';
            
            google.script.run.withSuccessHandler(list => {
                div.innerHTML = '';
+               // Select All Button
+               div.insertAdjacentHTML('beforeend', `<label class="col-span-full text-xs font-bold text-indigo-600 cursor-pointer border-b pb-1 mb-1 bg-indigo-50 p-2 rounded"><input type="checkbox" onchange="App.Remedial.toggleAllSiswa(this)"> Pilih Semua di Kelas Ini</label>`);
+               
                list.forEach(s => {
                    const isChecked = App.Remedial.selectedSiswa.has(s.username) ? 'checked' : '';
                    div.insertAdjacentHTML('beforeend', `
                       <label class="flex items-center gap-2 text-xs p-2 border rounded hover:bg-gray-50 cursor-pointer">
-                         <input type="checkbox" value="${s.username}" onchange="App.Remedial.toggleSiswa(this)" ${isChecked} class="accent-indigo-600">
+                         <input type="checkbox" value="${s.username}" onchange="App.Remedial.toggleSiswa(this)" ${isChecked} class="accent-indigo-600 chk-siswa-item">
                          <span class="truncate">${s.nama}</span>
                       </label>
                    `);
                });
-               // Select All Button
-               div.insertAdjacentHTML('afterbegin', `<label class="col-span-full text-xs font-bold text-indigo-600 cursor-pointer border-b pb-1 mb-1"><input type="checkbox" onchange="document.querySelectorAll('#rem-list-siswa input[type=checkbox]').forEach(c => {c.checked=this.checked; App.Remedial.toggleSiswa(c)})"> Pilih Semua di Kelas Ini</label>`);
            }).getSiswaByKelas(kelas);
        },
 
@@ -3383,8 +3452,20 @@
            else App.Remedial.selectedSiswa.delete(chk.value);
            App.Remedial.updateCount();
        },
+       
+       // FIX: Tambahkan toggleAllSiswa yang benar
+       toggleAllSiswa: function(masterChk) {
+           const all = document.querySelectorAll('.chk-siswa-item');
+           all.forEach(c => {
+               c.checked = masterChk.checked;
+               if(c.checked) App.Remedial.selectedSiswa.add(c.value);
+               else App.Remedial.selectedSiswa.delete(c.value);
+           });
+           App.Remedial.updateCount();
+       },
 
        updateCount: function() {
+           // FIX: Gunakan size dari Set, bukan querySelector, agar akurat
            document.getElementById('rem-count-siswa').innerText = App.Remedial.selectedSiswa.size;
        },
 
@@ -3403,6 +3484,7 @@
                selesai: document.getElementById('rem-selesai').value,
                durasi: document.getElementById('rem-durasi').value,
                targetSiswa: Array.from(App.Remedial.selectedSiswa),
+               targetSoal: Array.from(App.Remedial.selectedSoal), // [BARU]
                acakSoal: document.getElementById('rem-acak-soal').checked,
                acakOpsi: document.getElementById('rem-acak-opsi').checked,
                status: document.getElementById('rem-status').value,
@@ -3419,14 +3501,10 @@
            }).simpanRemedial(data);
        },
 
-       // UPDATE: Fungsi Edit (Fix Date & Participants)
        edit: function(str) {
            const d = JSON.parse(decodeURIComponent(str));
-           
-           // 1. Buka Form & Isi Mapel (Kirim parameter mapel agar terpilih otomatis)
            App.Remedial.openForm(d.mapel);
            
-           // 2. Isi Data Text
            document.getElementById('rem-id').value = d.id;
            document.getElementById('rem-nama').value = d.nama;
            document.getElementById('rem-durasi').value = d.durasi;
@@ -3434,52 +3512,53 @@
            document.getElementById('rem-acak-soal').checked = d.acakSoal;
            document.getElementById('rem-acak-opsi').checked = d.acakOpsi;
 
-           // 3. FIX: Format Tanggal (ISO ke Local String untuk Input HTML)
-           // Trik: Menggeser waktu berdasarkan zona waktu lokal browser
            const toLocalInput = (isoStr) => {
                if(!isoStr) return "";
                try {
                    const date = new Date(isoStr);
-                   const tzOffset = date.getTimezoneOffset() * 60000; // offset menit ke milidetik
+                   const tzOffset = date.getTimezoneOffset() * 60000;
                    const localTime = new Date(date.getTime() - tzOffset);
-                   return localTime.toISOString().slice(0, 16); // Ambil format "YYYY-MM-DDTHH:mm"
+                   return localTime.toISOString().slice(0, 16);
                } catch(e) { return ""; }
            };
-
            document.getElementById('rem-mulai').value = toLocalInput(d.mulai);
            document.getElementById('rem-selesai').value = toLocalInput(d.selesai);
 
-           // 4. FIX: Restore Peserta (Ambil Nama dari Server)
+           // 1. Restore Siswa
            let targets = [];
            try { targets = JSON.parse(d.siswaTarget); } catch(e){}
-           
            if (targets.length > 0) {
-               // Masukkan ke Set agar tersimpan saat save
                targets.forEach(u => App.Remedial.selectedSiswa.add(u));
                App.Remedial.updateCount();
-               
-               // Tampilkan Visual Checkbox
+               // Render visual list
                const div = document.getElementById('rem-list-siswa');
-               div.innerHTML = '<div class="col-span-full text-center py-2 text-indigo-500"><i class="fas fa-spinner fa-spin"></i> Memuat data peserta terpilih...</div>';
-               
+               div.innerHTML = '<div class="col-span-full text-center py-2"><i class="fas fa-spinner fa-spin"></i></div>';
                google.script.run.withSuccessHandler(list => {
-                   div.innerHTML = ''; // Bersihkan loader
-                   
-                   // Info Header
-                   div.insertAdjacentHTML('beforeend', `<div class="col-span-full text-[10px] bg-yellow-50 text-yellow-700 p-2 rounded border border-yellow-200 mb-2"><b>Mode Edit:</b> Menampilkan ${list.length} siswa yang sudah tersimpan. Ganti filter kelas untuk menambah siswa lain.</div>`);
-
+                   div.innerHTML = `<div class="col-span-full text-[10px] bg-yellow-50 text-yellow-700 p-2 rounded border border-yellow-200 mb-2"><b>Mode Edit:</b> Menampilkan ${list.length} siswa tersimpan.</div>`;
                    list.forEach(s => {
                        div.insertAdjacentHTML('beforeend', `
                           <label class="flex items-center gap-2 text-xs p-2 border rounded bg-indigo-50 border-indigo-200 cursor-pointer hover:bg-indigo-100 transition">
-                             <input type="checkbox" value="${s.username}" onchange="App.Remedial.toggleSiswa(this)" checked class="accent-indigo-600">
+                             <input type="checkbox" value="${s.username}" onchange="App.Remedial.toggleSiswa(this)" checked class="accent-indigo-600 chk-siswa-item">
                              <span class="truncate font-bold text-indigo-700">${s.nama}</span>
                           </label>
                        `);
                    });
                }).getSiswaDetail(targets);
            }
+           
+           // 2. [BARU] Restore Soal
+           let targetSoals = [];
+           try { targetSoals = JSON.parse(d.soalTarget || "[]"); } catch(e){}
+           if(targetSoals.length > 0) {
+               targetSoals.forEach(id => App.Remedial.selectedSoal.add(String(id)));
+           }
+           // Load List Soal untuk Mapel ini & Tandai yang terpilih
+           setTimeout(() => {
+                App.Remedial.loadSoalByMapel(d.mapel);
+                App.Remedial.updateCountSoal();
+           }, 500);
        },
-
+       
        hapus: function(id) {
            Swal.fire({ title:'Hapus Remedial?', icon:'warning', showCancelButton:true, confirmButtonColor:'#d33'}).then(r=>{
                if(r.isConfirmed) google.script.run.withSuccessHandler(()=>{ App.Remedial.loadList(); }).hapusRemedial(id);
