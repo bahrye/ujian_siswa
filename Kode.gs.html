@@ -1002,7 +1002,7 @@ function verifikasiTokenUjian(inputToken, idJadwal) {
   // 2. Cek Waktu Realtime
   const now = new Date();
   if (now < jadwalData.mulai) {
-     const jamMulai = Utilities.formatDate(jadwalData.mulai, "Asia/Jakarta", "HH:mm");
+     const jamMulai = Utilities.formatDate(jadwalData.mulai, "Asia/Makassar", "HH:mm");
      return { status: 'error', message: `Ujian belum dimulai. Harap tunggu hingga pukul ${jamMulai}.` };
   }
   if (now > jadwalData.selesai) {
@@ -1152,7 +1152,7 @@ function getAdminMonitoringSummary() {
   
     const formatTime = (dateObj) => {
       if (!dateObj) return "";
-      try { return Utilities.formatDate(new Date(dateObj), "Asia/Jakarta", "yyyy-MM-dd'T'HH:mm"); } catch (e) { return ""; }
+      try { return Utilities.formatDate(new Date(dateObj), "Asia/Makassar", "yyyy-MM-dd'T'HH:mm"); } catch (e) { return ""; }
     };
 
     let activeExams = [];
@@ -1268,7 +1268,7 @@ function getJadwalUjian() {
   
   const formatTime = (dateObj) => {
       if (!dateObj) return "";
-      try { return Utilities.formatDate(new Date(dateObj), "Asia/Jakarta", "yyyy-MM-dd'T'HH:mm"); } catch (e) { return ""; }
+      try { return Utilities.formatDate(new Date(dateObj), "Asia/Makassar", "yyyy-MM-dd'T'HH:mm"); } catch (e) { return ""; }
   };
 
   return data.map(r => {
@@ -1814,8 +1814,8 @@ function getRiwayatNilaiSiswa(username) {
 
       let tglSubmit = ""; let jamSubmit = "";
       try {
-         tglSubmit = Utilities.formatDate(new Date(row[0]), "Asia/Jakarta", "dd MMM yyyy");
-         jamSubmit = Utilities.formatDate(new Date(row[0]), "Asia/Jakarta", "HH:mm") + " WIB";
+         tglSubmit = Utilities.formatDate(new Date(row[0]), "Asia/Makassar", "dd MMM yyyy");
+         jamSubmit = Utilities.formatDate(new Date(row[0]), "Asia/Makassar", "HH:mm") + " WIB";
       } catch(e) {}
 
       // Mapping Kolom Baru
@@ -2026,7 +2026,7 @@ function getHasilUjianGuru() {
   
   // Format Tanggal
   const formatTgl = (d) => {
-      try { return Utilities.formatDate(new Date(d), "Asia/Jakarta", "dd MMM yyyy HH:mm"); } catch(e){return "-";}
+      try { return Utilities.formatDate(new Date(d), "Asia/Makassar", "dd MMM yyyy HH:mm"); } catch(e){return "-";}
   };
   
   // Helper Format Sisa Waktu
@@ -2450,4 +2450,41 @@ function simpanAbsensi(payload) {
   } catch (e) {
     return { status: 'error', message: e.toString() };
   }
+}
+
+// ==========================================
+// API: AMBIL DATA ABSENSI SISWA (FIXED TIMEZONE WITA)
+// ==========================================
+function getDataAbsensi(idJadwal) {
+  const ss = SpreadsheetApp.openById(SS_ID);
+  const sheet = ss.getSheetByName("DB_Absensi");
+  if (!sheet) return [];
+  
+  const data = sheet.getDataRange().getValues();
+  data.shift(); // Lewati Header
+  
+  // PERBAIKAN DI SINI:
+  // Ubah "Asia/Jakarta" menjadi "Asia/Makassar" agar sesuai WITA
+  const formatTgl = (d) => {
+      try { 
+          return Utilities.formatDate(new Date(d), "Asia/Makassar", "dd MMM yyyy HH:mm:ss"); 
+      } catch(e) { return "-"; }
+  };
+
+  let result = [];
+  // Loop dari bawah (data terbaru)
+  for (let i = data.length - 1; i >= 0; i--) {
+     let r = data[i];
+     // Struktur DB_Absensi: [0:ID, 1:Waktu, 2:User, 3:Nama, 4:IdJadwal, 5:Mapel, 6:TTD]
+     
+     if (String(r[4]) === String(idJadwal)) {
+        result.push({
+           waktu: formatTgl(r[1]), // Ini sekarang akan menghasilkan jam WITA
+           nama: r[3],
+           username: r[2],
+           signature: r[6]
+        });
+     }
+  }
+  return result;
 }
