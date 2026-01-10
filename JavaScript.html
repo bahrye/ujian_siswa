@@ -69,26 +69,57 @@
       },
 
       logout: function() {
-        Swal.fire({ title: 'Keluar?', text: "Akhiri sesi.", icon: 'warning', showCancelButton: true, confirmButtonText: 'Ya' })
-        .then((result) => { if (result.isConfirmed) App.Auth.forceLogout(); });
+        Swal.fire({ 
+            title: 'Keluar?', 
+            text: "Akhiri sesi dan kembali ke halaman login.", 
+            icon: 'warning', 
+            showCancelButton: true, 
+            confirmButtonText: 'Ya, Keluar',
+            confirmButtonColor: '#d33'
+        }).then((result) => { 
+            if (result.isConfirmed) App.Auth.forceLogout(); 
+        });
       },
 
       forceLogout: function() {
+        // 1. Hentikan semua timer yang berjalan di background
+        App.Util.stopAllTimers();
+
+        // 2. Hapus Data Sesi Browser
         sessionStorage.clear();
+        localStorage.clear(); // Bersihkan juga localStorage jika ada sisa
+        
+        // 3. Reset Global Variables & Cache
         App.Cache.clearAll();
         App.Util.resetGlobals();
-        App.UI.showLoginOnly();
-        document.getElementById('user').value = "";
-        document.getElementById('pass').value = "";
+
+        // 4. Reset Form Login
+        const uField = document.getElementById('user');
+        const pField = document.getElementById('pass');
+        if(uField) uField.value = "";
+        if(pField) pField.value = "";
+
+        // 5. [KRUSIAL] Refresh Halaman
+        // Ini memastikan tampilan bersih total dari user sebelumnya
+        // Menggunakan scriptUrl jika ada, atau location.reload()
+        if (App.data.scriptUrl) {
+            window.top.location.href = App.data.scriptUrl;
+        } else {
+            window.top.location.reload();
+        }
       },
 
       checkSession: function() {
         const sess = sessionStorage.getItem('cbt_session');
         if (sess) {
-          const user = JSON.parse(sess);
-          App.data.role = user.role;
-          // PERUBAHAN: Langsung init dashboard, tidak perlu cek siswa reload exam
-          App.Dashboard.init(user.data);
+          try {
+              const user = JSON.parse(sess);
+              App.data.role = user.role;
+              App.Dashboard.init(user.data);
+          } catch(e) {
+              // Jika JSON corrupt, paksa logout
+              App.Auth.forceLogout();
+          }
         } else {
           App.UI.showLoginOnly();
         }
@@ -3959,9 +3990,71 @@
     },
 
     Util: {
+      // [BARU] Fungsi untuk mematikan semua timer yang mungkin berjalan
+      stopAllTimers: function() {
+         if (App.data.timer) { clearInterval(App.data.timer); App.data.timer = null; }
+         if (App.data.saveTimeout) { clearTimeout(App.data.saveTimeout); App.data.saveTimeout = null; }
+         if (App.Siswa && App.Siswa.dashboardTimer) { clearInterval(App.Siswa.dashboardTimer); App.Siswa.dashboardTimer = null; }
+         if (App.Attendance && App.Attendance.timerInterval) { clearInterval(App.Attendance.timerInterval); App.Attendance.timerInterval = null; }
+         // Matikan WakeLock jika aktif
+         if (App.Security && App.Security.wakeLockSentinel) {
+             try { App.Security.wakeLockSentinel.release(); } catch(e){}
+             App.Security.wakeLockSentinel = null;
+         }
+      },
+
       resetGlobals: function() {
-        App.data = { role: '', user: null, soalList: [], userList: [], mapelList: [], jawabanSiswa: {}, raguSiswa: {}, opsiImages: { A:null, B:null, C:null, D:null, E:null }, examRunning: false, timer: null, timeLeft: 0, currentSoalIdx: 0, quill: null };
-        document.getElementById('tbody-users').innerHTML = ''; document.getElementById('tbody-mapel').innerHTML = ''; document.getElementById('tbody-soal').innerHTML = ''; document.querySelectorAll('.fixed.z-50').forEach(el => el.classList.add('hidden'));
+        // 1. Reset Variabel Data Utama
+        App.data = {
+          role: '', user: null, scriptUrl: App.data.scriptUrl, // Keep URL
+          soalList: [], userList: [], mapelList: [], jenisUjianList: [], jadwalList: [],
+          jawabanSiswa: {}, raguSiswa: {},
+          opsiImages: { A:null, B:null, C:null, D:null, E:null },
+          examRunning: false, timer: null, timeLeft: 0, currentSoalIdx: 0, 
+          quill: null, saveTimeout: null, activeJadwalId: null
+        };
+
+        // 2. Kosongkan Semua Container HTML (Pembersihan Tampilan)
+        const idsToClear = [
+            'sidebar-menu',       // Menu Sidebar
+            'tbody-users',        // Tabel User
+            'tbody-mapel',        // Tabel Mapel
+            'tbody-soal',         // Tabel Bank Soal
+            'tbody-jenis-ujian',  // Tabel Jenis Ujian
+            'tbody-jadwal',       // Tabel Jadwal Admin/Pengawas
+            'list-ujian-siswa',   // Card Dashboard Siswa
+            'tbody-hasil-siswa',  // Tabel Nilai Siswa
+            'tbody-hasil-guru',   // Tabel Nilai Guru
+            'tbody-hasil-admin',  // Tabel Nilai Admin
+            'tbody-mon-pgw',      // Tabel Monitoring Pengawas
+            'tbody-pel-pgw',      // Tabel Pelanggaran
+            'tbody-hadir-pgw',    // Tabel Kehadiran
+            'adm-list-exams',     // List Monitoring Admin
+            'tbody-adm-monitoring'// Tabel Monitoring Admin
+        ];
+
+        idsToClear.forEach(id => {
+            const el = document.getElementById(id);
+            if(el) el.innerHTML = '';
+        });
+
+        // 3. Reset Info Dashboard Header
+        const dashNama = document.getElementById('dash-nama');
+        const dashRole = document.getElementById('dash-role');
+        const dashInit = document.getElementById('dash-initial');
+        
+        if(dashNama) dashNama.innerText = "User";
+        if(dashRole) dashRole.innerText = "Role";
+        if(dashInit) dashInit.innerText = "?";
+
+        // 4. Reset Editor Quill jika ada
+        if (App.data.quill) {
+            try { App.data.quill.setContents([]); } catch(e){}
+        }
+
+        // 5. Sembunyikan elemen fixed/modal yang mungkin terbuka
+        document.querySelectorAll('.fixed.z-50').forEach(el => el.classList.add('hidden'));
+        document.getElementById('lock-screen').classList.add('hidden');
       },
 
       // [UPDATE] Fungsi untuk Memperbaiki Video/Audio Google Drive menjadi Iframe
@@ -4129,15 +4222,32 @@
 
   // 6. Session Timeout
   let activityTimer;
-  ['click', 'mousemove', 'keypress', 'scroll', 'touchstart'].forEach(evt => document.addEventListener(evt, () => sessionStorage.setItem('last_activity', Date.now()), false));
+  // Reset timer aktivitas pada event user
+  ['click', 'mousemove', 'keypress', 'scroll', 'touchstart'].forEach(evt => 
+      document.addEventListener(evt, () => sessionStorage.setItem('last_activity', Date.now()), false)
+  );
 
   setInterval(() => {
      const lastAct = sessionStorage.getItem('last_activity');
-     if (lastAct && (Date.now() - parseInt(lastAct) > 60 * 60 * 1000)) { // 60 menit idle
-        sessionStorage.clear(); 
-        Swal.fire({title: 'Sesi Habis', text: 'Silakan login kembali.', icon: 'warning', confirmButtonText: 'OK'}).then(() => { App.Auth.forceLogout(); });
+     // Cek jika last activity ada DAN sudah lewat 60 menit (60 * 60 * 1000)
+     if (lastAct && (Date.now() - parseInt(lastAct) > 60 * 60 * 1000)) { 
+        
+        // Hapus session storage dulu agar tidak loop alert
+        sessionStorage.removeItem('last_activity'); 
+        sessionStorage.removeItem('cbt_session');
+
+        Swal.fire({
+            title: 'Sesi Habis', 
+            text: 'Anda tidak aktif terlalu lama. Silakan login kembali.', 
+            icon: 'warning', 
+            confirmButtonText: 'OK',
+            allowOutsideClick: false
+        }).then(() => { 
+            // Panggil fungsi Force Logout yang sudah diperbarui (termasuk Reload)
+            App.Auth.forceLogout(); 
+        });
      }
-  }, 60 * 1000);
+  }, 60 * 1000); // Cek setiap 1 menit
 
   window.addEventListener('load', () => {
       App.Auth.checkSession();
