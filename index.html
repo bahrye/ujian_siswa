@@ -544,8 +544,7 @@
                       </div>
                       <div>
                         <label class="text-xs font-bold text-gray-500">Ambil Soal Dari Mapel</label>
-                        <select id="rem-mapel" class="input-std bg-gray-50" required><option value="">Loading...</option></select>
-                        <p class="text-[10px] text-gray-400 mt-1">*Pilih kode mapel/bank soal yang ingin diujikan.</p>
+                        <select id="rem-mapel" onchange="App.Remedial.loadSoalByMapel(this.value)" class="input-std bg-gray-50" required><option value="">Loading...</option></select>
                       </div>
                   </div>
 
@@ -554,21 +553,36 @@
                       <div><label class="text-xs font-bold text-gray-500">Selesai</label><input type="datetime-local" id="rem-selesai" class="input-std" required></div>
                       <div><label class="text-xs font-bold text-gray-500">Durasi (Menit)</label><input type="number" id="rem-durasi" class="input-std" value="60"></div>
                   </div>
+                  
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      
+                      <div class="bg-indigo-50 p-4 rounded-lg border border-indigo-100 flex flex-col h-64">
+                          <label class="text-xs font-bold text-indigo-800 mb-2 block flex justify-between">
+                              Pilih Peserta
+                              <span class="bg-white px-2 rounded text-[10px] border border-indigo-200" id="rem-count-siswa">0</span>
+                          </label>
+                          <div class="flex gap-2 mb-2">
+                            <select id="rem-filter-kelas" onchange="App.Remedial.loadSiswa(this.value)" class="input-std text-xs w-full">
+                                <option value="">- Filter Kelas -</option>
+                            </select>
+                          </div>
+                          <div id="rem-list-siswa" class="flex-1 overflow-y-auto bg-white border rounded p-2 space-y-1 custom-scrollbar">
+                            <p class="text-center text-xs text-gray-400 py-4">Pilih kelas dulu.</p>
+                          </div>
+                      </div>
 
-                  <div class="bg-indigo-50 p-4 rounded-lg border border-indigo-100">
-                      <label class="text-xs font-bold text-indigo-800 mb-2 block">Pilih Peserta Remedial</label>
-                      <div class="flex gap-2 mb-2">
-                        <select id="rem-filter-kelas" onchange="App.Remedial.loadSiswa(this.value)" class="input-std text-xs w-1/2">
-                            <option value="">- Pilih Kelas -</option>
-                        </select>
-                        <span class="text-xs text-gray-500 flex items-center">Pilih kelas lalu centang siswa.</span>
+                      <div class="bg-orange-50 p-4 rounded-lg border border-orange-100 flex flex-col h-64">
+                          <label class="text-xs font-bold text-orange-800 mb-2 block flex justify-between">
+                              Pilih Soal (Opsional)
+                              <span class="bg-white px-2 rounded text-[10px] border border-orange-200" id="rem-count-soal">Semua Soal</span>
+                          </label>
+                          <p class="text-[10px] text-orange-600 mb-2 leading-tight">Jika tidak dipilih, semua soal mapel akan digunakan.</p>
+                          
+                          <div id="rem-list-soal" class="flex-1 overflow-y-auto bg-white border rounded p-2 space-y-1 custom-scrollbar">
+                            <p class="text-center text-xs text-gray-400 py-4">Pilih mapel dulu.</p>
+                          </div>
                       </div>
-                      <div id="rem-list-siswa" class="h-40 overflow-y-auto bg-white border rounded p-2 grid grid-cols-2 md:grid-cols-3 gap-2">
-                        <p class="col-span-full text-center text-xs text-gray-400 py-4">Pilih kelas dulu.</p>
-                      </div>
-                      <div class="mt-2 text-xs text-gray-600">
-                        Terpilih: <span id="rem-count-siswa" class="font-bold">0</span> Siswa
-                      </div>
+
                   </div>
                   
                   <div class="flex gap-4">
