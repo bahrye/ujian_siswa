@@ -1734,30 +1734,68 @@ function getStudentDashboardData(username, kelasSiswa) {
 }
 
 // ==========================================
-// [UPDATE & FIX] API 9: RIWAYAT NILAI & DETAIL
+// [FIXED] API 9: RIWAYAT NILAI (PERBAIKAN TIPE DATA ID)
 // ==========================================
-
-// [UPDATE] API: AMBIL RIWAYAT (Baca Kolom Nilai Akhir)
 function getRiwayatNilaiSiswa(username) {
   const ss = SpreadsheetApp.openById(SS_ID);
   
+  // 1. LOAD DB NILAI
   const sheetNilai = ss.getSheetByName("DB_Nilai");
   if (!sheetNilai) return [];
   const dataNilai = sheetNilai.getDataRange().getValues();
   dataNilai.shift(); 
   
-  const sheetJadwal = ss.getSheetByName("DB_Jadwal");
-  let jadwalMap = {};
-  if (sheetJadwal) {
-     const dataJ = sheetJadwal.getDataRange().getValues();
-     dataJ.shift();
-     for(let j of dataJ) { jadwalMap[j[0]] = j[4] ? new Date(j[4]) : new Date(); }
+  // 2. PERSIAPAN MAPPING DATA (DENGAN KONVERSI STRING)
+
+  // A. Mapping Kode Mapel -> Nama Mapel
+  let mapMapel = {};
+  const sheetMapel = ss.getSheetByName("DB_Mapel");
+  if (sheetMapel) {
+    const dM = sheetMapel.getDataRange().getValues();
+    for(let i=1; i<dM.length; i++) {
+       // Simpan mapping Kode -> Nama
+       mapMapel[String(dM[i][1]).trim()] = dM[i][2]; 
+    }
   }
 
+  // B. Mapping Jenis Ujian (ID -> Nama Ujian)
+  let mapJenis = {};
+  const sheetJenis = ss.getSheetByName("DB_JenisUjian");
+  if (sheetJenis) {
+    const dJ = sheetJenis.getDataRange().getValues();
+    for(let i=1; i<dJ.length; i++) {
+       // [PENTING] Paksa ID jadi String agar pencocokan akurat
+       mapJenis[String(dJ[i][0]).trim()] = dJ[i][1]; 
+    }
+  }
+
+  // C. Mapping Jadwal Reguler
+  let mapJadwal = {};
+  const sheetJadwal = ss.getSheetByName("DB_Jadwal");
+  if (sheetJadwal) {
+     const dS = sheetJadwal.getDataRange().getValues();
+     for(let i=1; i<dS.length; i++) {
+         mapJadwal[String(dS[i][0]).trim()] = {
+             selesai: dS[i][4] ? new Date(dS[i][4]) : new Date(),
+             idJenis: String(dS[i][1]).trim() // [PENTING] Simpan ID Jenis sebagai String
+         };
+     }
+  }
+
+  // D. Mapping Remedial
+  let mapRemedial = {};
+  const sheetRem = ss.getSheetByName("DB_Remedial");
+  if (sheetRem) {
+     const dR = sheetRem.getDataRange().getValues();
+     for(let i=1; i<dR.length; i++) {
+        mapRemedial[String(dR[i][0]).trim()] = dR[i][1];
+     }
+  }
+
+  // 3. PROSES DATA RIWAYAT
   let result = [];
   const now = new Date();
 
-  // Helper Format Detik
   const formatSisa = (detik) => {
       if(!detik || detik <= 0) return "0m 0d";
       const m = Math.floor(detik / 60);
@@ -1765,36 +1803,55 @@ function getRiwayatNilaiSiswa(username) {
       return `${m}m ${s}d`;
   };
 
-  // Loop Data Nilai
   for (let i = dataNilai.length - 1; i >= 0; i--) {
     let row = dataNilai[i]; 
     
-    if (row[2] && row[2].toString() === username) {
-      const idJadwal = row[1];
-      const waktuSelesaiJadwal = jadwalMap[idJadwal];
+    if (row[2] && String(row[2]) === String(username)) {
+      const idJadwal = String(row[1]).trim();
+      const kodeMapel = String(row[4]).trim();
       
-      let isPublished = false;
-      if (waktuSelesaiJadwal && now > waktuSelesaiJadwal) { isPublished = true; }
+      // -- LOGIKA PENENTUAN NAMA LENGKAP --
+      const namaMapelAsli = mapMapel[kodeMapel] || kodeMapel;
+      let labelMapelDisplay = namaMapelAsli;
+      let waktuSelesaiJadwal = new Date();
 
+      if (idJadwal.startsWith("REM-")) {
+          // Kasus Remedial
+          const namaRemedial = mapRemedial[idJadwal] || "Remedial";
+          labelMapelDisplay = `${namaMapelAsli} - ${namaRemedial}`;
+          waktuSelesaiJadwal = new Date(0); 
+      } else {
+          // Kasus Reguler
+          const info = mapJadwal[idJadwal];
+          if (info) {
+              // Lookup ke mapJenis menggunakan String ID
+              // Jika tidak ketemu di mapJenis, gunakan info.idJenis itu sendiri (fallback jika ternyata nama tersimpan langsung)
+              const namaUjian = mapJenis[info.idJenis] || info.idJenis || "Ujian"; 
+              labelMapelDisplay = `${namaMapelAsli} - ${namaUjian}`;
+              waktuSelesaiJadwal = info.selesai;
+          } else {
+              labelMapelDisplay = `${namaMapelAsli} - Ujian`;
+          }
+      }
+      // ------------------------------------
+
+      let isPublished = (now > waktuSelesaiJadwal);
       let tglSubmit = ""; let jamSubmit = "";
       try {
          tglSubmit = Utilities.formatDate(new Date(row[0]), "Asia/Makassar", "dd MMM yyyy");
          jamSubmit = Utilities.formatDate(new Date(row[0]), "Asia/Makassar", "HH:mm") + " WIB";
       } catch(e) {}
 
-      // Mapping Kolom Baru
       const sisaDetik = row[8] ? parseInt(row[8]) : 0;
-      const nilaiSementara = row[5];
-      const nilaiAkhir = row[9]; // Kolom ke-10 (Index 9) adalah Nilai Akhir
-
+      
       result.push({
         idJadwal: idJadwal,
         tgl: tglSubmit,
         jam: jamSubmit, 
         sisaWaktuStr: formatSisa(sisaDetik),
-        mapel: row[4],
-        nilaiSementara: nilaiSementara,
-        nilaiAkhir: nilaiAkhir, // Kirim Nilai Akhir
+        mapel: labelMapelDisplay,
+        nilaiSementara: row[5],
+        nilaiAkhir: row[9],
         isPublished: isPublished
       });
     }
@@ -2960,67 +3017,56 @@ function getSoalUjian(kodeMapel, idJadwal) { // <--- Tambah parameter idJadwal
 }
 
 // ==========================================
-// API TAMBAHAN: TATA TERTIB
+// API TAMBAHAN: TATA TERTIB (UPDATE: SUPPORT TIPE)
 // ==========================================
 
-function getTataTertib() {
+function getTataTertib(type) {
   const ss = SpreadsheetApp.openById(SS_ID);
   let sheet = ss.getSheetByName("DB_Config");
   
-  // Jika sheet belum ada, buat baru dan isi default
+  // Default key jika tidak ada parameter (Backwards Compatibility)
+  const keyTarget = type || "TATA_TERTIB"; 
+  
   if (!sheet) {
     sheet = ss.insertSheet("DB_Config");
-    sheet.appendRow(["KEY", "VALUE"]); // Header
-    
-    const defaultRules = `
-      <ol>
-        <li>Peserta ujian wajib login 10 menit sebelum ujian dimulai.</li>
-        <li>Berdoa sebelum mengerjakan soal.</li>
-        <li>Dilarang keras membuka tab lain, browser lain, atau aplikasi lain selama ujian berlangsung.</li>
-        <li>Dilarang bekerja sama, menyontek, atau memberi jawaban kepada peserta lain.</li>
-        <li>Jika terjadi kendala teknis (logout tiba-tiba/layar terkunci), segera hubungi Pengawas Ruangan.</li>
-        <li>Waktu ujian dihitung mundur otomatis oleh sistem. Jika waktu habis, jawaban akan terkirim otomatis.</li>
-        <li>Pastikan klik tombol "Selesai" jika telah yakin dengan semua jawaban.</li>
-      </ol>
-    `;
-    sheet.appendRow(["TATA_TERTIB", defaultRules]);
-    return defaultRules;
+    sheet.appendRow(["KEY", "VALUE"]);
+    // Isi default untuk keduanya
+    sheet.appendRow(["TATA_TERTIB", "<ol><li>Hadir 10 menit sebelum ujian.</li><li>Dilarang menyontek.</li></ol>"]);
+    sheet.appendRow(["TATA_TERTIB_PENGAWAS", "<ol><li>Datang 30 menit sebelum ujian.</li><li>Verifikasi token siswa.</li><li>Lapor jika ada kendala.</li></ol>"]);
   }
 
-  // Cari Baris TATA_TERTIB
   const data = sheet.getDataRange().getValues();
   for (let i = 1; i < data.length; i++) {
-    if (data[i][0] === "TATA_TERTIB") {
+    if (data[i][0] === keyTarget) {
       return data[i][1];
     }
   }
   
-  return ""; // Default jika kosong
+  // Jika key belum ada tapi sheet sudah ada
+  return "<p class='text-center text-gray-400'>Belum ada tata tertib diatur.</p>"; 
 }
 
-function simpanTataTertib(htmlContent) {
+function simpanTataTertib(htmlContent, type) {
   try {
     const ss = SpreadsheetApp.openById(SS_ID);
     let sheet = ss.getSheetByName("DB_Config");
-    if (!sheet) { getTataTertib(); sheet = ss.getSheetByName("DB_Config"); } // Init jika belum ada
+    if (!sheet) { getTataTertib(); sheet = ss.getSheetByName("DB_Config"); } // Init
     
+    const keyTarget = type || "TATA_TERTIB";
     const data = sheet.getDataRange().getValues();
     let rowIndex = -1;
 
-    // Cari baris
     for (let i = 1; i < data.length; i++) {
-      if (data[i][0] === "TATA_TERTIB") {
+      if (data[i][0] === keyTarget) {
         rowIndex = i + 1;
         break;
       }
     }
 
     if (rowIndex !== -1) {
-      // Update
       sheet.getRange(rowIndex, 2).setValue(htmlContent);
     } else {
-      // Insert Baru
-      sheet.appendRow(["TATA_TERTIB", htmlContent]);
+      sheet.appendRow([keyTarget, htmlContent]);
     }
     
     return { status: 'success', message: 'Tata tertib berhasil diperbarui.' };
