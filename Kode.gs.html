@@ -3091,3 +3091,82 @@ function simpanTataTertib(htmlContent, type) {
     return { status: 'error', message: e.toString() };
   }
 }
+
+// ======================================================
+// API BARU: JADWAL PENGAWAS (ALL ACTIVE & FORMAT WITA)
+// ======================================================
+function getDaftarJadwalPengawas() { // Tidak butuh parameter username lagi
+  const ss = SpreadsheetApp.openById(SS_ID);
+  const sheetJadwal = ss.getSheetByName("DB_Jadwal");
+  
+  if (!sheetJadwal) return [];
+
+  const dataJadwal = sheetJadwal.getDataRange().getValues();
+  dataJadwal.shift(); // Lewati Header
+
+  // Format Waktu: 26 Jan 2025 09:30 WITA
+  const formatTime = (d) => { 
+    if (!d || d === "") return "-";
+    try { 
+      // Menambahkan teks 'WITA' secara manual di akhir format
+      return Utilities.formatDate(new Date(d), "Asia/Makassar", "dd MMM yyyy HH:mm 'WITA'"); 
+    } catch(e) { return "-"; } 
+  };
+
+  // Helper Ambil Data Referensi
+  let mapelList = [];
+  let jenisList = [];
+  try { mapelList = getAllMapel(); } catch(e){}
+  try { jenisList = getJenisUjian(); } catch(e){}
+
+  // Mapping Nama Pengawas
+  const sheetUser = ss.getSheetByName("Users");
+  let mapNamaPengawas = {};
+  if (sheetUser) {
+     const dU = sheetUser.getDataRange().getValues(); dU.shift();
+     dU.forEach(u => mapNamaPengawas[u[1]] = u[4]); 
+  }
+
+  let result = [];
+
+  dataJadwal.forEach(r => {
+    // r[0]: ID, r[5]: Status, r[6]: Pengawas
+    const idJadwal = String(r[0]);
+    const status = r[5]; // Status Aktif/Non-Aktif
+
+    // 1. FILTER: Hapus Remedial
+    if (idJadwal.indexOf("REM-") === 0) return;
+
+    // 2. FILTER: HANYA YANG AKTIF (Sesuai permintaan: jadwal yg aktif)
+    if (status !== 'Aktif') return;
+
+    // 3. FILTER PENGAWAS: Dihapus agar tampil untuk SEMUA pengawas
+    // (Kita lewati pengecekan assignedTo agar semua jadwal muncul)
+       
+    const m = mapelList.find(x => x.kode == r[2]);
+    const j = jenisList.find(x => x.id == r[1]);
+       
+    // Label Pengawas
+    let labelPengawas = "Belum Ditentukan";
+    if (r[6]) {
+       if (r[6].toLowerCase() === 'semua') {
+           labelPengawas = "Semua Pengawas";
+       } else {
+           labelPengawas = mapNamaPengawas[r[6]] || r[6];
+       }
+    }
+
+    result.push({
+       id: r[0],
+       jenis_nama: j ? j.nama : r[1],
+       mapel_nama: m ? m.nama : r[2],
+       mulai: formatTime(r[3]),
+       selesai: formatTime(r[4]),
+       kelas: r[7] || "Semua",
+       nama_pengawas: labelPengawas
+    });
+  });
+
+  // Urutkan: Jadwal terbaru di atas
+  return result.reverse();
+}
