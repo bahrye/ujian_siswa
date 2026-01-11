@@ -786,7 +786,9 @@ function generateTimeBasedToken() {
 // LOGIKA WAKTU & STATUS UJIAN (UPDATE BESAR)
 // ==========================================
 
-// 1. Memulai Ujian & Menghitung Waktu Selesai (Server Authority)
+// [UPDATE] Kode.gs
+
+// 1. UPDATE fungsi startExamSession
 function startExamSession(username, idJadwal) {
   const props = PropertiesService.getScriptProperties();
   const statusKey = `STATUS_${username}_${idJadwal}`;
@@ -797,17 +799,17 @@ function startExamSession(username, idJadwal) {
   if (currentStatus === 'LOCKED') {
      return { status: 'locked', message: 'Ujian Terkunci' };
   }
-
-  // Update status jadi STARTED
-  if (currentStatus !== 'SELESAI') {
-    props.setProperty(statusKey, 'STARTED');
+  // Cek jika sudah selesai (biar gak double login)
+  if (currentStatus === 'SELESAI') {
+     return { status: 'finished', message: 'Ujian Sudah Selesai' };
   }
 
   // Hitung Timer Server-Side
   let endTimeStr = props.getProperty(endKey);
   
   if (!endTimeStr) {
-    const durasiMenit = getDurasiFromJadwal(idJadwal); // <-- Ini sekarang aman
+    // Jika belum ada waktu selesai, set sekarang
+    const durasiMenit = getDurasiFromJadwal(idJadwal);
     const now = new Date();
     const endTime = new Date(now.getTime() + (durasiMenit * 60 * 1000));
     
@@ -819,10 +821,47 @@ function startExamSession(username, idJadwal) {
   const end = new Date(endTimeStr);
   const remainingSeconds = Math.floor((end.getTime() - now.getTime()) / 1000);
 
+  // --- LOGIKA BARU: BLOKIR JIKA WAKTU HABIS ---
+  if (remainingSeconds <= 0) {
+      return { 
+        status: 'expired', 
+        message: 'Waktu ujian telah habis saat Anda tidak aktif.' 
+      };
+  }
+  // --------------------------------------------
+
+  // Update status jadi STARTED jika valid
+  props.setProperty(statusKey, 'STARTED');
+
   return { 
     status: 'success', 
-    remainingSeconds: remainingSeconds > 0 ? remainingSeconds : 0
+    remainingSeconds: remainingSeconds
   };
+}
+
+// 2. TAMBAHKAN Fungsi Baru: forceFinishExam
+// Fungsi ini dipanggil frontend jika mendapati status 'expired'
+function forceFinishExam(username, idJadwal, nama, mapel) {
+  // Ambil jawaban terakhir yang tersimpan otomatis (AutoSave) di server
+  const savedJson = getProgressSiswa(username, idJadwal);
+  let jawaban = {};
+  try { 
+    jawaban = JSON.parse(savedJson); 
+  } catch(e) {
+    jawaban = {}; // Jika tidak ada progress, submit kosong
+  }
+
+  const payload = {
+      username: username,
+      idJadwal: idJadwal,
+      nama: nama,
+      mapel: mapel,
+      jawaban: jawaban,
+      sisaWaktu: 0 // Waktu habis
+  };
+
+  // Panggil fungsi submitUjian yang sudah ada
+  return submitUjian(payload);
 }
 
 // ==========================================
