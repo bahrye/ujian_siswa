@@ -180,7 +180,7 @@
              { id: 'pengawas-kehadiran', icon: 'fa-user-check', label: 'Cek Kehadiran' },
              { id: 'pengawas-monitor', icon: 'fa-desktop', label: 'Monitoring Live' }, // Menu Monitoring
              { id: 'pengawas-pelanggaran', icon: 'fa-exclamation-triangle', label: 'Pelanggaran Siswa' },
-             { id: 'tata-tertib-siswa', icon: 'fa-shield-alt', label: 'Tata Tertib' },
+             { id: 'tata-tertib-pengawas', icon: 'fa-shield-alt', label: 'Tata Tertib' },
            ];
         } else if (role === 'siswa') {
            menus = [
@@ -936,25 +936,29 @@
       },
     },
 
-    // --- Module: Tata Tertib ---
+    // --- Module: Tata Tertib (Updated Multi-Type) ---
     TataTertib: {
        quill: null,
+       currentAdminType: 'TATA_TERTIB', // Default edit Admin
 
-       // Untuk Admin: Init Editor & Load Data
+       // 1. ADMIN: Init Editor
        initEditor: function() {
-           // 1. Setup Quill jika belum ada
+           // Reset Dropdown ke default saat buka menu
+           const sel = document.getElementById('admin-pilih-tatib');
+           if(sel) sel.value = 'TATA_TERTIB';
+           App.TataTertib.currentAdminType = 'TATA_TERTIB';
+
+           // Init Quill jika belum
            if (!App.TataTertib.quill) {
-               // Gunakan konfigurasi toolbar lengkap termasuk image
                const toolbarOptions = [
                   ['bold', 'italic', 'underline', 'strike'],
                   [{ 'list': 'ordered'}, { 'list': 'bullet' }],
                   [{ 'align': [] }],
                   [{ 'header': [1, 2, 3, false] }],
-                  ['link', 'image'], // Gambar aktif
+                  ['link', 'image'], 
                   [{ 'color': [] }, { 'background': [] }]
                ];
 
-               // Register ImageResize jika ada (sudah ada di index.html)
                let modulesConfig = { toolbar: toolbarOptions };
                if (window.Quill && window.ImageResize) { 
                   Quill.register('modules/imageResize', window.ImageResize.default || window.ImageResize); 
@@ -963,60 +967,113 @@
 
                App.TataTertib.quill = new Quill('#editor-tatib', {
                   theme: 'snow',
-                  placeholder: 'Tulis tata tertib ujian di sini...',
+                  placeholder: 'Tulis tata tertib di sini...',
                   modules: modulesConfig
                });
-               
-               // Handler Custom Image Upload (Opsional: Reuse logic BankSoal jika ingin upload ke Drive, 
-               // tapi default Quill base64 sudah cukup untuk tata tertib yang jarang berubah)
            }
 
-           // 2. Load Content Existing
-           const editor = App.TataTertib.quill;
-           // Set loading state text
-           editor.setText('Memuat data...');
-           editor.enable(false);
-
-           google.script.run.withSuccessHandler(html => {
-               editor.clipboard.dangerouslyPasteHTML(0, html);
-               editor.enable(true);
-           }).getTataTertib();
+           App.TataTertib.loadContentToEditor('TATA_TERTIB');
        },
 
-       // Untuk Admin: Simpan
+       // 2. ADMIN: Ganti Tipe Editor
+       changeEditorType: function(type) {
+           App.TataTertib.currentAdminType = type;
+           App.TataTertib.loadContentToEditor(type);
+       },
+
+       // Helper Load ke Editor
+       loadContentToEditor: function(type) {
+           const editor = App.TataTertib.quill;
+           
+           // Set indikator loading
+           editor.setText('Memuat data...');
+           editor.enable(false);
+           
+           google.script.run.withSuccessHandler(html => {
+               // [PERBAIKAN DISINI] 
+               // 1. Kosongkan editor sepenuhnya terlebih dahulu
+               editor.setText(''); 
+               
+               // 2. Tempelkan HTML dari server (jika ada)
+               if (html) {
+                   editor.clipboard.dangerouslyPasteHTML(0, html);
+               }
+               
+               // 3. Aktifkan kembali editor
+               editor.enable(true);
+           }).getTataTertib(type);
+       },
+
+       // 3. ADMIN: Simpan
        save: function() {
            const html = App.TataTertib.quill.root.innerHTML;
+           const type = App.TataTertib.currentAdminType;
            
            Swal.fire({title: 'Menyimpan...', didOpen: () => Swal.showLoading()});
            
            google.script.run.withSuccessHandler(res => {
                Swal.close();
                if(res.status === 'success') {
-                   Swal.fire('Sukses', res.message, 'success');
+                   Swal.fire('Sukses', 'Perubahan tersimpan untuk tipe: ' + (type==='TATA_TERTIB'?'Siswa':'Pengawas'), 'success');
                } else {
                    Swal.fire('Gagal', res.message, 'error');
                }
-           }).simpanTataTertib(html);
+           }).simpanTataTertib(html, type);
        },
 
-       // Untuk Siswa/Umum: Load Read Only
-       loadForView: function() {
+       // 4. SISWA: Load Read Only (Single)
+       loadForSiswa: function() {
            const container = document.getElementById('content-tata-tertib-siswa');
            container.innerHTML = '<div class="text-center py-10"><i class="fas fa-spinner fa-spin text-indigo-500 text-2xl"></i></div>';
            
            google.script.run.withSuccessHandler(html => {
-               // HAPUS bagian .replace yang memaksa mx-auto (rata tengah)
-               // Kita biarkan HTML murni agar CSS di Stylesheet.html yang bekerja
-               
-               let fixedHtml = html; 
-               
-               // Jika kosong, tampilkan default message
-               if(!fixedHtml || fixedHtml === '<p><br></p>') {
-                   fixedHtml = '<p class="text-center text-gray-500 italic">Belum ada tata tertib yang diatur.</p>';
-               }
-               
-               container.innerHTML = fixedHtml;
-           }).getTataTertib();
+               container.innerHTML = html || '<p class="text-center text-gray-400">Belum ada data.</p>';
+           }).getTataTertib('TATA_TERTIB');
+       },
+
+       // 5. PENGAWAS: Load Read Only (Dual Tab)
+       loadForPengawas: function() {
+           // Default buka tab Siswa dulu
+           App.TataTertib.switchTabPengawas('siswa');
+           
+           // Load konten keduanya sekaligus biar cepat saat switch
+           const cSiswa = document.getElementById('content-tatib-tab-siswa');
+           const cPengawas = document.getElementById('content-tatib-tab-pengawas');
+           
+           cSiswa.innerHTML = '<div class="text-center py-10"><i class="fas fa-spinner fa-spin text-indigo-500"></i></div>';
+           cPengawas.innerHTML = '<div class="text-center py-10"><i class="fas fa-spinner fa-spin text-indigo-500"></i></div>';
+
+           google.script.run.withSuccessHandler(html => {
+               cSiswa.innerHTML = html || '<p class="text-center text-gray-400">Belum ada tata tertib siswa.</p>';
+           }).getTataTertib('TATA_TERTIB');
+
+           google.script.run.withSuccessHandler(html => {
+               cPengawas.innerHTML = html || '<p class="text-center text-gray-400">Belum ada tata tertib pengawas.</p>';
+           }).getTataTertib('TATA_TERTIB_PENGAWAS');
+       },
+
+       // 6. PENGAWAS: Logic Switch Tab
+       switchTabPengawas: function(tabName) {
+           const btnSiswa = document.getElementById('tab-btn-tatib-siswa');
+           const btnPengawas = document.getElementById('tab-btn-tatib-pengawas');
+           const contentSiswa = document.getElementById('content-tatib-tab-siswa');
+           const contentPengawas = document.getElementById('content-tatib-tab-pengawas');
+
+           // Reset Style
+           const activeClass = "border-indigo-600 text-indigo-600 bg-indigo-50/50";
+           const inactiveClass = "border-transparent text-gray-500 hover:text-gray-700";
+
+           if (tabName === 'siswa') {
+               btnSiswa.className = "px-6 py-3 text-sm font-bold border-b-2 rounded-t-lg transition " + activeClass;
+               btnPengawas.className = "px-6 py-3 text-sm font-bold border-b-2 transition " + inactiveClass;
+               contentSiswa.classList.remove('hidden');
+               contentPengawas.classList.add('hidden');
+           } else {
+               btnPengawas.className = "px-6 py-3 text-sm font-bold border-b-2 rounded-t-lg transition " + activeClass;
+               btnSiswa.className = "px-6 py-3 text-sm font-bold border-b-2 transition " + inactiveClass;
+               contentPengawas.classList.remove('hidden');
+               contentSiswa.classList.add('hidden');
+           }
        }
     },
 
@@ -4309,7 +4366,11 @@
           }
           else if (viewId === 'tata-tertib-siswa') {
               document.getElementById('view-tata-tertib-siswa').classList.remove('hidden');
-              App.TataTertib.loadForView(); // Load View Read Only
+              App.TataTertib.loadForSiswa(); // Fungsi load khusus siswa (single)
+          }
+          else if (viewId === 'tata-tertib-pengawas') {
+              document.getElementById('view-tata-tertib-pengawas').classList.remove('hidden');
+              App.TataTertib.loadForPengawas(); // Fungsi load khusus pengawas (dual tab)
           }
           else {
               // Tampilkan placeholder jika view tidak ditemukan
