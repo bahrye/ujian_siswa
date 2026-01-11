@@ -3053,6 +3053,21 @@ function simpanTataTertib(htmlContent, type) {
     if (!sheet) { getTataTertib(); sheet = ss.getSheetByName("DB_Config"); } // Init
     
     const keyTarget = type || "TATA_TERTIB";
+    
+    // ============================================================
+    // [FIX] PROSES GAMBAR (BASE64 -> DRIVE URL) SEBELUM DISIMPAN
+    // ============================================================
+    // Ini akan mencegah error "melebihi 50000 karakter" 
+    // dengan menggunakan fungsi helper yang sama seperti di Bank Soal.
+    
+    let processedHtml = htmlContent;
+    
+    // Pastikan fungsi processHtmlImages ada di Kode.gs (sudah ada di kode sebelumnya)
+    if (typeof processHtmlImages === 'function') {
+        processedHtml = processHtmlImages(htmlContent);
+    }
+    // ============================================================
+
     const data = sheet.getDataRange().getValues();
     let rowIndex = -1;
 
@@ -3064,9 +3079,11 @@ function simpanTataTertib(htmlContent, type) {
     }
 
     if (rowIndex !== -1) {
-      sheet.getRange(rowIndex, 2).setValue(htmlContent);
+      // Simpan HTML yang sudah diproses (URL pendek)
+      sheet.getRange(rowIndex, 2).setValue(processedHtml);
     } else {
-      sheet.appendRow([keyTarget, htmlContent]);
+      // Simpan HTML yang sudah diproses (URL pendek)
+      sheet.appendRow([keyTarget, processedHtml]);
     }
     
     return { status: 'success', message: 'Tata tertib berhasil diperbarui.' };
