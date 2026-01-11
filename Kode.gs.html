@@ -1331,7 +1331,6 @@ function simpanJadwal(data) {
 }
 
 // 4. Update Dashboard Pengawas (FILTER JADWAL)
-// Menerima parameter usernamePengawas dari Frontend
 function getPengawasDashboard(usernamePengawas) {
   const ss = SpreadsheetApp.openById(SS_ID);
   const sheetJadwal = ss.getSheetByName("DB_Jadwal");
@@ -1339,30 +1338,52 @@ function getPengawasDashboard(usernamePengawas) {
   if(!sheetJadwal) return { jadwal: [] };
 
   const dataJadwal = sheetJadwal.getDataRange().getValues();
-  dataJadwal.shift();
+  dataJadwal.shift(); // Hapus Header
   
-  // Pastikan input username aman
   const myUser = usernamePengawas ? usernamePengawas.toString().trim().toLowerCase() : "";
+
+  // 1. Ambil Nama Mapel
+  let mapMapel = {};
+  const sheetMapel = ss.getSheetByName("DB_Mapel");
+  if(sheetMapel) {
+    const dataM = sheetMapel.getDataRange().getValues();
+    for(let i=1; i<dataM.length; i++) {
+      mapMapel[dataM[i][1]] = dataM[i][2]; 
+    }
+  }
+
+  // 2. Ambil Nama Jenis Ujian
+  let mapJenis = {};
+  const sheetJenis = ss.getSheetByName("DB_JenisUjian");
+  if(sheetJenis) {
+    const dataJ = sheetJenis.getDataRange().getValues();
+    for(let i=1; i<dataJ.length; i++) {
+      mapJenis[dataJ[i][0]] = dataJ[i][1];
+    }
+  }
 
   let jadwalAktif = [];
   dataJadwal.forEach(r => {
-    // r[5] = Status, r[6] = Pengawas Assigned
     const status = r[5];
     const assignedTo = r[6] ? r[6].toString().trim().toLowerCase() : "";
 
-    // Logika Filter:
-    // 1. Status harus Aktif
-    // 2. Kolom Pengawas cocok dengan username login, ATAU 'semua'
     if (status === 'Aktif') {
        if (assignedTo === "" || assignedTo === 'semua' || assignedTo === myUser) {
           
-          // Konversi waktu agar aman dikirim ke client
           const tMulai = r[3] instanceof Date ? r[3].toISOString() : r[3];
           const tSelesai = r[4] instanceof Date ? r[4].toISOString() : r[4];
 
+          const kodeMapel = r[2];
+          const idJenis = r[1];
+          
+          // [PERUBAHAN DISINI] Pisahkan Mapel dan Jenis
+          const namaMapelAsli = mapMapel[kodeMapel] || kodeMapel;
+          const namaUjianAsli = mapJenis[idJenis] || "Ujian";
+
           jadwalAktif.push({ 
             id: r[0], 
-            mapel: r[2], // Kode mapel atau Nama Mapel (sesuai selera tampilan)
+            mapel: namaMapelAsli, // Nama Mapel saja
+            jenis: namaUjianAsli, // Nama Ujian (PAS, UH, dll) dipisah
             mulai: tMulai, 
             selesai: tSelesai 
           });
